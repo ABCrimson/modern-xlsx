@@ -1,0 +1,24 @@
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+*.tgz
+
+# WASM build artifacts (built, not source)
+packages/ironsheet/wasm/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Environment
+.env
+.env.local

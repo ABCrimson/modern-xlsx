@@ -1,0 +1,18 @@
+{
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=25.0.0"
+  },
+  "packageManager": "pnpm@11.0.0-alpha.11",
+  "scripts": {
+    "build:wasm": "cd crates/ironsheet-wasm && wasm-pack build --target web --release --out-dir ../../packages/ironsheet/wasm",
+    "build:ts": "pnpm -C packages/ironsheet build",
+    "build": "pnpm build:wasm && pnpm build:ts",
+    "test:rust": "cargo test --workspace",
+    "test:ts": "pnpm -C packages/ironsheet test",
+    "test": "pnpm test:rust && pnpm test:ts",
+    "lint": "biome check .",
+    "fmt": "biome format --write ."
+  }
+}

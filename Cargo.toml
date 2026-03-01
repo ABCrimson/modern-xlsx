@@ -1,0 +1,57 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/ironsheet-core",
+    "crates/ironsheet-wasm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nicholasgasior/ironsheet"
+
+[workspace.dependencies]
+# XML parsing — SAX-style, zero-copy, serde support
+quick-xml = { version = "0.39.2", features = ["serialize"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Compression
+libdeflater = { version = "1.25", features = ["freestanding"] }
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+
+# ZIP archive — v8 rewrite with builder API
+zip = { version = "8.1", default-features = false, features = ["deflate-flate2"] }
+
+# String interning for shared string table
+string_cache = "0.9"
+
+# Date/time without std::time
+chrono = { version = "0.4", default-features = false, features = ["serde"] }
+
+# Error handling
+thiserror = "2.0"
+
+# Logging
+log = "0.4"
+
+# WASM bindings
+wasm-bindgen = "0.2.114"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Blob"] }
+serde-wasm-bindgen = "0.6"
+
+# Dev
+wasm-bindgen-test = "0.3"
+pretty_assertions = "1.4"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
