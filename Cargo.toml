@@ -20,15 +20,8 @@ quick-xml = { version = "0.39.2", features = ["serialize"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# Compression
-libdeflater = { version = "1.25", features = ["freestanding"] }
-flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
-
-# ZIP archive — v8 rewrite with builder API
-zip = { version = "8.1", default-features = false, features = ["deflate-flate2"] }
-
-# String interning for shared string table
-string_cache = "0.9"
+# ZIP archive — v8 with pure-Rust deflate (zopfli write + flate2/zlib-rs read)
+zip = { version = "8.1", default-features = false, features = ["deflate"] }
 
 # Date/time without std::time
 chrono = { version = "0.4", default-features = false, features = ["serde"] }
