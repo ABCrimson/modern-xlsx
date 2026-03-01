@@ -124,6 +124,13 @@ impl SharedStringTableBuilder {
         self.strings.is_empty()
     }
 
+    /// Look up the index of a previously inserted string.
+    ///
+    /// Returns `None` if the string has not been inserted.
+    pub fn get_index(&self, s: &str) -> Option<usize> {
+        self.index.get(s).copied()
+    }
+
     /// Insert a string and return its zero-based index.
     ///
     /// If the string has been inserted before, the existing index is returned

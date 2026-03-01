@@ -3,8 +3,6 @@
 //! Assembles all XML parts from a [`WorkbookData`] struct and zips them into a
 //! complete `.xlsx` file.
 
-use std::collections::HashMap;
-
 use crate::dates::DateSystem;
 use crate::ooxml::{
     content_types::ContentTypes,
@@ -15,7 +13,7 @@ use crate::ooxml::{
     worksheet::{Cell, CellType, Row, WorksheetXml},
 };
 use crate::zip::writer::{write_zip, ZipEntry};
-use crate::Result;
+use crate::{IronsheetError, Result};
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -58,19 +56,31 @@ pub struct SheetData {
 ///
 /// Returns the raw bytes of the resulting ZIP (`.xlsx`) file.
 pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
+    if workbook.sheets.is_empty() {
+        return Err(IronsheetError::InvalidCellValue(
+            "workbook must contain at least one sheet".into(),
+        ));
+    }
+
     let sheet_count = workbook.sheets.len();
 
-    // 1. Build the SharedStringTable and a parallel lookup map.
+    // 1. Build the SharedStringTable from all string cells.
     let mut sst_builder = SharedStringTableBuilder::new();
-    let mut sst_lookup: HashMap<String, usize> = HashMap::new();
 
     for sheet in &workbook.sheets {
         for row in &sheet.worksheet.rows {
             for cell in &row.cells {
                 if cell.cell_type == CellType::SharedString {
-                    if let Some(ref val) = cell.value {
-                        let idx = sst_builder.insert(val);
-                        sst_lookup.insert(val.clone(), idx);
+                    match cell.value {
+                        Some(ref val) => {
+                            sst_builder.insert(val);
+                        }
+                        None => {
+                            return Err(IronsheetError::InvalidCellValue(format!(
+                                "SharedString cell {} has no value",
+                                cell.reference
+                            )));
+                        }
                     }
                 }
             }
@@ -128,7 +138,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
     // 4. Generate each worksheet, replacing string values with SST indices.
     for (i, sheet) in workbook.sheets.iter().enumerate() {
-        let ws = remap_sst_indices(&sheet.worksheet, &sst_lookup);
+        let ws = remap_sst_indices(&sheet.worksheet, &sst_builder);
         entries.push(ZipEntry {
             name: format!("xl/worksheets/sheet{}.xml", i + 1),
             data: ws.to_xml()?.into_bytes(),
@@ -143,10 +153,10 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 // ---------------------------------------------------------------------------
 
 /// Clone a worksheet, replacing each `SharedString` cell's value (a raw string)
-/// with the corresponding SST index from `sst_lookup`.
+/// with the corresponding SST index from the builder.
 fn remap_sst_indices(
     ws: &WorksheetXml,
-    sst_lookup: &HashMap<String, usize>,
+    sst: &SharedStringTableBuilder,
 ) -> WorksheetXml {
     let rows = ws
         .rows
@@ -158,15 +168,18 @@ fn remap_sst_indices(
                 .map(|cell| {
                     if cell.cell_type == CellType::SharedString {
                         if let Some(ref val) = cell.value {
-                            if let Some(&idx) = sst_lookup.get(val) {
-                                return Cell {
-                                    reference: cell.reference.clone(),
-                                    cell_type: CellType::SharedString,
-                                    style_index: cell.style_index,
-                                    value: Some(idx.to_string()),
-                                    formula: cell.formula.clone(),
-                                };
-                            }
+                            // All strings were inserted during the build phase,
+                            // so get_index must succeed.
+                            let idx = sst
+                                .get_index(val)
+                                .expect("BUG: SharedString value not found in SST");
+                            return Cell {
+                                reference: cell.reference.clone(),
+                                cell_type: CellType::SharedString,
+                                style_index: cell.style_index,
+                                value: Some(idx.to_string()),
+                                formula: cell.formula.clone(),
+                            };
                         }
                     }
                     cell.clone()
@@ -255,6 +268,17 @@ mod tests {
         assert!(entries.contains_key("xl/sharedStrings.xml"));
         assert!(entries.contains_key("xl/styles.xml"));
         assert!(entries.contains_key("xl/worksheets/sheet1.xml"));
+    }
+
+    #[test]
+    fn test_write_zero_sheets_errors() {
+        let wb = WorkbookData {
+            sheets: Vec::new(),
+            date_system: DateSystem::Date1900,
+            styles: Styles::default_styles(),
+        };
+        let result = write_xlsx(&wb);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -657,10 +681,14 @@ mod tests {
             columns: Vec::new(),
         };
 
-        let mut lookup = HashMap::new();
-        lookup.insert("Alpha".to_string(), 7usize);
+        let mut sst = SharedStringTableBuilder::new();
+        // Insert some dummy strings first to push "Alpha" to index 7.
+        for i in 0..7 {
+            sst.insert(&format!("dummy{i}"));
+        }
+        sst.insert("Alpha"); // index 7
 
-        let remapped = remap_sst_indices(&ws, &lookup);
+        let remapped = remap_sst_indices(&ws, &sst);
 
         // The SharedString cell should now have SST index as its value.
         assert_eq!(remapped.rows[0].cells[0].value.as_deref(), Some("7"));

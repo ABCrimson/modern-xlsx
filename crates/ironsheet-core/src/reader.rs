@@ -1,3 +1,8 @@
+//! Full XLSX read orchestrator.
+//!
+//! Decompresses a `.xlsx` ZIP archive, parses all OPC / SpreadsheetML parts,
+//! and assembles them into a [`WorkbookData`] struct.
+
 use crate::dates::DateSystem;
 use crate::ooxml::{
     relationships::Relationships,
@@ -64,17 +69,30 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
     // Parse each worksheet referenced in the workbook.
     let mut sheets = Vec::new();
     for sheet_info in &workbook_xml.sheets {
-        let rel = wb_rels.get_by_id(&sheet_info.r_id);
-        if let Some(rel) = rel {
-            let sheet_path = format!("xl/{}", rel.target);
-            if let Some(sheet_data) = entries.get(&sheet_path) {
-                let worksheet = WorksheetXml::parse(sheet_data)?;
-                sheets.push(SheetData {
-                    name: sheet_info.name.clone(),
-                    worksheet,
-                });
-            }
-        }
+        let rel = wb_rels.get_by_id(&sheet_info.r_id).ok_or_else(|| {
+            IronsheetError::MissingPart(format!(
+                "relationship {} for sheet '{}'",
+                sheet_info.r_id, sheet_info.name
+            ))
+        })?;
+
+        // Normalize target path: handle both relative ("worksheets/sheet1.xml")
+        // and absolute ("/xl/worksheets/sheet1.xml") targets.
+        let sheet_path = if rel.target.starts_with('/') {
+            rel.target.trim_start_matches('/').to_string()
+        } else {
+            format!("xl/{}", rel.target)
+        };
+
+        let sheet_data = entries.get(&sheet_path).ok_or_else(|| {
+            IronsheetError::MissingPart(format!("{} for sheet '{}'", sheet_path, sheet_info.name))
+        })?;
+
+        let worksheet = WorksheetXml::parse(sheet_data)?;
+        sheets.push(SheetData {
+            name: sheet_info.name.clone(),
+            worksheet,
+        });
     }
 
     Ok(WorkbookData {
