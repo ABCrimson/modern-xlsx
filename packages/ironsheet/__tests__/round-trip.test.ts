@@ -1,13 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initSync, read as wasmRead, version as wasmVersion } from '../wasm/ironsheet_wasm.js';
-import { initWasm, Workbook, readBuffer, VERSION } from '../src/index.js';
+import { initWasm, readBuffer, VERSION, Workbook } from '../src/index.js';
 import type { WorkbookData } from '../src/types.js';
+import { initSync, read as wasmRead, version as wasmVersion } from '../wasm/ironsheet_wasm.js';
 
 beforeAll(async () => {
-  const wasmBytes = readFileSync(
-    new URL('../wasm/ironsheet_wasm_bg.wasm', import.meta.url),
-  );
+  const wasmBytes = await readFile(new URL('../wasm/ironsheet_wasm_bg.wasm', import.meta.url));
   initSync({ module: wasmBytes });
   // Also call initWasm so the wasm-loader's `initialized` flag is set.
   // Since the WASM module is already loaded by initSync, init() returns immediately.
@@ -17,7 +15,7 @@ beforeAll(async () => {
 describe('version', () => {
   it('wasmVersion() returns a non-empty string', () => {
     const v = wasmVersion();
-    expect(typeof v).toBe('string');
+    expect(v).toBeTypeOf('string');
     expect(v.length).toBeGreaterThan(0);
   });
 
@@ -46,7 +44,7 @@ describe('Workbook API', () => {
     wb.addSheet('Beta');
     const ws = wb.getSheet('Beta');
     expect(ws).toBeDefined();
-    expect(ws!.name).toBe('Beta');
+    expect(ws?.name).toBe('Beta');
   });
 
   it('getSheet() returns undefined for non-existent sheet', () => {
@@ -61,7 +59,7 @@ describe('Workbook API', () => {
     wb.addSheet('Second');
     const ws = wb.getSheetByIndex(1);
     expect(ws).toBeDefined();
-    expect(ws!.name).toBe('Second');
+    expect(ws?.name).toBe('Second');
   });
 
   it('getSheetByIndex() returns undefined for out-of-range index', () => {
@@ -75,7 +73,7 @@ describe('Workbook API', () => {
     wb.addSheet('Test');
     const json = wb.toJSON();
     expect(json.sheets).toHaveLength(1);
-    expect(json.sheets[0]!.name).toBe('Test');
+    expect(json.sheets[0]?.name).toBe('Test');
     expect(json.dateSystem).toBe('date1900');
     expect(json.styles).toBeDefined();
   });
@@ -179,12 +177,14 @@ describe('Worksheet', () => {
   });
 });
 
+const TEST_FLOAT = 1.23456;
+
 describe('Roundtrip: number cells', () => {
   it('writes and reads back number cells correctly', async () => {
     const wb = new Workbook();
     const ws = wb.addSheet('Numbers');
     ws.cell('A1').value = 42;
-    ws.cell('B1').value = 3.14159;
+    ws.cell('B1').value = TEST_FLOAT;
     ws.cell('C1').value = 0;
     ws.cell('A2').value = -100;
     ws.cell('B2').value = 1e10;
@@ -196,14 +196,14 @@ describe('Roundtrip: number cells', () => {
     const wb2 = await readBuffer(buffer);
     expect(wb2.sheetNames).toContain('Numbers');
 
-    const ws2 = wb2.getSheet('Numbers')!;
+    const ws2 = wb2.getSheet('Numbers');
     expect(ws2).toBeDefined();
 
-    expect(ws2.cell('A1').value).toBe(42);
-    expect(ws2.cell('B1').value).toBeCloseTo(3.14159);
-    expect(ws2.cell('C1').value).toBe(0);
-    expect(ws2.cell('A2').value).toBe(-100);
-    expect(ws2.cell('B2').value).toBe(1e10);
+    expect(ws2?.cell('A1').value).toBe(42);
+    expect(ws2?.cell('B1').value).toBeCloseTo(TEST_FLOAT);
+    expect(ws2?.cell('C1').value).toBe(0);
+    expect(ws2?.cell('A2').value).toBe(-100);
+    expect(ws2?.cell('B2').value).toBe(1e10);
   });
 });
 
@@ -216,13 +216,13 @@ describe('Roundtrip: boolean cells', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Booleans')!;
+    const ws2 = wb2.getSheet('Booleans');
     expect(ws2).toBeDefined();
 
-    expect(ws2.cell('A1').type).toBe('boolean');
-    expect(ws2.cell('A1').value).toBe(true);
-    expect(ws2.cell('A2').type).toBe('boolean');
-    expect(ws2.cell('A2').value).toBe(false);
+    expect(ws2?.cell('A1').type).toBe('boolean');
+    expect(ws2?.cell('A1').value).toBe(true);
+    expect(ws2?.cell('A2').type).toBe('boolean');
+    expect(ws2?.cell('A2').value).toBe(false);
   });
 });
 
@@ -241,28 +241,28 @@ describe('Roundtrip: string cells', () => {
 
     // The raw reader output should include shared strings
     expect(raw.sharedStrings).toBeDefined();
-    expect(raw.sharedStrings!.strings).toContain('Hello');
-    expect(raw.sharedStrings!.strings).toContain('World');
+    expect(raw.sharedStrings?.strings).toContain('Hello');
+    expect(raw.sharedStrings?.strings).toContain('World');
 
     // Wrap in Workbook to use the cell API
     const wb2 = new Workbook(raw);
-    const ws2 = wb2.getSheet('Strings')!;
+    const ws2 = wb2.getSheet('Strings');
     expect(ws2).toBeDefined();
 
-    const a1 = ws2.cell('A1');
-    expect(a1.type).toBe('sharedString');
+    const a1 = ws2?.cell('A1');
+    expect(a1?.type).toBe('sharedString');
 
     // Resolve the shared string: the cell value is the SST index
-    const sst = raw.sharedStrings!.strings;
-    const a1Index = Number(a1.value);
-    expect(sst[a1Index]).toBe('Hello');
+    const sst = raw.sharedStrings?.strings;
+    const a1Index = Number(a1?.value);
+    expect(sst?.[a1Index]).toBe('Hello');
 
-    const a2Index = Number(ws2.cell('A2').value);
-    expect(sst[a2Index]).toBe('World');
+    const a2Index = Number(ws2?.cell('A2').value);
+    expect(sst?.[a2Index]).toBe('World');
 
     // A3 should reference the same SST index as A1 since it's a duplicate
-    const a3Index = Number(ws2.cell('A3').value);
-    expect(sst[a3Index]).toBe('Hello');
+    const a3Index = Number(ws2?.cell('A3').value);
+    expect(sst?.[a3Index]).toBe('Hello');
     expect(a3Index).toBe(a1Index);
   });
 });
@@ -282,9 +282,9 @@ describe('Roundtrip: multiple sheets', () => {
 
     expect(wb2.sheetNames).toEqual(['Sheet1', 'Sheet2', 'Data']);
 
-    expect(wb2.getSheet('Sheet1')!.cell('A1').value).toBe(100);
-    expect(wb2.getSheet('Sheet2')!.cell('A1').value).toBe(200);
-    expect(wb2.getSheet('Data')!.cell('B3').value).toBe(999);
+    expect(wb2.getSheet('Sheet1')?.cell('A1').value).toBe(100);
+    expect(wb2.getSheet('Sheet2')?.cell('A1').value).toBe(200);
+    expect(wb2.getSheet('Data')?.cell('B3').value).toBe(999);
   });
 });
 
@@ -299,9 +299,9 @@ describe('Roundtrip: empty worksheet', () => {
     const wb2 = await readBuffer(buffer);
     expect(wb2.sheetNames).toContain('Empty');
 
-    const ws = wb2.getSheet('Empty')!;
+    const ws = wb2.getSheet('Empty');
     expect(ws).toBeDefined();
-    expect(ws.rows).toHaveLength(0);
+    expect(ws?.rows).toHaveLength(0);
   });
 });
 
@@ -316,12 +316,12 @@ describe('Roundtrip: readBuffer produces valid Workbook', () => {
 
     // Should be an instance with the expected API
     expect(wb2.sheetNames).toBeDefined();
-    expect(typeof wb2.dateSystem).toBe('string');
-    expect(typeof wb2.getSheet).toBe('function');
-    expect(typeof wb2.getSheetByIndex).toBe('function');
-    expect(typeof wb2.addSheet).toBe('function');
-    expect(typeof wb2.toBuffer).toBe('function');
-    expect(typeof wb2.toJSON).toBe('function');
+    expect(wb2.dateSystem).toBeTypeOf('string');
+    expect(wb2.getSheet).toBeTypeOf('function');
+    expect(wb2.getSheetByIndex).toBeTypeOf('function');
+    expect(wb2.addSheet).toBeTypeOf('function');
+    expect(wb2.toBuffer).toBeTypeOf('function');
+    expect(wb2.toJSON).toBeTypeOf('function');
 
     const json = wb2.toJSON();
     expect(json.sheets).toBeDefined();

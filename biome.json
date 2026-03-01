@@ -21,11 +21,16 @@
         "noUnusedImports": "error"
       },
       "suspicious": {
-        "noExplicitAny": "warn"
+        "noExplicitAny": "error"
       },
       "style": {
         "useConst": "error",
-        "noCommonJs": "error"
+        "noCommonJs": "error",
+        "useTemplate": "error",
+        "useNumberNamespace": "error"
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "warn"
       }
     }
   },

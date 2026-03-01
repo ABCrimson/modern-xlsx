@@ -164,15 +164,15 @@ impl WorksheetXml {
                                 let ln = attr.key.local_name();
                                 match ln.as_ref() {
                                     b"r" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         cur_row_index = val.parse::<u32>().unwrap_or(0);
                                     }
                                     b"ht" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         cur_row_height = val.parse::<f64>().ok();
                                     }
                                     b"hidden" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         cur_row_hidden = val == "1" || val.eq_ignore_ascii_case("true");
                                     }
                                     _ => {}
@@ -192,10 +192,10 @@ impl WorksheetXml {
                                 match ln.as_ref() {
                                     b"r" => {
                                         cur_cell_ref =
-                                            String::from_utf8_lossy(&attr.value).into_owned();
+                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     b"t" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         cur_cell_type = match val.as_ref() {
                                             "s" => CellType::SharedString,
                                             "b" => CellType::Boolean,
@@ -206,7 +206,7 @@ impl WorksheetXml {
                                         };
                                     }
                                     b"s" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         cur_cell_style = val.parse::<u32>().ok();
                                     }
                                     _ => {}
@@ -241,7 +241,7 @@ impl WorksheetXml {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"ref" {
                                     dimension = Some(
-                                        String::from_utf8_lossy(&attr.value).into_owned(),
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
                                     );
                                 }
                             }
@@ -250,7 +250,7 @@ impl WorksheetXml {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"ref" {
                                     auto_filter = Some(
-                                        String::from_utf8_lossy(&attr.value).into_owned(),
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
                                     );
                                 }
                             }
@@ -264,15 +264,15 @@ impl WorksheetXml {
                                 let ln = attr.key.local_name();
                                 match ln.as_ref() {
                                     b"ySplit" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         y_split = val.parse::<u32>().unwrap_or(0);
                                     }
                                     b"xSplit" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         x_split = val.parse::<u32>().unwrap_or(0);
                                     }
                                     b"state" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         is_frozen = val == "frozen";
                                     }
                                     _ => {}
@@ -293,7 +293,7 @@ impl WorksheetXml {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"ref" {
                                     merge_cells.push(
-                                        String::from_utf8_lossy(&attr.value).into_owned(),
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
                                     );
                                 }
                             }
@@ -309,10 +309,10 @@ impl WorksheetXml {
                                 match ln.as_ref() {
                                     b"r" => {
                                         cell_ref =
-                                            String::from_utf8_lossy(&attr.value).into_owned();
+                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     b"t" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         cell_type = match val.as_ref() {
                                             "s" => CellType::SharedString,
                                             "b" => CellType::Boolean,
@@ -323,7 +323,7 @@ impl WorksheetXml {
                                         };
                                     }
                                     b"s" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         cell_style = val.parse::<u32>().ok();
                                     }
                                     _ => {}
@@ -347,15 +347,15 @@ impl WorksheetXml {
                                 let ln = attr.key.local_name();
                                 match ln.as_ref() {
                                     b"r" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         row_index = val.parse::<u32>().unwrap_or(0);
                                     }
                                     b"ht" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         row_height = val.parse::<f64>().ok();
                                     }
                                     b"hidden" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         row_hidden = val == "1" || val.eq_ignore_ascii_case("true");
                                     }
                                     _ => {}
@@ -382,7 +382,7 @@ impl WorksheetXml {
                         ParseState::InCellValue
                         | ParseState::InCellFormula
                         | ParseState::InInlineStrT => {
-                            text_buf.push_str(&String::from_utf8_lossy(e.as_ref()));
+                            text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
                         }
                         _ => {}
                     }
@@ -465,7 +465,7 @@ impl WorksheetXml {
 
     /// Serialize this worksheet to a valid XML string.
     pub fn to_xml(&self) -> Result<String> {
-        let mut buf: Vec<u8> = Vec::new();
+        let mut buf: Vec<u8> = Vec::with_capacity(1024 + self.rows.len() * 128);
         let mut writer = Writer::new(&mut buf);
 
         let map_err = |e: std::io::Error| IronsheetError::XmlWrite(e.to_string());
@@ -695,23 +695,23 @@ fn parse_col_element(e: &BytesStart<'_>) -> ColumnInfo {
         let ln = attr.key.local_name();
         match ln.as_ref() {
             b"min" => {
-                let val = String::from_utf8_lossy(&attr.value);
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                 min = val.parse::<u32>().unwrap_or(1);
             }
             b"max" => {
-                let val = String::from_utf8_lossy(&attr.value);
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                 max = val.parse::<u32>().unwrap_or(1);
             }
             b"width" => {
-                let val = String::from_utf8_lossy(&attr.value);
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                 width = val.parse::<f64>().unwrap_or(8.43);
             }
             b"hidden" => {
-                let val = String::from_utf8_lossy(&attr.value);
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                 hidden = val == "1" || val.eq_ignore_ascii_case("true");
             }
             b"customWidth" => {
-                let val = String::from_utf8_lossy(&attr.value);
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                 custom_width = val == "1" || val.eq_ignore_ascii_case("true");
             }
             _ => {}

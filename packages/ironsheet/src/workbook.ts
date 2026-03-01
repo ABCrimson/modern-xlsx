@@ -1,5 +1,6 @@
 import type {
   CellData,
+  CellType,
   DateSystem,
   RowData,
   SheetData,
@@ -74,29 +75,40 @@ export class Worksheet {
     return this.data.name;
   }
 
-  get rows(): RowData[] {
+  get rows(): readonly RowData[] {
     return this.data.worksheet.rows;
   }
 
-  get mergeCells(): string[] {
+  get mergeCells(): readonly string[] {
     return this.data.worksheet.mergeCells;
   }
 
   cell(ref: string): Cell {
     const match = ref.match(/^([A-Z]+)(\d+)$/);
-    if (!match || match[2] == null) throw new Error(`Invalid cell reference: ${ref}`);
-    const rowIndex = parseInt(match[2], 10);
+    if (!match || match[2] === undefined) throw new Error(`Invalid cell reference: ${ref}`);
+    const rowIndex = Number.parseInt(match[2], 10);
 
     let row = this.data.worksheet.rows.find((r) => r.index === rowIndex);
     if (!row) {
-      row = { index: rowIndex, cells: [], hidden: false };
-      this.data.worksheet.rows.push(row);
-      this.data.worksheet.rows.sort((a, b) => a.index - b.index);
+      row = { index: rowIndex, cells: [], height: null, hidden: false };
+      // Binary insert to maintain sorted order
+      const insertAt = this.data.worksheet.rows.findIndex((r) => r.index > rowIndex);
+      if (insertAt === -1) {
+        this.data.worksheet.rows.push(row);
+      } else {
+        this.data.worksheet.rows.splice(insertAt, 0, row);
+      }
     }
 
     let cellData = row.cells.find((c) => c.reference === ref);
     if (!cellData) {
-      cellData = { reference: ref, cellType: 'number', value: null, formula: null };
+      cellData = {
+        reference: ref,
+        cellType: 'number',
+        value: null,
+        formula: null,
+        styleIndex: null,
+      };
       row.cells.push(cellData);
     }
 
@@ -115,20 +127,17 @@ export class Cell {
     return this.data.reference;
   }
 
-  get type(): string {
+  get type(): CellType {
     return this.data.cellType;
   }
 
   get value(): string | number | boolean | null {
     if (this.data.value == null) return null;
-
     switch (this.data.cellType) {
       case 'number':
-        return parseFloat(this.data.value);
+        return Number.parseFloat(this.data.value);
       case 'boolean':
         return this.data.value === '1';
-      case 'sharedString':
-        return this.data.value;
       default:
         return this.data.value;
     }
@@ -175,10 +184,14 @@ function defaultStyles(): StylesData {
         italic: false,
         underline: false,
         strike: false,
+        color: null,
       },
     ],
-    fills: [{ patternType: 'none' }, { patternType: 'gray125' }],
-    borders: [{}],
+    fills: [
+      { patternType: 'none', fgColor: null, bgColor: null },
+      { patternType: 'gray125', fgColor: null, bgColor: null },
+    ],
+    borders: [{ left: null, right: null, top: null, bottom: null }],
     cellXfs: [{ numFmtId: 0, fontId: 0, fillId: 0, borderId: 0 }],
-  };
+  } satisfies StylesData;
 }

@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 
@@ -28,14 +30,10 @@ pub struct DateTimeComponents {
 }
 
 /// The epoch for the 1900 date system: Dec 31, 1899 (serial 0).
-fn epoch_1900() -> NaiveDate {
-    NaiveDate::from_ymd_opt(1899, 12, 31).unwrap()
-}
+static EPOCH_1900: LazyLock<NaiveDate> = LazyLock::new(|| NaiveDate::from_ymd_opt(1899, 12, 31).unwrap());
 
 /// The epoch for the 1904 date system: Jan 1, 1904 (serial 0).
-fn epoch_1904() -> NaiveDate {
-    NaiveDate::from_ymd_opt(1904, 1, 1).unwrap()
-}
+static EPOCH_1904: LazyLock<NaiveDate> = LazyLock::new(|| NaiveDate::from_ymd_opt(1904, 1, 1).unwrap());
 
 /// Extract hour, minute, second, millisecond from the fractional part of a serial number.
 fn fractional_to_time(frac: f64) -> (u32, u32, u32, u32) {
@@ -71,7 +69,7 @@ pub fn serial_to_date(serial: f64, system: DateSystem) -> Result<DateTimeCompone
     }
 
     let day_int = serial.floor() as i64;
-    let frac = serial - serial.floor();
+    let frac = serial - (day_int as f64);
     let (hour, minute, second, millisecond) = fractional_to_time(frac);
 
     match system {
@@ -116,7 +114,7 @@ fn serial_to_date_1900(
     // For serials >= 61, subtract 1 to compensate for the fake day 60.
     let adjusted = if day_int >= 61 { day_int - 1 } else { day_int };
 
-    let epoch = epoch_1900();
+    let epoch = *EPOCH_1900;
     let date = epoch
         .checked_add_signed(chrono::Duration::days(adjusted))
         .ok_or_else(|| {
@@ -141,7 +139,7 @@ fn serial_to_date_1904(
     second: u32,
     millisecond: u32,
 ) -> Result<DateTimeComponents> {
-    let epoch = epoch_1904();
+    let epoch = *EPOCH_1904;
     let date = epoch
         .checked_add_signed(chrono::Duration::days(day_int))
         .ok_or_else(|| {
@@ -191,7 +189,7 @@ fn date_to_serial_1900(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
         ))
     })?;
 
-    let epoch = epoch_1900();
+    let epoch = *EPOCH_1900;
     let days = (date - epoch).num_days();
 
     // Add 1 for serials >= 61 to re-introduce the Lotus bug gap.
@@ -208,7 +206,7 @@ fn date_to_serial_1904(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
         ))
     })?;
 
-    let epoch = epoch_1904();
+    let epoch = *EPOCH_1904;
     let days = (date - epoch).num_days();
 
     Ok(days as f64 + time_frac)

@@ -5,7 +5,8 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
-      "import": "./dist/index.mjs"
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
     }
   },
   "files": [
@@ -22,7 +23,7 @@
     "build": "tsdown",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "biome check src/",
+    "lint": "biome check src/ __tests__/",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

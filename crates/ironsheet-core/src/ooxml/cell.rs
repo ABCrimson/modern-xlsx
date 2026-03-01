@@ -19,7 +19,8 @@ impl CellRef {
 
         // Find the boundary between letters and digits.
         let first_digit = s
-            .find(|c: char| c.is_ascii_digit())
+            .bytes()
+            .position(|b| b.is_ascii_digit())
             .ok_or_else(|| IronsheetError::InvalidCellRef(format!("no row number in '{s}'")))?;
 
         if first_digit == 0 {
@@ -32,7 +33,7 @@ impl CellRef {
         let row_part = &s[first_digit..];
 
         // Verify col_part is all ASCII letters.
-        if !col_part.chars().all(|c| c.is_ascii_alphabetic()) {
+        if !col_part.bytes().all(|b| b.is_ascii_alphabetic()) {
             return Err(IronsheetError::InvalidCellRef(format!(
                 "invalid column letters in '{s}'"
             )));
@@ -99,16 +100,17 @@ pub fn letters_to_col(s: &str) -> Result<u32> {
     }
 
     let mut col: u32 = 0;
-    for ch in s.chars() {
-        let c = ch.to_ascii_uppercase();
+    for byte in s.bytes() {
+        let c = byte.to_ascii_uppercase();
         if !c.is_ascii_uppercase() {
             return Err(IronsheetError::InvalidCellRef(format!(
-                "invalid character '{ch}' in column letters"
+                "invalid character '{}' in column letters",
+                c as char
             )));
         }
         col = col
             .checked_mul(26)
-            .and_then(|v| v.checked_add((c as u32) - b'A' as u32 + 1))
+            .and_then(|v| v.checked_add((c - b'A') as u32 + 1))
             .ok_or_else(|| {
                 IronsheetError::InvalidCellRef(format!("column overflow for '{s}'"))
             })?;

@@ -1,6 +1,7 @@
 export type {
   BorderData,
   BorderSideData,
+  BorderStyle,
   CellData,
   CellType,
   CellXfData,
@@ -10,6 +11,7 @@ export type {
   FontData,
   FrozenPane,
   NumFmt,
+  PatternType,
   RowData,
   SheetData,
   StylesData,
@@ -19,12 +21,13 @@ export type {
 export { initWasm } from './wasm-loader.js';
 export { Cell, Workbook, Worksheet } from './workbook.js';
 
-export async function readBuffer(data: Uint8Array): Promise<import('./workbook.js').Workbook> {
-  const { ensureInitialized, wasmRead } = await import('./wasm-loader.js');
-  const { Workbook } = await import('./workbook.js');
+import { ensureInitialized, wasmRead } from './wasm-loader.js';
+import { Workbook } from './workbook.js';
+
+export async function readBuffer(data: Uint8Array): Promise<Workbook> {
   ensureInitialized();
   const raw = wasmRead(data);
   return new Workbook(raw);
 }
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.0' as const;

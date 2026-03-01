@@ -4,12 +4,17 @@ import init, {
   write as wasmWrite,
 } from '../wasm/ironsheet_wasm.js';
 
+let initPromise: Promise<void> | null = null;
 let initialized = false;
 
 export async function initWasm(): Promise<void> {
   if (initialized) return;
-  await init();
-  initialized = true;
+  if (!initPromise) {
+    initPromise = init().then(() => {
+      initialized = true;
+    });
+  }
+  return initPromise;
 }
 
 export function ensureInitialized(): void {

@@ -186,7 +186,7 @@ impl Styles {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"patternType" {
                                     current_fill.pattern_type =
-                                        String::from_utf8_lossy(&attr.value).into_owned();
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                 }
                             }
                         }
@@ -219,7 +219,7 @@ impl Styles {
                                 for attr in e.attributes().flatten() {
                                     if attr.key.local_name().as_ref() == b"rgb" {
                                         side.color = Some(
-                                            String::from_utf8_lossy(&attr.value).into_owned(),
+                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
                                         );
                                     }
                                 }
@@ -245,12 +245,12 @@ impl Styles {
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
                                     b"numFmtId" => {
-                                        id = String::from_utf8_lossy(&attr.value)
+                                        id = std::str::from_utf8(&attr.value).unwrap_or_default()
                                             .parse()
                                             .unwrap_or(0);
                                     }
                                     b"formatCode" => {
-                                        code = String::from_utf8_lossy(&attr.value).into_owned();
+                                        code = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     _ => {}
                                 }
@@ -269,7 +269,7 @@ impl Styles {
                         b"sz" if in_font => {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"val" {
-                                    current_font.size = String::from_utf8_lossy(&attr.value)
+                                    current_font.size = std::str::from_utf8(&attr.value).unwrap_or_default()
                                         .parse()
                                         .ok();
                                 }
@@ -279,7 +279,7 @@ impl Styles {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"val" {
                                     current_font.name = Some(
-                                        String::from_utf8_lossy(&attr.value).into_owned(),
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
                                     );
                                 }
                             }
@@ -288,7 +288,7 @@ impl Styles {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"rgb" {
                                     current_font.color = Some(
-                                        String::from_utf8_lossy(&attr.value).into_owned(),
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
                                     );
                                 }
                             }
@@ -299,7 +299,7 @@ impl Styles {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"patternType" {
                                     current_fill.pattern_type =
-                                        String::from_utf8_lossy(&attr.value).into_owned();
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                 }
                             }
                         }
@@ -309,7 +309,7 @@ impl Styles {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"rgb" {
                                     current_fill.fg_color = Some(
-                                        String::from_utf8_lossy(&attr.value).into_owned(),
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
                                     );
                                 }
                             }
@@ -318,7 +318,7 @@ impl Styles {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"rgb" {
                                     current_fill.bg_color = Some(
-                                        String::from_utf8_lossy(&attr.value).into_owned(),
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
                                     );
                                 }
                             }
@@ -356,7 +356,7 @@ impl Styles {
                                 for attr in e.attributes().flatten() {
                                     if attr.key.local_name().as_ref() == b"rgb" {
                                         side.color = Some(
-                                            String::from_utf8_lossy(&attr.value).into_owned(),
+                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
                                         );
                                     }
                                 }
@@ -444,7 +444,7 @@ impl Styles {
 
     /// Serialize this `Styles` to a valid `styles.xml` string.
     pub fn to_xml(&self) -> Result<String> {
-        let mut buf: Vec<u8> = Vec::new();
+        let mut buf: Vec<u8> = Vec::with_capacity(2048);
         let mut writer = Writer::new(&mut buf);
 
         let map_err = |e: std::io::Error| IronsheetError::XmlWrite(e.to_string());
@@ -689,7 +689,7 @@ fn parse_border_side_attrs(e: &BytesStart<'_>) -> Option<BorderSide> {
     let mut style: Option<String> = None;
     for attr in e.attributes().flatten() {
         if attr.key.local_name().as_ref() == b"style" {
-            style = Some(String::from_utf8_lossy(&attr.value).into_owned());
+            style = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
         }
     }
     style.map(|s| BorderSide {
@@ -704,22 +704,22 @@ fn parse_xf_attrs(e: &BytesStart<'_>) -> CellXf {
     for attr in e.attributes().flatten() {
         match attr.key.local_name().as_ref() {
             b"numFmtId" => {
-                xf.num_fmt_id = String::from_utf8_lossy(&attr.value)
+                xf.num_fmt_id = std::str::from_utf8(&attr.value).unwrap_or_default()
                     .parse()
                     .unwrap_or(0);
             }
             b"fontId" => {
-                xf.font_id = String::from_utf8_lossy(&attr.value)
+                xf.font_id = std::str::from_utf8(&attr.value).unwrap_or_default()
                     .parse()
                     .unwrap_or(0);
             }
             b"fillId" => {
-                xf.fill_id = String::from_utf8_lossy(&attr.value)
+                xf.fill_id = std::str::from_utf8(&attr.value).unwrap_or_default()
                     .parse()
                     .unwrap_or(0);
             }
             b"borderId" => {
-                xf.border_id = String::from_utf8_lossy(&attr.value)
+                xf.border_id = std::str::from_utf8(&attr.value).unwrap_or_default()
                     .parse()
                     .unwrap_or(0);
             }

@@ -64,7 +64,7 @@ impl WorkbookXml {
                         b"workbookPr" => {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"date1904" {
-                                    let val = String::from_utf8_lossy(&attr.value);
+                                    let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                     if val == "1" || val.eq_ignore_ascii_case("true") {
                                         date_system = DateSystem::Date1904;
                                     }
@@ -82,7 +82,7 @@ impl WorkbookXml {
                         b"workbookPr" => {
                             for attr in e.attributes().flatten() {
                                 if attr.key.local_name().as_ref() == b"date1904" {
-                                    let val = String::from_utf8_lossy(&attr.value);
+                                    let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                     if val == "1" || val.eq_ignore_ascii_case("true") {
                                         date_system = DateSystem::Date1904;
                                     }
@@ -101,10 +101,10 @@ impl WorkbookXml {
                                 match attr.key.local_name().as_ref() {
                                     b"name" => {
                                         current_dn_name =
-                                            String::from_utf8_lossy(&attr.value).into_owned();
+                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     b"localSheetId" => {
-                                        let val = String::from_utf8_lossy(&attr.value);
+                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         current_dn_sheet_id = val.parse::<u32>().ok();
                                     }
                                     _ => {}
@@ -116,7 +116,7 @@ impl WorkbookXml {
                 }
                 Ok(Event::Text(ref e)) if in_defined_name => {
                     current_dn_value
-                        .push_str(&String::from_utf8_lossy(e.as_ref()));
+                        .push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
                 }
                 Ok(Event::End(ref e)) => {
                     if e.local_name().as_ref() == b"definedName" && in_defined_name {
@@ -148,7 +148,7 @@ impl WorkbookXml {
 
     /// Serialize to a valid `xl/workbook.xml` string.
     pub fn to_xml(&self) -> Result<String> {
-        let mut buf: Vec<u8> = Vec::new();
+        let mut buf: Vec<u8> = Vec::with_capacity(512);
         let mut writer = Writer::new(&mut buf);
 
         let map_err = |e: std::io::Error| IronsheetError::XmlWrite(e.to_string());
@@ -251,14 +251,14 @@ fn parse_sheet_element(e: &BytesStart<'_>) -> Result<SheetInfo> {
         let local = local_name.as_ref();
         match local {
             b"name" => {
-                name = String::from_utf8_lossy(&attr.value).into_owned();
+                name = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
             }
             b"sheetId" => {
-                let val = String::from_utf8_lossy(&attr.value);
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                 sheet_id = val.parse::<u32>().unwrap_or(0);
             }
             b"state" => {
-                let val = String::from_utf8_lossy(&attr.value);
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                 state = match val.as_ref() {
                     "hidden" => SheetState::Hidden,
                     "veryHidden" => SheetState::VeryHidden,
@@ -269,7 +269,7 @@ fn parse_sheet_element(e: &BytesStart<'_>) -> Result<SheetInfo> {
                 // Check for r:id — the full key might be "r:id" or just "id"
                 // depending on namespace handling.
                 if key == b"r:id" || local == b"id" {
-                    r_id = String::from_utf8_lossy(&attr.value).into_owned();
+                    r_id = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                 }
             }
         }

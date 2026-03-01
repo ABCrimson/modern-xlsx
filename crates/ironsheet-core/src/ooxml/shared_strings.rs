@@ -46,7 +46,7 @@ impl SharedStringTable {
                 }
                 Ok(Event::Text(e)) if in_t => {
                     current_text.push_str(
-                        &String::from_utf8_lossy(e.as_ref()),
+                        std::str::from_utf8(e.as_ref()).unwrap_or_default(),
                     );
                 }
                 Ok(Event::End(e)) => {
@@ -150,7 +150,7 @@ impl SharedStringTableBuilder {
     /// Serialize the shared string table to an XML string suitable for
     /// inclusion in an XLSX archive as `xl/sharedStrings.xml`.
     pub fn to_xml(&self) -> Result<String> {
-        let mut buf: Vec<u8> = Vec::new();
+        let mut buf: Vec<u8> = Vec::with_capacity(256 + self.strings.len() * 64);
         let mut writer = Writer::new(&mut buf);
 
         let map_write_err =

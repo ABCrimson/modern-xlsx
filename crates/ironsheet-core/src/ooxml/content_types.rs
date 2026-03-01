@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use quick_xml::events::{BytesDecl, BytesStart, Event};
 use quick_xml::{Reader, Writer};
@@ -27,17 +27,17 @@ const TYPES_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-t
 #[derive(Debug, Clone)]
 pub struct ContentTypes {
     /// Extension -> content type (e.g. "rels" -> relationships type).
-    pub defaults: HashMap<String, String>,
+    pub defaults: BTreeMap<String, String>,
     /// Part name -> content type (e.g. "/xl/workbook.xml" -> workbook type).
-    pub overrides: HashMap<String, String>,
+    pub overrides: BTreeMap<String, String>,
 }
 
 impl ContentTypes {
     /// Create an empty `ContentTypes`.
     pub fn new() -> Self {
         Self {
-            defaults: HashMap::new(),
-            overrides: HashMap::new(),
+            defaults: BTreeMap::new(),
+            overrides: BTreeMap::new(),
         }
     }
 
@@ -86,11 +86,11 @@ impl ContentTypes {
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
                                     b"Extension" => {
-                                        ext = String::from_utf8_lossy(&attr.value).into_owned();
+                                        ext = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     b"ContentType" => {
                                         ctype =
-                                            String::from_utf8_lossy(&attr.value).into_owned();
+                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     _ => {}
                                 }
@@ -105,11 +105,11 @@ impl ContentTypes {
                                 match attr.key.local_name().as_ref() {
                                     b"PartName" => {
                                         part =
-                                            String::from_utf8_lossy(&attr.value).into_owned();
+                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     b"ContentType" => {
                                         ctype =
-                                            String::from_utf8_lossy(&attr.value).into_owned();
+                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     _ => {}
                                 }
@@ -137,7 +137,7 @@ impl ContentTypes {
 
     /// Serialize to XML string.
     pub fn to_xml(&self) -> Result<String> {
-        let mut buf: Vec<u8> = Vec::new();
+        let mut buf: Vec<u8> = Vec::with_capacity(1024);
         let mut writer = Writer::new(&mut buf);
 
         // XML declaration.
@@ -152,11 +152,8 @@ impl ContentTypes {
             .write_event(Event::Start(types_start))
             .map_err(|e| IronsheetError::XmlWrite(format!("writing Types start: {e}")))?;
 
-        // <Default> elements sorted by extension.
-        let mut default_keys: Vec<&String> = self.defaults.keys().collect();
-        default_keys.sort();
-        for ext in default_keys {
-            let ctype = &self.defaults[ext];
+        // <Default> elements (BTreeMap iterates in sorted order).
+        for (ext, ctype) in &self.defaults {
             let mut elem = BytesStart::new("Default");
             elem.push_attribute(("Extension", ext.as_str()));
             elem.push_attribute(("ContentType", ctype.as_str()));
@@ -165,11 +162,8 @@ impl ContentTypes {
                 .map_err(|e| IronsheetError::XmlWrite(format!("writing Default: {e}")))?;
         }
 
-        // <Override> elements sorted by part name.
-        let mut override_keys: Vec<&String> = self.overrides.keys().collect();
-        override_keys.sort();
-        for part in override_keys {
-            let ctype = &self.overrides[part];
+        // <Override> elements (BTreeMap iterates in sorted order).
+        for (part, ctype) in &self.overrides {
             let mut elem = BytesStart::new("Override");
             elem.push_attribute(("PartName", part.as_str()));
             elem.push_attribute(("ContentType", ctype.as_str()));

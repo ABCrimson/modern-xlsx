@@ -69,11 +69,8 @@ impl Relationships {
     }
 
     /// Find all relationships matching a given type URI.
-    pub fn find_by_type(&self, rel_type: &str) -> Vec<&Relationship> {
-        self.relationships
-            .iter()
-            .filter(|r| r.rel_type == rel_type)
-            .collect()
+    pub fn find_by_type<'a>(&'a self, rel_type: &'a str) -> impl Iterator<Item = &'a Relationship> {
+        self.relationships.iter().filter(move |r| r.rel_type == rel_type)
     }
 
     /// Create the root `_rels/.rels` relationships for a basic workbook.
@@ -122,15 +119,15 @@ impl Relationships {
                         for attr in e.attributes().flatten() {
                             match attr.key.local_name().as_ref() {
                                 b"Id" => {
-                                    id = String::from_utf8_lossy(&attr.value).into_owned();
+                                    id = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                 }
                                 b"Type" => {
                                     rel_type =
-                                        String::from_utf8_lossy(&attr.value).into_owned();
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                 }
                                 b"Target" => {
                                     target =
-                                        String::from_utf8_lossy(&attr.value).into_owned();
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                 }
                                 _ => {}
                             }
@@ -156,7 +153,7 @@ impl Relationships {
 
     /// Serialize to XML string.
     pub fn to_xml(&self) -> Result<String> {
-        let mut buf: Vec<u8> = Vec::new();
+        let mut buf: Vec<u8> = Vec::with_capacity(512);
         let mut writer = Writer::new(&mut buf);
 
         // XML declaration.
@@ -236,16 +233,16 @@ mod tests {
         rels.add("rId2", REL_WORKSHEET, "worksheets/sheet2.xml");
         rels.add("rId3", REL_SHARED_STRINGS, "sharedStrings.xml");
 
-        let worksheets = rels.find_by_type(REL_WORKSHEET);
+        let worksheets: Vec<_> = rels.find_by_type(REL_WORKSHEET).collect();
         assert_eq!(worksheets.len(), 2);
         assert_eq!(worksheets[0].target, "worksheets/sheet1.xml");
         assert_eq!(worksheets[1].target, "worksheets/sheet2.xml");
 
-        let shared = rels.find_by_type(REL_SHARED_STRINGS);
+        let shared: Vec<_> = rels.find_by_type(REL_SHARED_STRINGS).collect();
         assert_eq!(shared.len(), 1);
         assert_eq!(shared[0].target, "sharedStrings.xml");
 
-        let styles = rels.find_by_type(REL_STYLES);
+        let styles: Vec<_> = rels.find_by_type(REL_STYLES).collect();
         assert!(styles.is_empty());
     }
 

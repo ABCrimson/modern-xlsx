@@ -2,18 +2,53 @@ export type DateSystem = 'date1900' | 'date1904';
 
 export type CellType = 'sharedString' | 'number' | 'boolean' | 'error' | 'formulaStr' | 'inlineStr';
 
+export type PatternType =
+  | 'none'
+  | 'solid'
+  | 'gray125'
+  | 'darkGray'
+  | 'mediumGray'
+  | 'lightGray'
+  | 'darkHorizontal'
+  | 'darkVertical'
+  | 'darkDown'
+  | 'darkUp'
+  | 'darkGrid'
+  | 'darkTrellis'
+  | 'lightHorizontal'
+  | 'lightVertical'
+  | 'lightDown'
+  | 'lightUp'
+  | 'lightGrid'
+  | 'lightTrellis';
+
+export type BorderStyle =
+  | 'thin'
+  | 'medium'
+  | 'thick'
+  | 'dashed'
+  | 'dotted'
+  | 'double'
+  | 'hair'
+  | 'mediumDashed'
+  | 'dashDot'
+  | 'mediumDashDot'
+  | 'dashDotDot'
+  | 'mediumDashDotDot'
+  | 'slantDashDot';
+
 export interface CellData {
   reference: string;
   cellType: CellType;
-  styleIndex?: number | null;
-  value?: string | null;
-  formula?: string | null;
+  styleIndex: number | null;
+  value: string | null;
+  formula: string | null;
 }
 
 export interface RowData {
   index: number;
   cells: CellData[];
-  height?: number | null;
+  height: number | null;
   hidden: boolean;
 }
 
@@ -31,11 +66,11 @@ export interface ColumnInfo {
 }
 
 export interface WorksheetData {
-  dimension?: string | null;
+  dimension: string | null;
   rows: RowData[];
   mergeCells: string[];
-  autoFilter?: string | null;
-  frozenPane?: FrozenPane | null;
+  autoFilter: string | null;
+  frozenPane: FrozenPane | null;
   columns: ColumnInfo[];
 }
 
@@ -45,31 +80,31 @@ export interface NumFmt {
 }
 
 export interface FontData {
-  name?: string | null;
-  size?: number | null;
+  name: string | null;
+  size: number | null;
   bold: boolean;
   italic: boolean;
   underline: boolean;
   strike: boolean;
-  color?: string | null;
+  color: string | null;
 }
 
 export interface FillData {
-  patternType: string;
-  fgColor?: string | null;
-  bgColor?: string | null;
+  patternType: PatternType;
+  fgColor: string | null;
+  bgColor: string | null;
 }
 
 export interface BorderSideData {
-  style: string;
-  color?: string | null;
+  style: BorderStyle;
+  color: string | null;
 }
 
 export interface BorderData {
-  left?: BorderSideData | null;
-  right?: BorderSideData | null;
-  top?: BorderSideData | null;
-  bottom?: BorderSideData | null;
+  left: BorderSideData | null;
+  right: BorderSideData | null;
+  top: BorderSideData | null;
+  bottom: BorderSideData | null;
 }
 
 export interface CellXfData {

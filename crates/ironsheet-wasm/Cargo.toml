@@ -11,8 +11,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 ironsheet-core = { path = "../ironsheet-core" }
 wasm-bindgen.workspace = true
-js-sys.workspace = true
-web-sys.workspace = true
 serde.workspace = true
 serde-wasm-bindgen.workspace = true
 

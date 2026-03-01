@@ -12,7 +12,7 @@ use crate::ooxml::{
     shared_strings::SharedStringTableBuilder,
     styles::Styles,
     workbook::{SheetInfo, SheetState, WorkbookXml},
-    worksheet::{Cell, CellType, Row, WorksheetXml},
+    worksheet::{CellType, WorksheetXml},
 };
 use crate::zip::writer::{write_zip, ZipEntry};
 use crate::{IronsheetError, Result};
@@ -113,7 +113,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     };
 
     // 3. Assemble ZIP entries.
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(6 + sheet_count);
 
     entries.push(ZipEntry {
         name: "[Content_Types].xml".to_string(),
@@ -142,10 +142,12 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
     // 4. Generate each worksheet, replacing string values with SST indices.
     for (i, sheet) in workbook.sheets.iter().enumerate() {
-        let ws = remap_sst_indices(&sheet.worksheet, &sst_builder);
+        let mut ws_clone = sheet.worksheet.clone();
+        remap_sst_indices(&mut ws_clone, &sst_builder);
+        let ws_xml = ws_clone.to_xml()?;
         entries.push(ZipEntry {
             name: format!("xl/worksheets/sheet{}.xml", i + 1),
-            data: ws.to_xml()?.into_bytes(),
+            data: ws_xml.into_bytes(),
         });
     }
 
@@ -156,55 +158,18 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Clone a worksheet, replacing each `SharedString` cell's value (a raw string)
-/// with the corresponding SST index from the builder.
-fn remap_sst_indices(
-    ws: &WorksheetXml,
-    sst: &SharedStringTableBuilder,
-) -> WorksheetXml {
-    let rows = ws
-        .rows
-        .iter()
-        .map(|row| {
-            let cells = row
-                .cells
-                .iter()
-                .map(|cell| {
-                    if cell.cell_type == CellType::SharedString {
-                        if let Some(ref val) = cell.value {
-                            // All strings were inserted during the build phase,
-                            // so get_index must succeed.
-                            let idx = sst
-                                .get_index(val)
-                                .expect("BUG: SharedString value not found in SST");
-                            return Cell {
-                                reference: cell.reference.clone(),
-                                cell_type: CellType::SharedString,
-                                style_index: cell.style_index,
-                                value: Some(idx.to_string()),
-                                formula: cell.formula.clone(),
-                            };
-                        }
-                    }
-                    cell.clone()
-                })
-                .collect();
-            Row {
-                index: row.index,
-                cells,
-                height: row.height,
-                hidden: row.hidden,
+/// Mutate a worksheet in place, replacing each `SharedString` cell's value
+/// (a raw string) with the corresponding SST index from the builder.
+fn remap_sst_indices(ws: &mut WorksheetXml, sst: &SharedStringTableBuilder) {
+    for row in &mut ws.rows {
+        for cell in &mut row.cells {
+            if cell.cell_type == CellType::SharedString {
+                if let Some(ref val) = cell.value {
+                    let idx = sst.get_index(val).expect("BUG: SharedString value not found in SST");
+                    cell.value = Some(idx.to_string());
+                }
             }
-        })
-        .collect();
-
-    WorksheetXml {
-        dimension: ws.dimension.clone(),
-        rows,
-        merge_cells: ws.merge_cells.clone(),
-        auto_filter: ws.auto_filter.clone(),
-        frozen_pane: ws.frozen_pane.clone(),
-        columns: ws.columns.clone(),
+        }
     }
 }
 
@@ -218,7 +183,7 @@ mod tests {
     use crate::ooxml::shared_strings::SharedStringTable;
     use crate::ooxml::styles::Styles;
     use crate::ooxml::workbook::WorkbookXml as WbXml;
-    use crate::ooxml::worksheet::WorksheetXml;
+    use crate::ooxml::worksheet::{Cell, Row, WorksheetXml};
     use crate::zip::reader::{read_zip_entries, ZipSecurityLimits};
 
     /// Helper: build a minimal single-sheet workbook with the given rows.
@@ -692,16 +657,17 @@ mod tests {
         }
         sst.insert("Alpha"); // index 7
 
-        let remapped = remap_sst_indices(&ws, &sst);
+        let mut ws_clone = ws.clone();
+        remap_sst_indices(&mut ws_clone, &sst);
 
         // The SharedString cell should now have SST index as its value.
-        assert_eq!(remapped.rows[0].cells[0].value.as_deref(), Some("7"));
-        assert_eq!(remapped.rows[0].cells[0].cell_type, CellType::SharedString);
+        assert_eq!(ws_clone.rows[0].cells[0].value.as_deref(), Some("7"));
+        assert_eq!(ws_clone.rows[0].cells[0].cell_type, CellType::SharedString);
 
         // The Number cell should be unchanged.
-        assert_eq!(remapped.rows[0].cells[1].value.as_deref(), Some("99"));
-        assert_eq!(remapped.rows[0].cells[1].cell_type, CellType::Number);
-        assert_eq!(remapped.rows[0].cells[1].style_index, Some(1));
+        assert_eq!(ws_clone.rows[0].cells[1].value.as_deref(), Some("99"));
+        assert_eq!(ws_clone.rows[0].cells[1].cell_type, CellType::Number);
+        assert_eq!(ws_clone.rows[0].cells[1].style_index, Some(1));
     }
 
     #[test]
