@@ -1,0 +1,35 @@
+{
+  "name": "ironsheet",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist/",
+    "wasm/",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=25.0.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "6.0.0-dev.20260301",
+    "tsdown": "0.21.0-beta.2",
+    "vitest": "4.1.0-beta.5",
+    "@vitest/coverage-v8": "4.1.0-beta.5",
+    "@biomejs/biome": "2.4.4"
+  }
+}

@@ -5,6 +5,9 @@
     "node": ">=25.0.0"
   },
   "packageManager": "pnpm@11.0.0-alpha.11",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  },
   "scripts": {
     "build:wasm": "cd crates/ironsheet-wasm && wasm-pack build --target web --release --out-dir ../../packages/ironsheet/wasm",
     "build:ts": "pnpm -C packages/ironsheet build",
