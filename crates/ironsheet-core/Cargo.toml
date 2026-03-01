@@ -1,0 +1,21 @@
+[package]
+name = "ironsheet-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+quick-xml.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+libdeflater.workspace = true
+flate2.workspace = true
+zip.workspace = true
+string_cache.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
