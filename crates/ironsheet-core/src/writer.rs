@@ -3,6 +3,8 @@
 //! Assembles all XML parts from a [`WorkbookData`] struct and zips them into a
 //! complete `.xlsx` file.
 
+use serde::Deserialize;
+
 use crate::dates::DateSystem;
 use crate::ooxml::{
     content_types::ContentTypes,
@@ -24,7 +26,8 @@ use crate::{IronsheetError, Result};
 /// If `crate::reader` is available in the future, this type may be replaced by
 /// or aliased to the reader's version. For now it is defined locally so the
 /// write orchestrator can be developed independently.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkbookData {
     /// The sheets in this workbook.
     pub sheets: Vec<SheetData>,
@@ -35,7 +38,8 @@ pub struct WorkbookData {
 }
 
 /// A single sheet inside a workbook.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SheetData {
     /// The user-visible sheet name.
     pub name: String,

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
+use serde::{Deserialize, Serialize};
 
 use crate::{IronsheetError, Result};
 
@@ -9,9 +10,10 @@ use crate::{IronsheetError, Result};
 ///
 /// In OOXML, cells that contain string values store an index into this table
 /// rather than the string itself.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SharedStringTable {
-    strings: Vec<String>,
+    pub strings: Vec<String>,
 }
 
 impl SharedStringTable {

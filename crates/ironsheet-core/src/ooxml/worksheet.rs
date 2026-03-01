@@ -1,12 +1,14 @@
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
+use serde::{Deserialize, Serialize};
 
 use crate::{IronsheetError, Result};
 
 const SPREADSHEET_NS: &str = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
 /// Parsed representation of a worksheet XML file (`xl/worksheets/sheet*.xml`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorksheetXml {
     pub dimension: Option<String>,
     pub rows: Vec<Row>,
@@ -17,7 +19,8 @@ pub struct WorksheetXml {
 }
 
 /// A single row in the worksheet.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Row {
     /// 1-based row index (as in the XML `r` attribute).
     pub index: u32,
@@ -27,7 +30,8 @@ pub struct Row {
 }
 
 /// A single cell in a row.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Cell {
     /// Cell reference string, e.g. "A1".
     pub reference: String,
@@ -40,7 +44,8 @@ pub struct Cell {
 }
 
 /// The type of a cell, determined by the `t` attribute on the `<c>` element.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum CellType {
     /// `t="s"` — value is a shared string table index.
     SharedString,
@@ -57,7 +62,8 @@ pub enum CellType {
 }
 
 /// Frozen pane configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FrozenPane {
     /// Number of frozen rows (ySplit).
     pub rows: u32,
@@ -66,7 +72,8 @@ pub struct FrozenPane {
 }
 
 /// Column formatting information from the `<cols>` section.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ColumnInfo {
     pub min: u32,
     pub max: u32,

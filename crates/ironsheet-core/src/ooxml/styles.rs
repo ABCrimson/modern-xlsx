@@ -1,5 +1,6 @@
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
 use quick_xml::{Reader, Writer};
+use serde::{Deserialize, Serialize};
 
 use crate::{IronsheetError, Result};
 
@@ -9,13 +10,15 @@ const SPREADSHEET_NS: &str = "http://schemas.openxmlformats.org/spreadsheetml/20
 // Data structures
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NumFmt {
     pub id: u32,
     pub format_code: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Font {
     pub name: Option<String>,
     pub size: Option<f64>,
@@ -27,14 +30,16 @@ pub struct Font {
     pub color: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Fill {
     pub pattern_type: String,
     pub fg_color: Option<String>,
     pub bg_color: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Border {
     pub left: Option<BorderSide>,
     pub right: Option<BorderSide>,
@@ -42,13 +47,15 @@ pub struct Border {
     pub bottom: Option<BorderSide>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BorderSide {
     pub style: String,
     pub color: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CellXf {
     pub num_fmt_id: u32,
     pub font_id: u32,
@@ -56,7 +63,8 @@ pub struct CellXf {
     pub border_id: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Styles {
     pub num_fmts: Vec<NumFmt>,
     pub fonts: Vec<Font>,

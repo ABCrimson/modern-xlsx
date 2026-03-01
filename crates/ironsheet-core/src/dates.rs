@@ -1,9 +1,11 @@
 use chrono::{Datelike, NaiveDate};
+use serde::{Deserialize, Serialize};
 
 use crate::{IronsheetError, Result};
 
 /// Which date-origin system the workbook uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum DateSystem {
     /// The default 1900 date system (used by Windows Excel).
     /// Day 1 = Jan 1, 1900. Includes the Lotus 1-2-3 leap-year bug at day 60.

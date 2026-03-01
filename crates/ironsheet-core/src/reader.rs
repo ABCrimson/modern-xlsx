@@ -3,6 +3,8 @@
 //! Decompresses a `.xlsx` ZIP archive, parses all OPC / SpreadsheetML parts,
 //! and assembles them into a [`WorkbookData`] struct.
 
+use serde::Serialize;
+
 use crate::dates::DateSystem;
 use crate::ooxml::{
     relationships::Relationships,
@@ -15,7 +17,8 @@ use crate::zip::reader::{read_zip_entries, ZipSecurityLimits};
 use crate::{IronsheetError, Result};
 
 /// Complete parsed workbook data.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkbookData {
     pub sheets: Vec<SheetData>,
     pub date_system: DateSystem,
@@ -24,7 +27,8 @@ pub struct WorkbookData {
 }
 
 /// A single parsed worksheet with its tab name.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SheetData {
     pub name: String,
     pub worksheet: WorksheetXml,
