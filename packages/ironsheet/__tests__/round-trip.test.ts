@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initSync } from '../wasm/ironsheet_wasm.js';
+import { initSync, read as wasmRead, version as wasmVersion } from '../wasm/ironsheet_wasm.js';
 import { initWasm, Workbook, readBuffer, VERSION } from '../src/index.js';
-import { version as wasmVersion, read as wasmRead } from '../wasm/ironsheet_wasm.js';
 import type { WorkbookData } from '../src/types.js';
 
 beforeAll(async () => {
