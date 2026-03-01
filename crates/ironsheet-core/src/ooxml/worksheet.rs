@@ -1,7 +1,9 @@
-use quick_xml::events::{BytesStart, Event};
-use quick_xml::Reader;
+use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
+use quick_xml::{Reader, Writer};
 
 use crate::{IronsheetError, Result};
+
+const SPREADSHEET_NS: &str = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
 /// Parsed representation of a worksheet XML file (`xl/worksheets/sheet*.xml`).
 #[derive(Debug, Clone)]
@@ -453,6 +455,225 @@ impl WorksheetXml {
             columns,
         })
     }
+
+    /// Serialize this worksheet to a valid XML string.
+    pub fn to_xml(&self) -> Result<String> {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut writer = Writer::new(&mut buf);
+
+        let map_err = |e: std::io::Error| IronsheetError::XmlWrite(e.to_string());
+
+        // XML declaration.
+        writer
+            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), Some("yes"))))
+            .map_err(map_err)?;
+
+        // <worksheet xmlns="...">
+        let mut ws = BytesStart::new("worksheet");
+        ws.push_attribute(("xmlns", SPREADSHEET_NS));
+        writer.write_event(Event::Start(ws)).map_err(map_err)?;
+
+        // <sheetViews> — only if frozen_pane is present.
+        if let Some(ref pane) = self.frozen_pane {
+            writer
+                .write_event(Event::Start(BytesStart::new("sheetViews")))
+                .map_err(map_err)?;
+
+            let mut sv = BytesStart::new("sheetView");
+            sv.push_attribute(("workbookViewId", "0"));
+            writer.write_event(Event::Start(sv)).map_err(map_err)?;
+
+            let mut pane_elem = BytesStart::new("pane");
+            if pane.cols > 0 {
+                let xs = pane.cols.to_string();
+                pane_elem.push_attribute(("xSplit", xs.as_str()));
+            }
+            if pane.rows > 0 {
+                let ys = pane.rows.to_string();
+                pane_elem.push_attribute(("ySplit", ys.as_str()));
+            }
+            // Compute topLeftCell.
+            let top_left = format!(
+                "{}{}",
+                col_index_to_letter(pane.cols + 1),
+                pane.rows + 1
+            );
+            pane_elem.push_attribute(("topLeftCell", top_left.as_str()));
+            pane_elem.push_attribute(("activePane", "bottomLeft"));
+            pane_elem.push_attribute(("state", "frozen"));
+            writer
+                .write_event(Event::Empty(pane_elem))
+                .map_err(map_err)?;
+
+            writer
+                .write_event(Event::End(BytesEnd::new("sheetView")))
+                .map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("sheetViews")))
+                .map_err(map_err)?;
+        }
+
+        // <cols> — only if non-empty.
+        if !self.columns.is_empty() {
+            writer
+                .write_event(Event::Start(BytesStart::new("cols")))
+                .map_err(map_err)?;
+
+            for col in &self.columns {
+                let mut elem = BytesStart::new("col");
+                let min_s = col.min.to_string();
+                let max_s = col.max.to_string();
+                let width_s = format_f64(col.width);
+                elem.push_attribute(("min", min_s.as_str()));
+                elem.push_attribute(("max", max_s.as_str()));
+                elem.push_attribute(("width", width_s.as_str()));
+                if col.custom_width {
+                    elem.push_attribute(("customWidth", "1"));
+                }
+                if col.hidden {
+                    elem.push_attribute(("hidden", "1"));
+                }
+                writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+            }
+
+            writer
+                .write_event(Event::End(BytesEnd::new("cols")))
+                .map_err(map_err)?;
+        }
+
+        // <sheetData>
+        writer
+            .write_event(Event::Start(BytesStart::new("sheetData")))
+            .map_err(map_err)?;
+
+        for row in &self.rows {
+            let mut row_elem = BytesStart::new("row");
+            let r_str = row.index.to_string();
+            row_elem.push_attribute(("r", r_str.as_str()));
+            if let Some(ht) = row.height {
+                let ht_s = format_f64(ht);
+                row_elem.push_attribute(("ht", ht_s.as_str()));
+            }
+            if row.hidden {
+                row_elem.push_attribute(("hidden", "1"));
+            }
+
+            if row.cells.is_empty() {
+                writer
+                    .write_event(Event::Empty(row_elem))
+                    .map_err(map_err)?;
+            } else {
+                writer
+                    .write_event(Event::Start(row_elem))
+                    .map_err(map_err)?;
+
+                for cell in &row.cells {
+                    let mut c_elem = BytesStart::new("c");
+                    c_elem.push_attribute(("r", cell.reference.as_str()));
+
+                    // Only write t attribute if not Number (the default).
+                    match cell.cell_type {
+                        CellType::Number => {}
+                        CellType::SharedString => c_elem.push_attribute(("t", "s")),
+                        CellType::Boolean => c_elem.push_attribute(("t", "b")),
+                        CellType::Error => c_elem.push_attribute(("t", "e")),
+                        CellType::FormulaStr => c_elem.push_attribute(("t", "str")),
+                        CellType::InlineStr => c_elem.push_attribute(("t", "inlineStr")),
+                    }
+
+                    // Only write s attribute if style_index is present.
+                    if let Some(si) = cell.style_index {
+                        let si_s = si.to_string();
+                        c_elem.push_attribute(("s", si_s.as_str()));
+                    }
+
+                    let has_content = cell.formula.is_some() || cell.value.is_some();
+
+                    if has_content {
+                        writer
+                            .write_event(Event::Start(c_elem))
+                            .map_err(map_err)?;
+
+                        // <f>...</f>
+                        if let Some(ref formula) = cell.formula {
+                            writer
+                                .write_event(Event::Start(BytesStart::new("f")))
+                                .map_err(map_err)?;
+                            writer
+                                .write_event(Event::Text(BytesText::new(formula)))
+                                .map_err(map_err)?;
+                            writer
+                                .write_event(Event::End(BytesEnd::new("f")))
+                                .map_err(map_err)?;
+                        }
+
+                        // <v>...</v>
+                        if let Some(ref value) = cell.value {
+                            writer
+                                .write_event(Event::Start(BytesStart::new("v")))
+                                .map_err(map_err)?;
+                            writer
+                                .write_event(Event::Text(BytesText::new(value)))
+                                .map_err(map_err)?;
+                            writer
+                                .write_event(Event::End(BytesEnd::new("v")))
+                                .map_err(map_err)?;
+                        }
+
+                        writer
+                            .write_event(Event::End(BytesEnd::new("c")))
+                            .map_err(map_err)?;
+                    } else {
+                        writer
+                            .write_event(Event::Empty(c_elem))
+                            .map_err(map_err)?;
+                    }
+                }
+
+                writer
+                    .write_event(Event::End(BytesEnd::new("row")))
+                    .map_err(map_err)?;
+            }
+        }
+
+        // </sheetData>
+        writer
+            .write_event(Event::End(BytesEnd::new("sheetData")))
+            .map_err(map_err)?;
+
+        // <mergeCells> — only if non-empty.
+        if !self.merge_cells.is_empty() {
+            let mut mc = BytesStart::new("mergeCells");
+            let count_s = self.merge_cells.len().to_string();
+            mc.push_attribute(("count", count_s.as_str()));
+            writer.write_event(Event::Start(mc)).map_err(map_err)?;
+
+            for ref_str in &self.merge_cells {
+                let mut elem = BytesStart::new("mergeCell");
+                elem.push_attribute(("ref", ref_str.as_str()));
+                writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+            }
+
+            writer
+                .write_event(Event::End(BytesEnd::new("mergeCells")))
+                .map_err(map_err)?;
+        }
+
+        // <autoFilter> — only if present.
+        if let Some(ref af) = self.auto_filter {
+            let mut elem = BytesStart::new("autoFilter");
+            elem.push_attribute(("ref", af.as_str()));
+            writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+        }
+
+        // </worksheet>
+        writer
+            .write_event(Event::End(BytesEnd::new("worksheet")))
+            .map_err(map_err)?;
+
+        String::from_utf8(buf)
+            .map_err(|e| IronsheetError::XmlWrite(format!("invalid UTF-8 in output: {e}")))
+    }
 }
 
 /// Parse a `<col>` element into a `ColumnInfo`.
@@ -496,6 +717,29 @@ fn parse_col_element(e: &BytesStart<'_>) -> ColumnInfo {
         width,
         hidden,
         custom_width,
+    }
+}
+
+/// Convert a 1-based column index to a letter string (1 -> "A", 26 -> "Z", 27 -> "AA").
+fn col_index_to_letter(col: u32) -> String {
+    let mut result = String::new();
+    let mut c = col;
+    while c > 0 {
+        c -= 1;
+        result.insert(0, (b'A' + (c % 26) as u8) as char);
+        c /= 26;
+    }
+    result
+}
+
+/// Format an f64 to a string, removing trailing zeros after the decimal point
+/// but always keeping at least one decimal place if the number is not an integer.
+fn format_f64(val: f64) -> String {
+    if val == val.floor() {
+        // Integer value — format without decimal places.
+        format!("{}", val as i64)
+    } else {
+        format!("{val}")
     }
 }
 
@@ -632,6 +876,166 @@ mod tests {
     }
 
     #[test]
+    fn test_write_full_roundtrip() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![
+                Row {
+                    index: 1,
+                    cells: vec![
+                        Cell {
+                            reference: "A1".to_string(),
+                            cell_type: CellType::SharedString,
+                            style_index: Some(0),
+                            value: Some("0".to_string()),
+                            formula: None,
+                        },
+                        Cell {
+                            reference: "B1".to_string(),
+                            cell_type: CellType::Number,
+                            style_index: None,
+                            value: Some("42.5".to_string()),
+                            formula: None,
+                        },
+                        Cell {
+                            reference: "C1".to_string(),
+                            cell_type: CellType::Number,
+                            style_index: None,
+                            value: Some("42.5".to_string()),
+                            formula: Some("SUM(A1:B1)".to_string()),
+                        },
+                    ],
+                    height: Some(18.0),
+                    hidden: false,
+                },
+                Row {
+                    index: 2,
+                    cells: vec![Cell {
+                        reference: "A2".to_string(),
+                        cell_type: CellType::Boolean,
+                        style_index: None,
+                        value: Some("1".to_string()),
+                        formula: None,
+                    }],
+                    height: None,
+                    hidden: true,
+                },
+            ],
+            merge_cells: vec!["A1:C1".to_string()],
+            auto_filter: Some("A1:C1".to_string()),
+            frozen_pane: Some(FrozenPane { rows: 1, cols: 0 }),
+            columns: vec![ColumnInfo {
+                min: 1,
+                max: 1,
+                width: 15.0,
+                hidden: false,
+                custom_width: true,
+            }],
+        };
+
+        let xml = ws.to_xml().unwrap();
+        let ws2 = WorksheetXml::parse(xml.as_bytes()).unwrap();
+
+        // Verify frozen pane.
+        let pane = ws2.frozen_pane.as_ref().unwrap();
+        assert_eq!(pane.rows, 1);
+        assert_eq!(pane.cols, 0);
+
+        // Verify columns.
+        assert_eq!(ws2.columns.len(), 1);
+        assert_eq!(ws2.columns[0].min, 1);
+        assert_eq!(ws2.columns[0].max, 1);
+        assert_eq!(ws2.columns[0].width, 15.0);
+        assert!(ws2.columns[0].custom_width);
+
+        // Verify rows.
+        assert_eq!(ws2.rows.len(), 2);
+        assert_eq!(ws2.rows[0].index, 1);
+        assert_eq!(ws2.rows[0].height, Some(18.0));
+        assert!(!ws2.rows[0].hidden);
+        assert_eq!(ws2.rows[0].cells.len(), 3);
+
+        // Cell A1.
+        assert_eq!(ws2.rows[0].cells[0].reference, "A1");
+        assert_eq!(ws2.rows[0].cells[0].cell_type, CellType::SharedString);
+        assert_eq!(ws2.rows[0].cells[0].style_index, Some(0));
+        assert_eq!(ws2.rows[0].cells[0].value, Some("0".to_string()));
+
+        // Cell B1.
+        assert_eq!(ws2.rows[0].cells[1].reference, "B1");
+        assert_eq!(ws2.rows[0].cells[1].cell_type, CellType::Number);
+        assert_eq!(ws2.rows[0].cells[1].value, Some("42.5".to_string()));
+
+        // Cell C1 (formula).
+        assert_eq!(ws2.rows[0].cells[2].reference, "C1");
+        assert_eq!(ws2.rows[0].cells[2].formula, Some("SUM(A1:B1)".to_string()));
+        assert_eq!(ws2.rows[0].cells[2].value, Some("42.5".to_string()));
+
+        // Row 2.
+        assert_eq!(ws2.rows[1].index, 2);
+        assert!(ws2.rows[1].hidden);
+        assert_eq!(ws2.rows[1].cells[0].cell_type, CellType::Boolean);
+
+        // Merge cells.
+        assert_eq!(ws2.merge_cells, vec!["A1:C1"]);
+
+        // Auto filter.
+        assert_eq!(ws2.auto_filter, Some("A1:C1".to_string()));
+    }
+
+    #[test]
+    fn test_write_minimal_worksheet() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![Row {
+                index: 1,
+                cells: vec![Cell {
+                    reference: "A1".to_string(),
+                    cell_type: CellType::Number,
+                    style_index: None,
+                    value: Some("100".to_string()),
+                    formula: None,
+                }],
+                height: None,
+                hidden: false,
+            }],
+            merge_cells: Vec::new(),
+            auto_filter: None,
+            frozen_pane: None,
+            columns: Vec::new(),
+        };
+
+        let xml = ws.to_xml().unwrap();
+
+        // Verify no optional sections appear.
+        assert!(!xml.contains("sheetViews"));
+        assert!(!xml.contains("<cols"));
+        assert!(!xml.contains("mergeCells"));
+        assert!(!xml.contains("autoFilter"));
+
+        // But sheetData is present.
+        assert!(xml.contains("sheetData"));
+
+        // Re-parse.
+        let ws2 = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        assert_eq!(ws2.rows.len(), 1);
+        assert_eq!(ws2.rows[0].cells[0].value, Some("100".to_string()));
+        assert!(ws2.frozen_pane.is_none());
+        assert!(ws2.columns.is_empty());
+        assert!(ws2.merge_cells.is_empty());
+        assert!(ws2.auto_filter.is_none());
+    }
+
+    #[test]
+    fn test_col_index_to_letter() {
+        assert_eq!(col_index_to_letter(1), "A");
+        assert_eq!(col_index_to_letter(26), "Z");
+        assert_eq!(col_index_to_letter(27), "AA");
+        assert_eq!(col_index_to_letter(28), "AB");
+        assert_eq!(col_index_to_letter(702), "ZZ");
+    }
+
+    #[test]
     fn test_parse_formula_str_type() {
         let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -649,6 +1053,60 @@ mod tests {
             Some("IF(TRUE,\"yes\",\"no\")".to_string())
         );
         assert_eq!(ws.rows[0].cells[0].value, Some("yes".to_string()));
+    }
+
+    #[test]
+    fn test_write_does_not_emit_t_for_number() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![Row {
+                index: 1,
+                cells: vec![Cell {
+                    reference: "A1".to_string(),
+                    cell_type: CellType::Number,
+                    style_index: None,
+                    value: Some("42".to_string()),
+                    formula: None,
+                }],
+                height: None,
+                hidden: false,
+            }],
+            merge_cells: Vec::new(),
+            auto_filter: None,
+            frozen_pane: None,
+            columns: Vec::new(),
+        };
+
+        let xml = ws.to_xml().unwrap();
+        // The <c> element for a Number cell should NOT have a t="..." attribute.
+        assert!(xml.contains(r#"<c r="A1"><v>42</v></c>"#));
+    }
+
+    #[test]
+    fn test_write_emits_t_for_shared_string() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![Row {
+                index: 1,
+                cells: vec![Cell {
+                    reference: "A1".to_string(),
+                    cell_type: CellType::SharedString,
+                    style_index: Some(1),
+                    value: Some("5".to_string()),
+                    formula: None,
+                }],
+                height: None,
+                hidden: false,
+            }],
+            merge_cells: Vec::new(),
+            auto_filter: None,
+            frozen_pane: None,
+            columns: Vec::new(),
+        };
+
+        let xml = ws.to_xml().unwrap();
+        assert!(xml.contains(r#"t="s""#));
+        assert!(xml.contains(r#"s="1""#));
     }
 
     #[test]
