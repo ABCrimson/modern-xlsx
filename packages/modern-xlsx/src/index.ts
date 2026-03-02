@@ -18,8 +18,10 @@ export {
   isTemporalLike,
   serialToDate,
 } from './dates.js';
+// Formatting
 export type { FormatCellOptions } from './format-cell.js';
 export { formatCell, getBuiltinFormat } from './format-cell.js';
+// Builders
 export { RichTextBuilder } from './rich-text.js';
 export { StyleBuilder } from './style-builder.js';
 // Types
@@ -70,7 +72,6 @@ export type {
   WorkbookViewData,
   WorksheetData,
 } from './types.js';
-
 // Sheet conversion utilities
 export type {
   AoaToSheetOptions,
@@ -91,8 +92,12 @@ export {
   sheetToJson,
 } from './utils.js';
 // WASM initialization
-export { initWasm } from './wasm-loader.js';
+export { ensureReady, initWasm, initWasmSync } from './wasm-loader.js';
 export { Cell, Workbook, Worksheet } from './workbook.js';
+
+// Web Worker support
+export type { XlsxWorker, XlsxWorkerOptions } from './worker-api.js';
+export { createXlsxWorker } from './worker-api.js';
 
 // Internal imports for readBuffer and writeBlob
 import { ensureInitialized, wasmRead, wasmWriteBlob } from './wasm-loader.js';
@@ -133,4 +138,4 @@ export async function readFile(path: string): Promise<Workbook> {
   return readBuffer(new Uint8Array(buffer));
 }
 
-export const VERSION = '0.1.0' as const;
+export const VERSION = '0.2.0' as const;

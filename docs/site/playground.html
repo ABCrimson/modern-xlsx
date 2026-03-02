@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playground — modern-xlsx</title>
+  <meta name="description" content="Interactive playground for modern-xlsx. Create and download Excel files directly in your browser.">
+  <meta name="theme-color" content="#0a0a0a">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111111;
+      --surface-2: #1a1a1a;
+      --surface-3: #0d0d0d;
+      --border: #222222;
+      --border-hover: #333333;
+      --border-focus: #3b82f6;
+      --text: #e5e5e5;
+      --text-muted: #888888;
+      --text-dim: #555555;
+      --accent: #3b82f6;
+      --accent-dim: #1d4ed8;
+      --green: #22c55e;
+      --green-dim: #15803d;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      flex-direction: column;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* --- NAV --- */
+    nav {
+      background: rgba(10, 10, 10, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+      flex-shrink: 0;
+    }
+
+    nav .inner {
+      max-width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 48px;
+    }
+
+    nav .left { display: flex; align-items: center; gap: 1rem; }
+
+    nav .logo {
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+
+    nav .sep { color: var(--text-dim); }
+
+    nav .page-title {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    nav .links { display: flex; gap: 1rem; align-items: center; }
+
+    nav .links a {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+
+    nav .links a:hover { color: var(--text); text-decoration: none; }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 0.25rem 0.75rem;
+      border-radius: 100px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    .status .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .status.ready .dot { background: var(--green); }
+    .status.ready { color: var(--green); border-color: var(--green-dim); }
+    .status.loading .dot { background: var(--amber); animation: pulse 1s infinite; }
+    .status.loading { color: var(--amber); }
+    .status.error .dot { background: var(--red); }
+    .status.error { color: var(--red); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* --- MAIN LAYOUT --- */
+    .playground {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+
+    /* --- TOOLBAR --- */
+    .toolbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .toolbar select {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 0.8rem;
+      padding: 0.35rem 0.75rem;
+      cursor: pointer;
+      outline: none;
+    }
+
+    .toolbar select:focus { border-color: var(--border-focus); }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.4rem 1rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: var(--font);
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-run {
+      background: var(--green);
+      color: #000;
+    }
+
+    .btn-run:hover { background: var(--green-dim); color: white; }
+
+    .btn-run:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover { border-color: var(--border-hover); }
+
+    .spacer { flex: 1; }
+
+    .toolbar .hint {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+    }
+
+    .toolbar kbd {
+      display: inline-block;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    /* --- EDITOR --- */
+    .panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-right: 1px solid var(--border);
+    }
+
+    .panel:last-child { border-right: none; }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      background: var(--surface-3);
+      flex-shrink: 0;
+    }
+
+    .panel-header .icon { font-size: 0.85rem; }
+
+    #editor {
+      flex: 1;
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      line-height: 1.7;
+      padding: 1rem;
+      border: none;
+      outline: none;
+      resize: none;
+      tab-size: 2;
+      overflow: auto;
+    }
+
+    #editor::selection { background: rgba(59, 130, 246, 0.3); }
+
+    /* --- OUTPUT --- */
+    #output {
+      flex: 1;
+      overflow: auto;
+      background: var(--bg);
+      padding: 1rem;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.8;
+    }
+
+    .log-line { padding: 0.1rem 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+    .log-line.info { color: var(--text); }
+    .log-line.warn { color: var(--amber); }
+    .log-line.error { color: var(--red); }
+    .log-line.success { color: var(--green); }
+    .log-line .time { color: var(--text-dim); margin-right: 0.75rem; font-size: 0.7rem; }
+
+    .download-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+      padding: 0.4rem 0.8rem;
+      background: var(--accent-dim);
+      color: white;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .download-link:hover { background: var(--accent); text-decoration: none; }
+
+    .welcome {
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      line-height: 1.8;
+    }
+
+    .welcome strong { color: var(--text-muted); }
+
+    /* --- RESPONSIVE --- */
+    @media (max-width: 768px) {
+      .playground {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr 1fr;
+      }
+      .panel { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="inner">
+    <div class="left">
+      <a href="." class="logo" style="text-decoration:none">modern-xlsx</a>
+      <span class="sep">/</span>
+      <span class="page-title">Playground</span>
+    </div>
+    <div class="links">
+      <span id="wasm-status" class="status loading">
+        <span class="dot"></span>
+        Loading WASM...
+      </span>
+      <a href=".">Docs</a>
+      <a href="https://github.com/ABCrimson/modern-xlsx">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="playground">
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <label for="examples" style="font-size:0.8rem;color:var(--text-muted)">Example:</label>
+    <select id="examples">
+      <option value="hello">Hello World</option>
+      <option value="styled">Styled Workbook</option>
+      <option value="read">Read & Inspect</option>
+      <option value="batch">Batch Data (aoaToSheet)</option>
+      <option value="json">JSON to Sheet</option>
+      <option value="formulas">Formulas & Dates</option>
+    </select>
+    <button id="run-btn" class="btn btn-run" disabled>Run</button>
+    <button id="clear-btn" class="btn btn-secondary">Clear</button>
+    <span class="spacer"></span>
+    <span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run</span>
+  </div>
+
+  <!-- Editor panel -->
+  <div class="panel">
+    <div class="panel-header"><span class="icon">&#9998;</span> Code</div>
+    <textarea id="editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+  </div>
+
+  <!-- Output panel -->
+  <div class="panel">
+    <div class="panel-header"><span class="icon">&#9654;</span> Output</div>
+    <div id="output">
+      <div class="welcome">
+        <strong>Welcome to the modern-xlsx playground!</strong><br>
+        Select an example from the dropdown, or write your own code.<br>
+        Press <strong>Run</strong> or <strong>Ctrl+Enter</strong> to execute.<br><br>
+        The full <code>ModernXlsx</code> API is available globally.<br>
+        Use <code>download(blob, filename)</code> to download files.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Load modern-xlsx IIFE bundle from jsDelivr CDN -->
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.2.0/dist/modern-xlsx.min.js"></script>
+<script>
+(async () => {
+  const statusEl = document.getElementById('wasm-status');
+  const runBtn = document.getElementById('run-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  const editor = document.getElementById('editor');
+  const output = document.getElementById('output');
+  const examplesSelect = document.getElementById('examples');
+
+  // --- Examples ---
+  const examples = {
+    hello: `// Create a simple workbook and download it
+const wb = new ModernXlsx.Workbook();
+const ws = wb.addSheet('Sheet1');
+
+ws.cell('A1').value = 'Hello';
+ws.cell('B1').value = 'World';
+ws.cell('A2').value = 42;
+ws.cell('B2').value = true;
+
+log('Created workbook with 4 cells');
+log('Sheet: ' + ws.name);
+
+const blob = ModernXlsx.writeBlob(wb);
+log('File size: ' + (blob.size / 1024).toFixed(1) + ' KB');
+download(blob, 'hello.xlsx');`,
+
+    styled: `// Styled workbook with headers, formatting, and colors
+const wb = new ModernXlsx.Workbook();
+const ws = wb.addSheet('Sales Report');
+
+// Create styles
+const headerStyle = new ModernXlsx.StyleBuilder()
+  .font({ bold: true, size: 13, color: 'FFFFFF' })
+  .fill({ pattern: 'solid', fgColor: '2563EB' })
+  .alignment({ horizontal: 'center' })
+  .border({
+    bottom: { style: 'medium', color: '1E40AF' },
+  })
+  .build(wb.styles);
+
+const currencyStyle = new ModernXlsx.StyleBuilder()
+  .numberFormat('$#,##0.00')
+  .build(wb.styles);
+
+const percentStyle = new ModernXlsx.StyleBuilder()
+  .numberFormat('0.0%')
+  .font({ color: '16A34A' })
+  .build(wb.styles);
+
+// Headers
+const headers = ['Product', 'Q1', 'Q2', 'Q3', 'Q4', 'Growth'];
+headers.forEach((h, i) => {
+  const ref = ModernXlsx.encodeCellRef({ row: 0, col: i });
+  ws.cell(ref).value = h;
+  ws.cell(ref).styleIndex = headerStyle;
+});
+
+// Data rows
+const data = [
+  ['Widget A', 12500, 15800, 18200, 22100, 0.768],
+  ['Widget B', 8900, 9200, 11500, 14300, 0.607],
+  ['Service X', 45000, 47500, 52000, 58000, 0.289],
+];
+
+data.forEach((row, ri) => {
+  row.forEach((val, ci) => {
+    const ref = ModernXlsx.encodeCellRef({ row: ri + 1, col: ci });
+    ws.cell(ref).value = val;
+    if (ci >= 1 && ci <= 4) ws.cell(ref).styleIndex = currencyStyle;
+    if (ci === 5) ws.cell(ref).styleIndex = percentStyle;
+  });
+});
+
+// Auto-filter on header row
+ws.autoFilter = { ref: 'A1:F4' };
+
+// Column widths
+ws.setColumnWidth(0, 15);
+for (let i = 1; i <= 5; i++) ws.setColumnWidth(i, 12);
+
+log('Created styled sales report');
+const blob = ModernXlsx.writeBlob(wb);
+log('File size: ' + (blob.size / 1024).toFixed(1) + ' KB');
+download(blob, 'sales-report.xlsx');`,
+
+    read: `// Read a file: drop an .xlsx file on this page, or use a generated one
+const wb = new ModernXlsx.Workbook();
+const ws = wb.addSheet('Demo');
+ws.cell('A1').value = 'Name';
+ws.cell('B1').value = 'Score';
+ws.cell('A2').value = 'Alice';
+ws.cell('B2').value = 95;
+ws.cell('A3').value = 'Bob';
+ws.cell('B3').value = 87;
+
+// Write to buffer
+const blob = ModernXlsx.writeBlob(wb);
+log('Written ' + (blob.size / 1024).toFixed(1) + ' KB');
+
+// Read it back
+const buffer = new Uint8Array(await blob.arrayBuffer());
+const wb2 = await ModernXlsx.readBuffer(buffer);
+
+log('Sheets: ' + wb2.sheetNames.join(', '));
+const ws2 = wb2.getSheet('Demo');
+log('A1 = ' + ws2?.cell('A1').value);
+log('B1 = ' + ws2?.cell('B1').value);
+log('A2 = ' + ws2?.cell('A2').value);
+log('B2 = ' + ws2?.cell('B2').value);
+log('A3 = ' + ws2?.cell('A3').value);
+log('B3 = ' + ws2?.cell('B3').value);
+log('Round-trip successful!', 'success');`,
+
+    batch: `// Build a 1000-row sheet using aoaToSheet (batch API)
+const t0 = performance.now();
+
+const rows = [['ID', 'Name', 'Value', 'Active']];
+for (let i = 1; i <= 1000; i++) {
+  rows.push([i, 'Item ' + i, Math.random() * 1000, i % 3 !== 0]);
+}
+
+const wb = new ModernXlsx.Workbook();
+const sheet = ModernXlsx.aoaToSheet(rows);
+wb.addSheetData('Data', sheet);
+
+const elapsed = (performance.now() - t0).toFixed(1);
+log('Built 1000 rows in ' + elapsed + 'ms');
+
+const blob = ModernXlsx.writeBlob(wb);
+log('File size: ' + (blob.size / 1024).toFixed(1) + ' KB');
+download(blob, 'batch-data.xlsx');`,
+
+    json: `// Convert JSON array to a worksheet
+const employees = [
+  { name: 'Alice', department: 'Engineering', salary: 120000, startDate: '2023-01-15' },
+  { name: 'Bob', department: 'Marketing', salary: 95000, startDate: '2023-03-22' },
+  { name: 'Carol', department: 'Engineering', salary: 135000, startDate: '2022-11-01' },
+  { name: 'Dave', department: 'Sales', salary: 88000, startDate: '2024-06-10' },
+  { name: 'Eve', department: 'Engineering', salary: 142000, startDate: '2021-08-05' },
+];
+
+const wb = new ModernXlsx.Workbook();
+const sheet = ModernXlsx.jsonToSheet(employees);
+wb.addSheetData('Employees', sheet);
+
+log('Converted ' + employees.length + ' records to sheet');
+
+// Read it back as JSON to verify
+const json = ModernXlsx.sheetToJson(sheet);
+log('Round-trip JSON: ' + json.length + ' rows');
+json.forEach(row => log('  ' + JSON.stringify(row)));
+
+const blob = ModernXlsx.writeBlob(wb);
+download(blob, 'employees.xlsx');`,
+
+    formulas: `// Formulas, dates, and number formats
+const wb = new ModernXlsx.Workbook();
+const ws = wb.addSheet('Invoice');
+
+const boldStyle = new ModernXlsx.StyleBuilder()
+  .font({ bold: true })
+  .build(wb.styles);
+
+const dateStyle = new ModernXlsx.StyleBuilder()
+  .numberFormat('yyyy-mm-dd')
+  .build(wb.styles);
+
+const currStyle = new ModernXlsx.StyleBuilder()
+  .numberFormat('$#,##0.00')
+  .build(wb.styles);
+
+const totalStyle = new ModernXlsx.StyleBuilder()
+  .font({ bold: true, size: 12 })
+  .numberFormat('$#,##0.00')
+  .border({ top: { style: 'double', color: '000000' } })
+  .build(wb.styles);
+
+// Header
+ws.cell('A1').value = 'Invoice Date:';
+ws.cell('A1').styleIndex = boldStyle;
+ws.cell('B1').value = ModernXlsx.dateToSerial(new Date());
+ws.cell('B1').styleIndex = dateStyle;
+
+// Column headers
+ws.cell('A3').value = 'Item'; ws.cell('A3').styleIndex = boldStyle;
+ws.cell('B3').value = 'Qty';  ws.cell('B3').styleIndex = boldStyle;
+ws.cell('C3').value = 'Price'; ws.cell('C3').styleIndex = boldStyle;
+ws.cell('D3').value = 'Total'; ws.cell('D3').styleIndex = boldStyle;
+
+// Data
+const items = [
+  ['Laptop', 2, 1299.99],
+  ['Mouse', 5, 29.99],
+  ['Keyboard', 3, 79.99],
+  ['Monitor', 2, 449.99],
+];
+
+items.forEach((item, i) => {
+  const row = i + 4;
+  ws.cell('A' + row).value = item[0];
+  ws.cell('B' + row).value = item[1];
+  ws.cell('C' + row).value = item[2];
+  ws.cell('C' + row).styleIndex = currStyle;
+  ws.cell('D' + row).formula = 'B' + row + '*C' + row;
+  ws.cell('D' + row).styleIndex = currStyle;
+});
+
+// Grand total with SUM formula
+ws.cell('D8').formula = 'SUM(D4:D7)';
+ws.cell('D8').styleIndex = totalStyle;
+ws.cell('C8').value = 'Grand Total:';
+ws.cell('C8').styleIndex = boldStyle;
+
+ws.setColumnWidth(0, 15);
+ws.setColumnWidth(1, 8);
+ws.setColumnWidth(2, 12);
+ws.setColumnWidth(3, 14);
+
+log('Created invoice with formulas and date');
+const blob = ModernXlsx.writeBlob(wb);
+download(blob, 'invoice.xlsx');`,
+  };
+
+  // --- Helpers ---
+  function timestamp() {
+    const d = new Date();
+    return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      + '.' + String(d.getMilliseconds()).padStart(3, '0');
+  }
+
+  function appendLog(msg, level = 'info') {
+    const line = document.createElement('div');
+    line.className = 'log-line ' + level;
+    line.innerHTML = '<span class="time">' + timestamp() + '</span>' + escapeHtml(String(msg));
+    output.appendChild(line);
+    output.scrollTop = output.scrollHeight;
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function clearOutput() {
+    output.innerHTML = '';
+  }
+
+  // Exposed to user code
+  window.log = function(msg, level) { appendLog(msg, level || 'info'); };
+  window.download = function(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const el = document.createElement('a');
+    el.className = 'download-link';
+    el.href = url;
+    el.download = filename || 'output.xlsx';
+    el.textContent = 'Download ' + (filename || 'output.xlsx') + ' (' + (blob.size / 1024).toFixed(1) + ' KB)';
+    el.onclick = () => setTimeout(() => URL.revokeObjectURL(url), 1000);
+    output.appendChild(el);
+    output.scrollTop = output.scrollHeight;
+    appendLog('File ready for download: ' + (filename || 'output.xlsx'), 'success');
+  };
+
+  // --- Init WASM ---
+  try {
+    await ModernXlsx.initWasm();
+    statusEl.className = 'status ready';
+    statusEl.innerHTML = '<span class="dot"></span>WASM Ready';
+    runBtn.disabled = false;
+    appendLog('WASM initialized (' + (typeof ModernXlsx.VERSION !== 'undefined' ? 'v' + ModernXlsx.VERSION : 'OK') + ')', 'success');
+  } catch (err) {
+    statusEl.className = 'status error';
+    statusEl.innerHTML = '<span class="dot"></span>WASM Error';
+    appendLog('Failed to initialize WASM: ' + err.message, 'error');
+    appendLog('Trying to load from a local path...', 'warn');
+    // Fallback: try loading from relative path (for local development)
+    try {
+      await ModernXlsx.initWasm(new URL('../../packages/modern-xlsx/dist/modern-xlsx.wasm', location.href));
+      statusEl.className = 'status ready';
+      statusEl.innerHTML = '<span class="dot"></span>WASM Ready (local)';
+      runBtn.disabled = false;
+      appendLog('WASM initialized from local path', 'success');
+    } catch (err2) {
+      appendLog('Local fallback also failed: ' + err2.message, 'error');
+    }
+  }
+
+  // --- Load example ---
+  function loadExample(name) {
+    editor.value = examples[name] || '';
+  }
+
+  examplesSelect.addEventListener('change', () => {
+    loadExample(examplesSelect.value);
+  });
+
+  // Load default example
+  loadExample('hello');
+
+  // --- Run code ---
+  async function runCode() {
+    clearOutput();
+    const code = editor.value;
+    const t0 = performance.now();
+    appendLog('Executing...', 'info');
+
+    try {
+      // Wrap in async function so await works
+      const fn = new Function('ModernXlsx', 'log', 'download',
+        '"use strict";\nreturn (async () => {\n' + code + '\n})();');
+      await fn(ModernXlsx, window.log, window.download);
+      const elapsed = (performance.now() - t0).toFixed(1);
+      appendLog('Done in ' + elapsed + 'ms', 'success');
+    } catch (err) {
+      appendLog('Error: ' + err.message, 'error');
+      if (err.stack) {
+        const stackLines = err.stack.split('\n').slice(1, 4).join('\n');
+        appendLog(stackLines, 'error');
+      }
+    }
+  }
+
+  runBtn.addEventListener('click', runCode);
+  clearBtn.addEventListener('click', clearOutput);
+
+  // Ctrl+Enter to run
+  editor.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      runCode();
+    }
+    // Tab inserts 2 spaces
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = editor.selectionStart;
+      const end = editor.selectionEnd;
+      editor.value = editor.value.substring(0, start) + '  ' + editor.value.substring(end);
+      editor.selectionStart = editor.selectionEnd = start + 2;
+    }
+  });
+})();
+</script>
+
+</body>
+</html>

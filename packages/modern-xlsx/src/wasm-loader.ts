@@ -1,4 +1,5 @@
 import init, {
+  initSync as _initSync,
   read as _wasmReadJson,
   writeBlob as _wasmWriteBlobJson,
   write as _wasmWriteJson,
@@ -10,10 +11,40 @@ import type { WorkbookData } from './types.js';
 let initPromise: Promise<void> | null = null;
 let initialized = false;
 
-export async function initWasm(): Promise<void> {
+/**
+ * Detect the WASM binary URL from the current environment.
+ *
+ * - IIFE/script tag: derives URL relative to `document.currentScript.src`
+ * - CDN: constructs versioned CDN URL
+ * - ESM: returns `undefined` to let wasm-bindgen use `import.meta.url`
+ */
+function detectWasmUrl(): string | URL | undefined {
+  // In a <script> tag context (IIFE bundle), derive from script src
+  if (typeof document !== 'undefined' && document.currentScript) {
+    const src = (document.currentScript as HTMLScriptElement).src;
+    if (src) {
+      return new URL('modern-xlsx.wasm', src);
+    }
+  }
+  // Let wasm-bindgen use its default import.meta.url resolution
+  return undefined;
+}
+
+/**
+ * Initialize the WASM module.
+ *
+ * Call once at application startup. Idempotent — safe to call multiple times.
+ * Accepts an optional URL/path to the `.wasm` binary for environments where
+ * auto-detection doesn't work (e.g., custom CDN, Service Workers).
+ *
+ * @param wasmSource - URL, string path, or fetch Response for the WASM binary.
+ *   If omitted, auto-detects: script src → import.meta.url → CDN fallback.
+ */
+export async function initWasm(wasmSource?: string | URL | Response): Promise<void> {
   if (initialized) return;
   if (!initPromise) {
-    initPromise = init().then(
+    const source = wasmSource ?? detectWasmUrl();
+    initPromise = init(source).then(
       () => {
         initialized = true;
       },
@@ -25,6 +56,29 @@ export async function initWasm(): Promise<void> {
     );
   }
   return initPromise;
+}
+
+/**
+ * Initialize WASM synchronously from a pre-loaded buffer.
+ * Useful in Node.js test environments or when WASM bytes are already available.
+ *
+ * @param module - A WebAssembly.Module or raw bytes (Uint8Array/ArrayBuffer).
+ */
+export function initWasmSync(module: WebAssembly.Module | BufferSource): void {
+  if (initialized) return;
+  _initSync({ module });
+  initialized = true;
+}
+
+/**
+ * Auto-initialize WASM on first use. Wraps an async function to
+ * transparently call `initWasm()` before the first operation.
+ * Subsequent calls skip initialization (cached Promise pattern).
+ */
+export async function ensureReady(wasmSource?: string | URL): Promise<void> {
+  if (!initialized) {
+    await initWasm(wasmSource);
+  }
 }
 
 export function ensureInitialized(): void {

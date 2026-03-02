@@ -1,0 +1,16 @@
+{
+  "name": "modern-xlsx-cloudflare-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "modern-xlsx": "^0.2.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "@cloudflare/workers-types": "^4.0.0"
+  }
+}

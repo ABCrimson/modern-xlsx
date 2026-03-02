@@ -1,6 +1,6 @@
 {
   "name": "modern-xlsx",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "High-performance XLSX read/write library powered by Rust WASM. Full styling, data validation, conditional formatting — features SheetJS charges for, free and open source.",
   "license": "MIT",
   "author": "modern-xlsx contributors",
@@ -27,8 +27,13 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs",
       "default": "./dist/index.mjs"
-    }
+    },
+    "./browser": "./dist/modern-xlsx.min.js",
+    "./worker": "./dist/modern-xlsx.worker.js"
   },
+  "browser": "./dist/modern-xlsx.min.js",
+  "unpkg": "./dist/modern-xlsx.min.js",
+  "jsdelivr": "./dist/modern-xlsx.min.js",
   "files": [
     "dist/",
     "wasm/",
@@ -40,7 +45,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node -e \"const f=require('fs');f.copyFileSync('wasm/modern_xlsx_wasm_bg.wasm','dist/modern-xlsx.wasm');f.renameSync('dist/modern-xlsx.min.iife.js','dist/modern-xlsx.min.js');f.renameSync('dist/modern-xlsx.min.iife.js.map','dist/modern-xlsx.min.js.map')\"",
     "test": "vitest run",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:watch": "vitest",

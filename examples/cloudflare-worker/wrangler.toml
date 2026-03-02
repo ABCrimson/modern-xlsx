@@ -1,0 +1,13 @@
+name = "modern-xlsx-worker"
+main = "worker.ts"
+compatibility_date = "2025-01-01"
+
+[build]
+command = ""
+
+# The WASM module is imported directly in the worker code.
+# Wrangler handles .wasm imports automatically.
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]

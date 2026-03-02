@@ -342,7 +342,7 @@ const runs = new RichTextBuilder()
   .build();
 ```
 
-### Browser Usage
+### Browser Usage (ESM)
 
 ```html
 <script type="module">
@@ -359,6 +359,68 @@ const runs = new RichTextBuilder()
   a.download = 'output.xlsx';
   a.click();
 </script>
+```
+
+### Browser Usage (CDN / IIFE)
+
+Single `<script>` tag — no bundler required:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.2.0/dist/modern-xlsx.min.js"></script>
+<script>
+  (async () => {
+    await ModernXlsx.initWasm();
+    const wb = new ModernXlsx.Workbook();
+    wb.addSheet('Sheet1').cell('A1').value = 'Hello!';
+    const blob = ModernXlsx.writeBlob(wb);
+    // trigger download...
+  })();
+</script>
+```
+
+Also available via unpkg: `https://unpkg.com/modern-xlsx@0.2.0/dist/modern-xlsx.min.js`
+
+### Web Worker (Off-Thread)
+
+Keep the main thread responsive by running XLSX operations in a Web Worker:
+
+```typescript
+import { createXlsxWorker } from 'modern-xlsx';
+
+const worker = createXlsxWorker({
+  workerUrl: '/modern-xlsx.worker.js',
+  wasmUrl: '/modern-xlsx.wasm',  // optional
+});
+
+const data = await worker.readBuffer(xlsxBytes);
+const output = await worker.writeBuffer(data);
+worker.terminate();
+```
+
+### Lazy Initialization
+
+Auto-initialize WASM on first use:
+
+```typescript
+import { ensureReady, Workbook } from 'modern-xlsx';
+
+await ensureReady();  // no-op if already initialized
+const wb = new Workbook();
+```
+
+### Custom WASM URL
+
+For environments where auto-detection doesn't work:
+
+```typescript
+import { initWasm } from 'modern-xlsx';
+
+// Custom URL
+await initWasm('https://my-cdn.com/modern-xlsx.wasm');
+
+// From fetch Response
+const res = await fetch('/wasm/modern-xlsx.wasm');
+await initWasm(res);
 ```
 
 ## Types
