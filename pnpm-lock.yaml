@@ -17,12 +17,15 @@ importers:
       '@biomejs/biome':
         specifier: 2.4.4
         version: 2.4.4
+      '@types/node':
+        specifier: ^25.3.3
+        version: 25.3.3
       '@vitest/browser':
         specifier: 4.1.0-beta.5
-        version: 4.1.0-beta.5(vite@7.3.1)(vitest@4.1.0-beta.5(vite@7.3.1))
+        version: 4.1.0-beta.5(vite@7.3.1(@types/node@25.3.3))(vitest@4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3)))
       '@vitest/coverage-v8':
         specifier: 4.1.0-beta.5
-        version: 4.1.0-beta.5(@vitest/browser@4.1.0-beta.5(vite@7.3.1)(vitest@4.1.0-beta.5(vite@7.3.1)))(vitest@4.1.0-beta.5(vite@7.3.1))
+        version: 4.1.0-beta.5(@vitest/browser@4.1.0-beta.5(vite@7.3.1(@types/node@25.3.3))(vitest@4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3))))(vitest@4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3)))
       playwright:
         specifier: ^1.50.0
         version: 1.58.2
@@ -34,7 +37,7 @@ importers:
         version: 6.0.0-dev.20260301
       vitest:
         specifier: 4.1.0-beta.5
-        version: 4.1.0-beta.5(vite@7.3.1)
+        version: 4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3))
       xlsx:
         specifier: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
         version: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
@@ -573,6 +576,9 @@ packages:
   '@types/jsesc@2.5.1':
     resolution: {integrity: sha512-9VN+6yxLOPLOav+7PwjZbxiID2bVaeq0ED4qSQmdQTdjnXJSaCVKTR58t15oqH1H5t8Ng2ZX1SabJVoN9Q34bw==}
 
+  '@types/node@25.3.3':
+    resolution: {integrity: sha512-DpzbrH7wIcBaJibpKo9nnSQL0MTRdnWttGyE5haGwK86xgMOkFLp7vEyfQPGLOJh5wNYiJ3V9PmUMDhV9u8kkQ==}
+
   '@vitest/browser@4.1.0-beta.5':
     resolution: {integrity: sha512-NY0AS1fViS1pruBx5aRyifRZSHQSZV7PQtp6I6sqDCR1xQXuXpFqw8Utfw+hr0iILfb6rQPs7YH3cpM+j2eTvw==}
     peerDependencies:
@@ -901,6 +907,9 @@ packages:
 
   unconfig-core@7.5.0:
     resolution: {integrity: sha512-Su3FauozOGP44ZmKdHy2oE6LPjk51M/TRRjHv2HNCWiDvfvCoxC2lno6jevMA91MYAdCdwP05QnWdWpSbncX/w==}
+
+  undici-types@7.18.2:
+    resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
   unrun@0.2.28:
     resolution: {integrity: sha512-LqMrI3ZEUMZ2476aCsbUTfy95CHByqez05nju4AQv4XFPkxh5yai7Di1/Qb0FoELHEEPDWhQi23EJeFyrBV0Og==}
@@ -1345,16 +1354,20 @@ snapshots:
 
   '@types/jsesc@2.5.1': {}
 
-  '@vitest/browser@4.1.0-beta.5(vite@7.3.1)(vitest@4.1.0-beta.5(vite@7.3.1))':
+  '@types/node@25.3.3':
+    dependencies:
+      undici-types: 7.18.2
+
+  '@vitest/browser@4.1.0-beta.5(vite@7.3.1(@types/node@25.3.3))(vitest@4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3)))':
     dependencies:
       '@blazediff/core': 1.9.1
-      '@vitest/mocker': 4.1.0-beta.5(vite@7.3.1)
+      '@vitest/mocker': 4.1.0-beta.5(vite@7.3.1(@types/node@25.3.3))
       '@vitest/utils': 4.1.0-beta.5
       magic-string: 0.30.21
       pngjs: 7.0.0
       sirv: 3.0.2
       tinyrainbow: 3.0.3
-      vitest: 4.1.0-beta.5(vite@7.3.1)
+      vitest: 4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3))
       ws: 8.19.0
     transitivePeerDependencies:
       - bufferutil
@@ -1362,7 +1375,7 @@ snapshots:
       - utf-8-validate
       - vite
 
-  '@vitest/coverage-v8@4.1.0-beta.5(@vitest/browser@4.1.0-beta.5(vite@7.3.1)(vitest@4.1.0-beta.5(vite@7.3.1)))(vitest@4.1.0-beta.5(vite@7.3.1))':
+  '@vitest/coverage-v8@4.1.0-beta.5(@vitest/browser@4.1.0-beta.5(vite@7.3.1(@types/node@25.3.3))(vitest@4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3))))(vitest@4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3)))':
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
       '@vitest/utils': 4.1.0-beta.5
@@ -1374,9 +1387,9 @@ snapshots:
       obug: 2.1.1
       std-env: 3.10.0
       tinyrainbow: 3.0.3
-      vitest: 4.1.0-beta.5(vite@7.3.1)
+      vitest: 4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3))
     optionalDependencies:
-      '@vitest/browser': 4.1.0-beta.5(vite@7.3.1)(vitest@4.1.0-beta.5(vite@7.3.1))
+      '@vitest/browser': 4.1.0-beta.5(vite@7.3.1(@types/node@25.3.3))(vitest@4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3)))
 
   '@vitest/expect@4.1.0-beta.5':
     dependencies:
@@ -1387,13 +1400,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.0.3
 
-  '@vitest/mocker@4.1.0-beta.5(vite@7.3.1)':
+  '@vitest/mocker@4.1.0-beta.5(vite@7.3.1(@types/node@25.3.3))':
     dependencies:
       '@vitest/spy': 4.1.0-beta.5
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 7.3.1
+      vite: 7.3.1(@types/node@25.3.3)
 
   '@vitest/pretty-format@4.1.0-beta.5':
     dependencies:
@@ -1710,11 +1723,13 @@ snapshots:
       '@quansync/fs': 1.0.0
       quansync: 1.0.0
 
+  undici-types@7.18.2: {}
+
   unrun@0.2.28:
     dependencies:
       rolldown: 1.0.0-rc.5
 
-  vite@7.3.1:
+  vite@7.3.1(@types/node@25.3.3):
     dependencies:
       esbuild: 0.27.3
       fdir: 6.5.0(picomatch@4.0.3)
@@ -1723,12 +1738,13 @@ snapshots:
       rollup: 4.59.0
       tinyglobby: 0.2.15
     optionalDependencies:
+      '@types/node': 25.3.3
       fsevents: 2.3.3
 
-  vitest@4.1.0-beta.5(vite@7.3.1):
+  vitest@4.1.0-beta.5(@types/node@25.3.3)(vite@7.3.1(@types/node@25.3.3)):
     dependencies:
       '@vitest/expect': 4.1.0-beta.5
-      '@vitest/mocker': 4.1.0-beta.5(vite@7.3.1)
+      '@vitest/mocker': 4.1.0-beta.5(vite@7.3.1(@types/node@25.3.3))
       '@vitest/pretty-format': 4.1.0-beta.5
       '@vitest/runner': 4.1.0-beta.5
       '@vitest/snapshot': 4.1.0-beta.5
@@ -1745,8 +1761,10 @@ snapshots:
       tinyexec: 1.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vite: 7.3.1
+      vite: 7.3.1(@types/node@25.3.3)
       why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 25.3.3
     transitivePeerDependencies:
       - msw
 

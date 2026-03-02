@@ -1,8 +1,8 @@
 import init, {
   read as _wasmReadJson,
-  version as wasmVersion,
-  write as _wasmWriteJson,
   writeBlob as _wasmWriteBlobJson,
+  write as _wasmWriteJson,
+  version as wasmVersion,
 } from '../wasm/modern_xlsx_wasm.js';
 
 import type { WorkbookData } from './types.js';

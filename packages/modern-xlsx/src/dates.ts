@@ -109,10 +109,7 @@ function toUtcMs(input: Date | TemporalLike): number {
  * @param system - Date system to use (default: date1900)
  * @returns Serial number (fractional part represents time of day)
  */
-export function dateToSerial(
-  date: Date | TemporalLike,
-  system: DateSystem = 'date1900',
-): number {
+export function dateToSerial(date: Date | TemporalLike, system: DateSystem = 'date1900'): number {
   const utcMs = toUtcMs(date);
 
   if (system === 'date1904') {

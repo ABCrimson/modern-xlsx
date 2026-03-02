@@ -168,7 +168,7 @@ export class Workbook {
   }
 
   set docProperties(props: DocPropertiesData | null) {
-    this.data.docProperties = props ?? undefined;
+    this.data.docProperties = props;
   }
 
   // --- Theme colors ---
@@ -336,7 +336,7 @@ export class Worksheet {
   }
 
   set pageSetup(setup: PageSetupData | null) {
-    this.data.worksheet.pageSetup = setup ?? undefined;
+    this.data.worksheet.pageSetup = setup;
   }
 
   // --- Sheet protection ---
@@ -346,7 +346,7 @@ export class Worksheet {
   }
 
   set sheetProtection(protection: SheetProtectionData | null) {
-    this.data.worksheet.sheetProtection = protection ?? undefined;
+    this.data.worksheet.sheetProtection = protection;
   }
 
   // --- Frozen pane ---

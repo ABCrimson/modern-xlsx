@@ -191,6 +191,7 @@ function extractDateParts(date: Date, code: string): DateParts {
  * regex-replace approach which can corrupt output when a substituted value
  * contains characters matching later patterns (e.g. year "1900" → yy matches "00").
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: date format tokenizer is inherently complex
 function applyDateTokens(code: string, p: DateParts): string {
   let result = '';
   let i = 0;

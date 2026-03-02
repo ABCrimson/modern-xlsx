@@ -113,6 +113,30 @@ function resolveHeaders(
   };
 }
 
+function buildRowObject(
+  row: RowData,
+  headers: string[],
+  colLetters: string[],
+  bounds: DataBounds,
+  defval?: unknown,
+): Record<string, unknown> {
+  const cellMap = new Map(row.cells.map((c) => [c.reference, c]));
+  const obj: Record<string, unknown> = {};
+  for (let col = bounds.startCol; col <= bounds.endCol; col++) {
+    const idx = col - bounds.startCol;
+    const ref = `${colLetters[idx]}${row.index}`;
+    const cellData = cellMap.get(ref);
+    const key = headers[idx] ?? colLetters[idx];
+    if (key === undefined) continue;
+    if (cellData?.value != null) {
+      obj[key] = parseCellValue(cellData);
+    } else if (defval !== undefined) {
+      obj[key] = defval;
+    }
+  }
+  return obj;
+}
+
 function collectRows<T extends Record<string, unknown>>(
   rows: readonly RowData[],
   headers: string[],
@@ -126,20 +150,7 @@ function collectRows<T extends Record<string, unknown>>(
   const result: T[] = [];
   for (const row of rows) {
     if (row.index <= dataStartRow || row.index > bounds.endRow + 1) continue;
-
-    const cellMap = new Map(row.cells.map((c) => [c.reference, c]));
-    const obj: Record<string, unknown> = {};
-    for (let col = bounds.startCol; col <= bounds.endCol; col++) {
-      const ref = `${colLetters[col - bounds.startCol]}${row.index}`;
-      const cellData = cellMap.get(ref);
-      const key = headers[col - bounds.startCol] ?? colLetters[col - bounds.startCol];
-      if (cellData?.value != null) {
-        obj[key] = parseCellValue(cellData);
-      } else if (defval !== undefined) {
-        obj[key] = defval;
-      }
-    }
-    result.push(obj as T);
+    result.push(buildRowObject(row, headers, colLetters, bounds, defval) as T);
   }
   return result;
 }
