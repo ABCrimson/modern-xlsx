@@ -20,7 +20,7 @@
     "lint": "biome check .",
     "fmt": "biome format --write ."
   },
-  "dependencies": {
-    "xlsx": "^0.18.5"
+  "devDependencies": {
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }
