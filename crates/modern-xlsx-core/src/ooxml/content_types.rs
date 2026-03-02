@@ -76,7 +76,7 @@ impl ContentTypes {
     /// Parse `[Content_Types].xml` from raw XML bytes.
     pub fn parse(data: &[u8]) -> Result<Self> {
         let mut reader = Reader::from_reader(data);
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(512);
         let mut ct = Self::new();
 
         loop {

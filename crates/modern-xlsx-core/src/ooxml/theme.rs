@@ -72,7 +72,7 @@ pub fn parse(data: &[u8]) -> Result<ThemeColors> {
     let mut reader = Reader::from_reader(data);
     reader.config_mut().trim_text(true);
 
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(512);
     let mut colors = ThemeColors::default();
 
     // We track which color slot we are inside (dk1, lt1, etc.).

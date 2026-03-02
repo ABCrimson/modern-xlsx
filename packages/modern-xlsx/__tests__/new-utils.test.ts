@@ -1,10 +1,8 @@
-import { readFile } from 'node:fs/promises';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   aoaToSheet,
   formatCell,
   getBuiltinFormat,
-  initWasm,
   RichTextBuilder,
   sheetAddAoa,
   sheetAddJson,
@@ -12,13 +10,6 @@ import {
   sheetToHtml,
   Workbook,
 } from '../src/index.js';
-import { initSync } from '../wasm/modern_xlsx_wasm.js';
-
-beforeAll(async () => {
-  const wasmBytes = await readFile(new URL('../wasm/modern_xlsx_wasm_bg.wasm', import.meta.url));
-  initSync({ module: wasmBytes });
-  await initWasm();
-});
 
 // ---------------------------------------------------------------------------
 // formatCell

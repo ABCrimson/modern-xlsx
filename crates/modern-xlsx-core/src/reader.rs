@@ -184,13 +184,16 @@ fn resolve_comments(
 }
 
 /// Collect all ZIP entries that were not parsed into preserved_entries.
-fn collect_preserved(ctx: &ReaderContext) -> BTreeMap<String, Vec<u8>> {
+///
+/// Takes ownership of entries via `drain()` to avoid cloning large byte
+/// vectors (e.g. embedded images, charts).
+fn collect_preserved(ctx: &mut ReaderContext) -> BTreeMap<String, Vec<u8>> {
     let known_static: HashSet<&str> = KNOWN_STATIC_PATHS.iter().copied().collect();
     let mut preserved = BTreeMap::new();
-    for (path, data) in &ctx.entries {
-        if !known_static.contains(path.as_str()) && !ctx.known_dynamic.contains(path) {
+    for (path, data) in ctx.entries.drain() {
+        if !known_static.contains(path.as_str()) && !ctx.known_dynamic.contains(&path) {
             debug!("preserving unknown ZIP entry: {}", path);
-            preserved.insert(path.clone(), data.clone());
+            preserved.insert(path, data);
         }
     }
     preserved
@@ -245,7 +248,7 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
         }
     }
 
-    let preserved_entries = collect_preserved(&ctx);
+    let preserved_entries = collect_preserved(&mut ctx);
 
     Ok(WorkbookData {
         sheets,
@@ -282,7 +285,6 @@ pub fn read_xlsx_json(data: &[u8]) -> Result<String> {
 pub fn read_xlsx_json_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result<String> {
     let mut ctx = parse_common(data, limits)?;
     let sheet_comments = resolve_comments(&mut ctx)?;
-    let preserved_entries = collect_preserved(&ctx);
 
     // --- Build JSON output ---
     // Estimate ~80 bytes per cell × 10 cells/row × number of rows.
@@ -309,6 +311,9 @@ pub fn read_xlsx_json_with_options(data: &[u8], limits: &ZipSecurityLimits) -> R
     }
 
     out.push(']');
+
+    // Drain entries AFTER sheets are parsed to avoid cloning preserved data.
+    let preserved_entries = collect_preserved(&mut ctx);
 
     // dateSystem
     out.push_str(",\"dateSystem\":");

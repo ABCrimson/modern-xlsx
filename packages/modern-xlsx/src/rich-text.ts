@@ -9,6 +9,12 @@
 
 import type { RichTextRun } from './types.js';
 
+/**
+ * Fluent builder for constructing rich text runs with mixed formatting.
+ *
+ * Each method appends a styled text segment and returns `this` for chaining.
+ * Call {@link build} to produce the final `RichTextRun[]` array.
+ */
 export class RichTextBuilder {
   private readonly runs: RichTextRun[] = [];
 

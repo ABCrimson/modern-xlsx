@@ -43,7 +43,7 @@ impl StreamingReader {
         use crate::ooxml::relationships::Relationships;
         use crate::zip::reader::read_zip_entries;
 
-        let entries = read_zip_entries(data, limits)?;
+        let mut entries = read_zip_entries(data, limits)?;
 
         // Parse workbook.xml (required).
         let wb_data = entries
@@ -72,6 +72,7 @@ impl StreamingReader {
             .unwrap_or_else(Relationships::new);
 
         // Collect raw worksheet data keyed by sheet name.
+        // Use remove() to take ownership instead of cloning large byte vectors.
         let mut sheet_data = std::collections::BTreeMap::new();
         for sheet in &workbook.sheets {
             if let Some(rel) = wb_rels.get_by_id(&sheet.r_id) {
@@ -80,8 +81,8 @@ impl StreamingReader {
                 } else {
                     format!("xl/{}", rel.target)
                 };
-                if let Some(data) = entries.get(&path) {
-                    sheet_data.insert(sheet.name.clone(), data.clone());
+                if let Some(data) = entries.remove(&path) {
+                    sheet_data.insert(sheet.name.clone(), data);
                 }
             }
         }

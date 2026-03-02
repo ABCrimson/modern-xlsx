@@ -10,6 +10,12 @@ import type {
   StylesData,
 } from './types.js';
 
+/**
+ * Fluent builder for constructing cell styles (font, fill, border, alignment, etc.).
+ *
+ * Chain setter methods then call {@link build} to register the style
+ * in a `StylesData` object and obtain a reusable style index.
+ */
 export class StyleBuilder {
   private fontData: Partial<FontData> = {};
   private fillData: Partial<FillData> = {};
@@ -18,11 +24,13 @@ export class StyleBuilder {
   private alignmentData: Partial<AlignmentData> | null = null;
   private protectionData: Partial<ProtectionData> | null = null;
 
+  /** Set font properties (name, size, bold, italic, color, etc.). */
   font(opts: Partial<FontData>): this {
     Object.assign(this.fontData, opts);
     return this;
   }
 
+  /** Set fill properties (pattern type, foreground color, background color). */
   fill(opts: { pattern?: PatternType; fgColor?: string | null; bgColor?: string | null }): this {
     if (opts.pattern !== undefined) this.fillData.patternType = opts.pattern;
     if (opts.fgColor !== undefined) this.fillData.fgColor = opts.fgColor;
@@ -30,6 +38,7 @@ export class StyleBuilder {
     return this;
   }
 
+  /** Set border styles and colors for each side (left, right, top, bottom). */
   border(opts: {
     left?: { style: BorderStyle; color?: string | null };
     right?: { style: BorderStyle; color?: string | null };
@@ -46,18 +55,21 @@ export class StyleBuilder {
     return this;
   }
 
+  /** Set alignment properties (horizontal, vertical, wrap text, rotation, indent). */
   alignment(opts: Partial<AlignmentData>): this {
     if (!this.alignmentData) this.alignmentData = {};
     Object.assign(this.alignmentData, opts);
     return this;
   }
 
+  /** Set cell protection properties (locked, hidden). */
   protection(opts: Partial<ProtectionData>): this {
     if (!this.protectionData) this.protectionData = {};
     Object.assign(this.protectionData, opts);
     return this;
   }
 
+  /** Set a custom number format code (e.g. `"#,##0.00"`, `"yyyy-mm-dd"`). */
   numberFormat(code: string): this {
     this.numFmtCode = code;
     return this;

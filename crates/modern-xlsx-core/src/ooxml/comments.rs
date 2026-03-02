@@ -4,31 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ModernXlsxError, Result};
 
-use super::SPREADSHEET_NS;
-
-/// Resolve a standard XML entity reference name to its character.
-fn resolve_entity(name: &[u8]) -> Option<char> {
-    match name {
-        b"amp" => Some('&'),
-        b"lt" => Some('<'),
-        b"gt" => Some('>'),
-        b"apos" => Some('\''),
-        b"quot" => Some('"'),
-        _ if name.starts_with(b"#x") || name.starts_with(b"#X") => {
-            // Hex character reference: &#xHHHH;
-            let hex = std::str::from_utf8(&name[2..]).ok()?;
-            let code = u32::from_str_radix(hex, 16).ok()?;
-            char::from_u32(code)
-        }
-        _ if name.starts_with(b"#") => {
-            // Decimal character reference: &#NNNN;
-            let dec = std::str::from_utf8(&name[1..]).ok()?;
-            let code = dec.parse::<u32>().ok()?;
-            char::from_u32(code)
-        }
-        _ => None,
-    }
-}
+use super::{push_entity, SPREADSHEET_NS};
 
 /// A single cell comment / note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +42,7 @@ pub fn parse_comments(data: &[u8]) -> Result<Vec<Comment>> {
     let mut reader = Reader::from_reader(data);
     reader.config_mut().trim_text(false);
 
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(512);
     let mut authors: Vec<String> = Vec::new();
     let mut comments: Vec<Comment> = Vec::new();
 
@@ -135,12 +111,10 @@ pub fn parse_comments(data: &[u8]) -> Result<Vec<Comment>> {
                 }
             }
             Ok(Event::GeneralRef(ref e)) => {
-                if let Some(ch) = resolve_entity(e.as_ref()) {
-                    if in_author {
-                        current_author_text.push(ch);
-                    } else if in_t {
-                        current_comment_text.push(ch);
-                    }
+                if in_author {
+                    push_entity(&mut current_author_text, e.as_ref());
+                } else if in_t {
+                    push_entity(&mut current_comment_text, e.as_ref());
                 }
             }
             Ok(Event::End(ref e)) => {

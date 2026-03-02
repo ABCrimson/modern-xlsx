@@ -12,6 +12,7 @@
     "declarationMap": true,
     "sourceMap": true,
     "isolatedModules": true,
+    "isolatedDeclarations": true,
     "verbatimModuleSyntax": true,
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,

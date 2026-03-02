@@ -1,5 +1,7 @@
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
+
+use super::push_entity;
 use serde::{Deserialize, Serialize};
 
 use crate::{ModernXlsxError, Result};
@@ -1090,6 +1092,19 @@ impl WorksheetXml {
                         _ => {}
                     }
                 }
+                Ok(Event::GeneralRef(ref e)) => {
+                    match state {
+                        ParseState::InCellValue
+                        | ParseState::InCellFormula
+                        | ParseState::InInlineStrT
+                        | ParseState::InDVFormula1
+                        | ParseState::InDVFormula2
+                        | ParseState::InCfRuleFormula => {
+                            push_entity(&mut text_buf, e.as_ref());
+                        }
+                        _ => {}
+                    }
+                }
                 Ok(Event::End(ref e)) => {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
@@ -1986,6 +2001,19 @@ impl WorksheetXml {
                         | ParseState::InDVFormula2
                         | ParseState::InCfRuleFormula => {
                             text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Event::GeneralRef(ref e)) => {
+                    match state {
+                        ParseState::InCellValue
+                        | ParseState::InCellFormula
+                        | ParseState::InInlineStrT
+                        | ParseState::InDVFormula1
+                        | ParseState::InDVFormula2
+                        | ParseState::InCfRuleFormula => {
+                            push_entity(&mut text_buf, e.as_ref());
                         }
                         _ => {}
                     }

@@ -64,7 +64,7 @@ pub fn parse_core(data: &[u8]) -> Result<DocProperties> {
     let mut reader = Reader::from_reader(data);
     reader.config_mut().trim_text(true);
 
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(512);
     let mut props = DocProperties::default();
 
     // Track which element we are inside to collect text.
@@ -80,7 +80,9 @@ pub fn parse_core(data: &[u8]) -> Result<DocProperties> {
                     | b"lastModifiedBy" | b"created" | b"modified" | b"category"
                     | b"contentStatus" => {
                         current_element =
-                            Some(String::from_utf8_lossy(local.as_ref()).into_owned());
+                            Some(std::str::from_utf8(local.as_ref())
+                                .unwrap_or_default()
+                                .to_owned());
                         text_buf.clear();
                     }
                     _ => {}
@@ -134,7 +136,7 @@ pub fn parse_app(props: &mut DocProperties, data: &[u8]) -> Result<()> {
     let mut reader = Reader::from_reader(data);
     reader.config_mut().trim_text(true);
 
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(512);
     let mut current_element: Option<String> = None;
     let mut text_buf = String::new();
 
@@ -145,7 +147,9 @@ pub fn parse_app(props: &mut DocProperties, data: &[u8]) -> Result<()> {
                 match local.as_ref() {
                     b"Application" | b"Company" | b"Manager" => {
                         current_element =
-                            Some(String::from_utf8_lossy(local.as_ref()).into_owned());
+                            Some(std::str::from_utf8(local.as_ref())
+                                .unwrap_or_default()
+                                .to_owned());
                         text_buf.clear();
                     }
                     _ => {}

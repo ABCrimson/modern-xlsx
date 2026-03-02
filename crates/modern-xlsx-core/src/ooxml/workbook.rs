@@ -83,7 +83,7 @@ impl WorkbookXml {
         let mut reader = Reader::from_reader(data);
         reader.config_mut().trim_text(true);
 
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(512);
         let mut sheets = Vec::new();
         let mut date_system = DateSystem::Date1900;
         let mut defined_names = Vec::new();

@@ -11,6 +11,7 @@ import { Worksheet } from './workbook.js';
 // sheetToJson
 // ---------------------------------------------------------------------------
 
+/** Options for the {@link sheetToJson} function. */
 export interface SheetToJsonOptions {
   /** Row to use as header. `'A'` = use column letters (default), number = 1-based row index, string[] = explicit header. */
   header?: 'A' | number | string[];
@@ -182,6 +183,7 @@ function parseCellValue(cell: CellData): string | number | boolean {
 // jsonToSheet
 // ---------------------------------------------------------------------------
 
+/** Options for the {@link jsonToSheet} function. */
 export interface JsonToSheetOptions {
   /** Explicit header order. If omitted, uses Object.keys of first row. */
   header?: string[];
@@ -246,6 +248,7 @@ function writeDataRow(
 // aoaToSheet
 // ---------------------------------------------------------------------------
 
+/** Options for the {@link aoaToSheet} function. */
 export interface AoaToSheetOptions {
   /** Origin cell reference, e.g. "A1" (default). */
   origin?: string;
@@ -282,6 +285,7 @@ export function aoaToSheet(data: unknown[][], opts?: AoaToSheetOptions): Workshe
 // sheetToCsv
 // ---------------------------------------------------------------------------
 
+/** Options for the {@link sheetToCsv} function. */
 export interface SheetToCsvOptions {
   /** Field separator (default: ","). */
   separator?: string;
@@ -354,6 +358,7 @@ function csvQuote(value: string, sep: string, force: boolean): string {
 // sheetToHtml
 // ---------------------------------------------------------------------------
 
+/** Options for the {@link sheetToHtml} function. */
 export interface SheetToHtmlOptions {
   /** CSS class for the table element. */
   className?: string;
@@ -435,6 +440,7 @@ function escapeHtml(str: string): string {
 // sheetAddAoa — append array-of-arrays data to existing worksheet
 // ---------------------------------------------------------------------------
 
+/** Options for the {@link sheetAddAoa} function. */
 export interface SheetAddAoaOptions {
   /** Starting cell reference (default: next row after existing data). */
   origin?: string;
@@ -465,6 +471,7 @@ function writeAoaRow(ws: Worksheet, rowArr: unknown[], rowIdx: number, startCol:
 // sheetAddJson — append JSON objects to existing worksheet
 // ---------------------------------------------------------------------------
 
+/** Options for the {@link sheetAddJson} function. */
 export interface SheetAddJsonOptions {
   /** Explicit header order. If omitted, uses Object.keys of first row. */
   header?: string[];

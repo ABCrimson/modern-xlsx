@@ -36,7 +36,7 @@ pub fn parse(data: &[u8]) -> Result<Vec<CalcChainEntry>> {
     let mut reader = Reader::from_reader(data);
     reader.config_mut().trim_text(true);
 
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(256);
     let mut entries = Vec::new();
 
     loop {

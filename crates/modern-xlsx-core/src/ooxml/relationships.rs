@@ -109,7 +109,7 @@ impl Relationships {
     /// Parse a `.rels` XML file from raw bytes.
     pub fn parse(data: &[u8]) -> Result<Self> {
         let mut reader = Reader::from_reader(data);
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(512);
         let mut rels = Self::new();
 
         loop {

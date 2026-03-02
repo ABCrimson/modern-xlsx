@@ -1,21 +1,6 @@
-import { readFile } from 'node:fs/promises';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import XLSX from 'xlsx';
-import {
-  aoaToSheet,
-  initWasm,
-  readBuffer,
-  sheetToCsv,
-  sheetToJson,
-  Workbook,
-} from '../src/index.js';
-import { initSync } from '../wasm/modern_xlsx_wasm.js';
-
-beforeAll(async () => {
-  const wasmBytes = await readFile(new URL('../wasm/modern_xlsx_wasm_bg.wasm', import.meta.url));
-  initSync({ module: wasmBytes });
-  await initWasm();
-});
+import { aoaToSheet, readBuffer, sheetToCsv, sheetToJson, Workbook } from '../src/index.js';
 
 function generateLargeData(rows: number, cols: number): unknown[][] {
   const data: unknown[][] = [];

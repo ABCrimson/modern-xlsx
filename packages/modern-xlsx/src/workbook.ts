@@ -58,9 +58,11 @@ function binaryInsertIndex(rows: readonly RowData[], index: number): number {
 // Workbook
 // ---------------------------------------------------------------------------
 
+/** Represents an Excel workbook containing sheets, styles, and metadata. */
 export class Workbook {
   private readonly data: WorkbookData;
 
+  /** Create a new workbook, optionally seeded with existing data from a read operation. */
   constructor(data?: Partial<WorkbookData>) {
     this.data = {
       sheets: data?.sheets ?? [],
@@ -76,37 +78,53 @@ export class Workbook {
     if (data?.preservedEntries) this.data.preservedEntries = data.preservedEntries;
   }
 
+  /** Returns an array of all sheet names in order. */
   get sheetNames(): string[] {
     return this.data.sheets.map((s) => s.name);
   }
 
+  /** Returns the number of sheets in the workbook. */
   get sheetCount(): number {
     return this.data.sheets.length;
   }
 
+  /** Returns the date epoch system used by this workbook (`'date1900'` or `'date1904'`). */
   get dateSystem(): DateSystem {
     return this.data.dateSystem;
   }
 
+  /** Returns the workbook's shared styles (fonts, fills, borders, number formats, cell XFs). */
   get styles(): StylesData {
     return this.data.styles;
   }
 
+  /** Creates a new fluent style builder for constructing cell styles. */
   createStyle(): StyleBuilder {
     return new StyleBuilder();
   }
 
+  /** Returns the worksheet with the given name, or `undefined` if not found. */
   getSheet(name: string): Worksheet | undefined {
     const sheet = this.data.sheets.find((s) => s.name === name);
     return sheet ? new Worksheet(sheet) : undefined;
   }
 
+  /** Returns the worksheet at the given 0-based index, or `undefined` if out of range. */
   getSheetByIndex(index: number): Worksheet | undefined {
     const sheet = this.data.sheets[index];
     return sheet ? new Worksheet(sheet) : undefined;
   }
 
+  /**
+   * Adds a new empty sheet to the workbook and returns it.
+   * The name is validated per ECMA-376 rules (max 31 chars, no special characters).
+   * @throws If the name is invalid or a sheet with that name already exists.
+   */
   addSheet(name: string): Worksheet {
+    validateSheetName(name);
+    if (this.data.sheets.some((s) => s.name === name)) {
+      throw new Error(`Sheet "${name}" already exists`);
+    }
     const sheetData: SheetData = {
       name,
       worksheet: {
@@ -122,6 +140,10 @@ export class Workbook {
     return new Worksheet(sheetData);
   }
 
+  /**
+   * Removes a sheet by name or 0-based index.
+   * @returns `true` if the sheet was removed, `false` if not found.
+   */
   removeSheet(nameOrIndex: string | number): boolean {
     const idx =
       typeof nameOrIndex === 'string'
@@ -134,10 +156,12 @@ export class Workbook {
 
   // --- Named ranges ---
 
+  /** Returns all defined names (named ranges) in the workbook. */
   get namedRanges(): readonly DefinedNameData[] {
     return this.data.definedNames ?? [];
   }
 
+  /** Adds a named range. If `sheetId` is provided, the name is scoped to that sheet. */
   addNamedRange(name: string, value: string, sheetId?: number): void {
     if (!this.data.definedNames) {
       this.data.definedNames = [];
@@ -149,10 +173,15 @@ export class Workbook {
     });
   }
 
+  /** Returns the named range with the given name, or `undefined` if not found. */
   getNamedRange(name: string): DefinedNameData | undefined {
     return this.data.definedNames?.find((d) => d.name === name);
   }
 
+  /**
+   * Removes a named range by name.
+   * @returns `true` if the named range was removed, `false` if not found.
+   */
   removeNamedRange(name: string): boolean {
     if (!this.data.definedNames) return false;
     const idx = this.data.definedNames.findIndex((d) => d.name === name);
@@ -163,38 +192,45 @@ export class Workbook {
 
   // --- Document properties ---
 
+  /** Returns the document properties (title, author, etc.), or `null` if unset. */
   get docProperties(): DocPropertiesData | null {
     return this.data.docProperties ?? null;
   }
 
+  /** Sets or clears the document properties (title, author, description, etc.). */
   set docProperties(props: DocPropertiesData | null) {
     this.data.docProperties = props;
   }
 
   // --- Theme colors ---
 
+  /** Returns the parsed theme color palette, or `null` if no theme was present. */
   get themeColors(): ThemeColorsData | null {
     return this.data.themeColors ?? null;
   }
 
   // --- Calc chain ---
 
+  /** Returns the formula calculation chain entries, if present. */
   get calcChain(): readonly CalcChainEntryData[] {
     return this.data.calcChain ?? [];
   }
 
   // --- Workbook views ---
 
+  /** Returns the workbook view settings (window position, active tab, etc.). */
   get workbookViews(): readonly WorkbookViewData[] {
     return this.data.workbookViews ?? [];
   }
 
+  /** Sets the workbook view settings (window position, active tab, etc.). */
   set workbookViews(views: WorkbookViewData[]) {
     this.data.workbookViews = views;
   }
 
   // --- Serialization ---
 
+  /** Serializes the workbook to an XLSX `Uint8Array` via the WASM writer. */
   async toBuffer(): Promise<Uint8Array> {
     ensureInitialized();
     return wasmWrite(this.data);
@@ -210,6 +246,7 @@ export class Workbook {
     await writeFile(path, buffer);
   }
 
+  /** Returns the raw internal `WorkbookData` for serialization or inspection. */
   toJSON(): WorkbookData {
     return this.data;
   }
@@ -219,35 +256,47 @@ export class Workbook {
 // Worksheet
 // ---------------------------------------------------------------------------
 
+/** Represents a single worksheet within a workbook. */
 export class Worksheet {
   private readonly data: SheetData;
 
+  /** Wraps an existing sheet data object. Typically obtained via `Workbook.getSheet()` or `Workbook.addSheet()`. */
   constructor(data: SheetData) {
     this.data = data;
   }
 
+  /** Returns the sheet tab name. */
   get name(): string {
     return this.data.name;
   }
 
+  /**
+   * Renames the sheet tab. Validated per ECMA-376 rules.
+   * @throws If the name is empty, exceeds 31 characters, or contains forbidden characters.
+   */
   set name(value: string) {
+    validateSheetName(value);
     this.data.name = value;
   }
 
+  /** Returns all rows in the sheet, sorted by 1-based row index. */
   get rows(): readonly RowData[] {
     return this.data.worksheet.rows;
   }
 
   // --- Columns ---
 
+  /** Returns the column definitions (width, visibility) for this sheet. */
   get columns(): readonly ColumnInfo[] {
     return this.data.worksheet.columns;
   }
 
+  /** Replaces all column definitions for this sheet. */
   set columns(cols: ColumnInfo[]) {
     this.data.worksheet.columns = cols;
   }
 
+  /** Sets the width of a single 1-based column, creating or updating its definition. */
   setColumnWidth(col: number, width: number): void {
     const existing = this.data.worksheet.columns.find((c) => c.min === col && c.max === col);
     if (existing) {
@@ -266,16 +315,22 @@ export class Worksheet {
 
   // --- Merge cells ---
 
+  /** Returns all merged cell ranges (e.g., `"A1:C3"`). */
   get mergeCells(): readonly string[] {
     return this.data.worksheet.mergeCells;
   }
 
+  /** Adds a merged cell range (e.g., `"A1:C3"`). Duplicates are ignored. */
   addMergeCell(range: string): void {
     if (!this.data.worksheet.mergeCells.includes(range)) {
       this.data.worksheet.mergeCells.push(range);
     }
   }
 
+  /**
+   * Removes a merged cell range.
+   * @returns `true` if the range was removed, `false` if not found.
+   */
   removeMergeCell(range: string): boolean {
     const idx = this.data.worksheet.mergeCells.indexOf(range);
     if (idx === -1) return false;
@@ -285,10 +340,12 @@ export class Worksheet {
 
   // --- Auto filter ---
 
+  /** Returns the auto-filter configuration, or `null` if none is set. */
   get autoFilter(): AutoFilterData | null {
     return this.data.worksheet.autoFilter;
   }
 
+  /** Sets the auto-filter. Accepts an `AutoFilterData` object, a range string (e.g., `"A1:D10"`), or `null` to clear. */
   set autoFilter(filter: AutoFilterData | string | null) {
     if (filter === null) {
       this.data.worksheet.autoFilter = null;
@@ -301,10 +358,12 @@ export class Worksheet {
 
   // --- Hyperlinks ---
 
+  /** Returns all hyperlinks defined in this sheet. */
   get hyperlinks(): readonly HyperlinkData[] {
     return this.data.worksheet.hyperlinks ?? [];
   }
 
+  /** Adds a hyperlink to a cell. The `location` is a URL or internal reference (e.g., `"Sheet2!A1"`). */
   addHyperlink(
     cellRef: string,
     location: string,
@@ -321,6 +380,10 @@ export class Worksheet {
     });
   }
 
+  /**
+   * Removes the hyperlink on the given cell reference.
+   * @returns `true` if the hyperlink was removed, `false` if not found.
+   */
   removeHyperlink(cellRef: string): boolean {
     if (!this.data.worksheet.hyperlinks) return false;
     const idx = this.data.worksheet.hyperlinks.findIndex((h) => h.cellRef === cellRef);
@@ -331,40 +394,48 @@ export class Worksheet {
 
   // --- Page setup ---
 
+  /** Returns the page setup configuration (orientation, paper size, etc.), or `null` if unset. */
   get pageSetup(): PageSetupData | null {
     return this.data.worksheet.pageSetup ?? null;
   }
 
+  /** Sets or clears the page setup configuration. */
   set pageSetup(setup: PageSetupData | null) {
     this.data.worksheet.pageSetup = setup;
   }
 
   // --- Sheet protection ---
 
+  /** Returns the sheet protection settings, or `null` if the sheet is unprotected. */
   get sheetProtection(): SheetProtectionData | null {
     return this.data.worksheet.sheetProtection ?? null;
   }
 
+  /** Sets or clears sheet protection. Pass `null` to remove protection. */
   set sheetProtection(protection: SheetProtectionData | null) {
     this.data.worksheet.sheetProtection = protection;
   }
 
   // --- Frozen pane ---
 
+  /** Returns the frozen pane split position, or `null` if no panes are frozen. */
   get frozenPane(): FrozenPane | null {
     return this.data.worksheet.frozenPane;
   }
 
+  /** Freezes rows and/or columns at the given split position, or clears the freeze with `null`. */
   set frozenPane(pane: FrozenPane | null) {
     this.data.worksheet.frozenPane = pane;
   }
 
   // --- Data validations ---
 
+  /** Returns all data validation rules applied to this sheet. */
   get validations(): readonly DataValidationData[] {
     return this.data.worksheet.dataValidations ?? [];
   }
 
+  /** Adds a data validation rule to the given cell range reference. */
   addValidation(ref: string, rule: Omit<DataValidationData, 'sqref'>): void {
     if (!this.data.worksheet.dataValidations) {
       this.data.worksheet.dataValidations = [];
@@ -372,6 +443,10 @@ export class Worksheet {
     this.data.worksheet.dataValidations.push({ sqref: ref, ...rule });
   }
 
+  /**
+   * Removes the data validation rule for the given cell range reference.
+   * @returns `true` if the rule was removed, `false` if not found.
+   */
   removeValidation(ref: string): boolean {
     if (!this.data.worksheet.dataValidations) return false;
     const idx = this.data.worksheet.dataValidations.findIndex((v) => v.sqref === ref);
@@ -382,10 +457,12 @@ export class Worksheet {
 
   // --- Comments ---
 
+  /** Returns all cell comments in this sheet. */
   get comments(): readonly CommentData[] {
     return this.data.worksheet.comments ?? [];
   }
 
+  /** Adds a comment to the given cell reference. */
   addComment(cellRef: string, author: string, text: string): void {
     if (!this.data.worksheet.comments) {
       this.data.worksheet.comments = [];
@@ -393,6 +470,10 @@ export class Worksheet {
     this.data.worksheet.comments.push({ cellRef, author, text });
   }
 
+  /**
+   * Removes the comment on the given cell reference.
+   * @returns `true` if the comment was removed, `false` if not found.
+   */
   removeComment(cellRef: string): boolean {
     if (!this.data.worksheet.comments) return false;
     const idx = this.data.worksheet.comments.findIndex((c) => c.cellRef === cellRef);
@@ -403,10 +484,12 @@ export class Worksheet {
 
   // --- Page margins ---
 
+  /** Returns the page margins (top, bottom, left, right, header, footer), or `null` if unset. */
   get pageMargins(): PageMarginsData | null {
     return this.data.worksheet.pageSetup?.margins ?? null;
   }
 
+  /** Sets or clears the page margins. Creates a page setup object if needed. */
   set pageMargins(margins: PageMarginsData | null) {
     if (!this.data.worksheet.pageSetup) {
       this.data.worksheet.pageSetup = {};
@@ -416,6 +499,10 @@ export class Worksheet {
 
   // --- Cell access ---
 
+  /**
+   * Returns the cell at the given A1-style reference (e.g., `"B3"`), creating the row and cell if needed.
+   * The returned `Cell` is a live wrapper -- mutations are reflected in the underlying sheet data.
+   */
   cell(ref: string): Cell {
     const decoded = decodeCellRef(ref);
     const rowIndex = decoded.row + 1; // decodeCellRef returns 0-based row
@@ -445,11 +532,13 @@ export class Worksheet {
 
   // --- Row utilities ---
 
+  /** Sets the height (in points) of the given 1-based row, creating it if needed. */
   setRowHeight(rowIndex: number, height: number): void {
     const row = this.ensureRow(rowIndex);
     row.height = height;
   }
 
+  /** Sets the visibility of the given 1-based row, creating it if needed. */
   setRowHidden(rowIndex: number, hidden: boolean): void {
     const row = this.ensureRow(rowIndex);
     row.hidden = hidden;
@@ -470,29 +559,36 @@ export class Worksheet {
 // Cell
 // ---------------------------------------------------------------------------
 
+/** Represents a single cell within a worksheet row. Mutations are applied directly to the underlying data. */
 export class Cell {
   private readonly data: CellData;
 
+  /** Wraps an existing cell data object. Typically obtained via `Worksheet.cell()`. */
   constructor(data: CellData) {
     this.data = data;
   }
 
+  /** Returns the A1-style cell reference (e.g., `"B3"`). */
   get reference(): string {
     return this.data.reference;
   }
 
+  /** Returns the cell's data type (e.g., `"number"`, `"sharedString"`, `"boolean"`, `"formulaStr"`). */
   get type(): CellType {
     return this.data.cellType;
   }
 
+  /** Returns the 0-based index into `Workbook.styles.cellXfs`, or `null` if using the default style. */
   get styleIndex(): number | null {
     return this.data.styleIndex ?? null;
   }
 
+  /** Sets the style index, or pass `null` to clear custom styling. */
   set styleIndex(value: number | null) {
     this.data.styleIndex = value ?? null;
   }
 
+  /** Returns the cell value, coerced to the appropriate JS type based on `cellType`. */
   get value(): string | number | boolean | null {
     if (this.data.value == null) return null;
     switch (this.data.cellType) {
@@ -505,6 +601,11 @@ export class Cell {
     }
   }
 
+  /**
+   * Sets the cell value and auto-detects the cell type from the JS type.
+   * Strings become shared strings, numbers stay numeric, booleans become `"1"`/`"0"`.
+   * If a formula is set, the cell type is preserved (value acts as the cached result).
+   */
   set value(val: string | number | boolean | null) {
     if (val === null) {
       this.data.value = null;
@@ -530,10 +631,12 @@ export class Cell {
     }
   }
 
+  /** Returns the cell's formula string (without the leading `=`), or `null` if no formula is set. */
   get formula(): string | null {
     return this.data.formula ?? null;
   }
 
+  /** Sets or clears the cell's formula. Setting a formula changes the cell type to `"formulaStr"`. */
   set formula(f: string | null) {
     this.data.formula = f;
     if (f !== null) {
@@ -567,4 +670,26 @@ function defaultStyles(): StylesData {
     borders: [{ left: null, right: null, top: null, bottom: null }],
     cellXfs: [{ numFmtId: 0, fontId: 0, fillId: 0, borderId: 0 }],
   } satisfies StylesData;
+}
+
+// ---------------------------------------------------------------------------
+// Input validation
+// ---------------------------------------------------------------------------
+
+const INVALID_SHEET_CHARS = /[\\/*?[\]:]/;
+
+/** Validate an Excel sheet name per ECMA-376 §18.3.1.73 constraints. */
+function validateSheetName(name: string): void {
+  if (name.length === 0) {
+    throw new Error('Sheet name must not be empty');
+  }
+  if (name.length > 31) {
+    throw new Error(`Sheet name must be 31 characters or fewer (got ${name.length})`);
+  }
+  if (INVALID_SHEET_CHARS.test(name)) {
+    throw new Error(`Sheet name contains invalid characters: \\ / * ? [ ] :`);
+  }
+  if (name.startsWith("'") || name.endsWith("'")) {
+    throw new Error('Sheet name must not start or end with an apostrophe');
+  }
 }

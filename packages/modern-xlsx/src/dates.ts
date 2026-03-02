@@ -66,6 +66,7 @@ interface TemporalLike {
   millisecond?: number;
 }
 
+/** Type guard for duck-typed Temporal.PlainDate / PlainDateTime objects. */
 function isTemporalLike(value: unknown): value is TemporalLike {
   return (
     typeof value === 'object' &&

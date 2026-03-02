@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
+
+use super::push_entity;
 use serde::{Deserialize, Serialize};
 
 use crate::{ModernXlsxError, Result};
@@ -51,7 +53,7 @@ impl SharedStringTable {
         let mut reader = Reader::from_reader(data);
         reader.config_mut().trim_text(false);
 
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(512);
         let mut strings = Vec::new();
         let mut rich_runs: Vec<Option<Vec<RichTextRun>>> = Vec::new();
 
@@ -100,8 +102,9 @@ impl SharedStringTable {
                             for attr in e.attributes().flatten() {
                                 if attr.key.as_ref() == b"val" {
                                     run_font_name = Some(
-                                        String::from_utf8_lossy(&attr.value)
-                                            .into_owned(),
+                                        std::str::from_utf8(&attr.value)
+                                            .unwrap_or_default()
+                                            .to_owned(),
                                     );
                                 }
                             }
@@ -120,8 +123,9 @@ impl SharedStringTable {
                             for attr in e.attributes().flatten() {
                                 if attr.key.as_ref() == b"rgb" {
                                     run_color = Some(
-                                        String::from_utf8_lossy(&attr.value)
-                                            .into_owned(),
+                                        std::str::from_utf8(&attr.value)
+                                            .unwrap_or_default()
+                                            .to_owned(),
                                     );
                                 }
                             }
@@ -142,8 +146,9 @@ impl SharedStringTable {
                             for attr in e.attributes().flatten() {
                                 if attr.key.as_ref() == b"val" {
                                     run_font_name = Some(
-                                        String::from_utf8_lossy(&attr.value)
-                                            .into_owned(),
+                                        std::str::from_utf8(&attr.value)
+                                            .unwrap_or_default()
+                                            .to_owned(),
                                     );
                                 }
                             }
@@ -162,8 +167,9 @@ impl SharedStringTable {
                             for attr in e.attributes().flatten() {
                                 if attr.key.as_ref() == b"rgb" {
                                     run_color = Some(
-                                        String::from_utf8_lossy(&attr.value)
-                                            .into_owned(),
+                                        std::str::from_utf8(&attr.value)
+                                            .unwrap_or_default()
+                                            .to_owned(),
                                     );
                                 }
                             }
@@ -177,6 +183,14 @@ impl SharedStringTable {
                     current_text.push_str(text);
                     if in_r {
                         run_text.push_str(text);
+                    }
+                }
+                Ok(Event::GeneralRef(e)) if in_t => {
+                    // Resolve predefined XML entity references (&amp; &lt; &gt; &quot; &apos;)
+                    // and character references (&#N; &#xN;) back to their characters.
+                    push_entity(&mut current_text, e.as_ref());
+                    if in_r {
+                        push_entity(&mut run_text, e.as_ref());
                     }
                 }
                 Ok(Event::End(e)) => {
@@ -788,5 +802,27 @@ mod tests {
         assert_eq!(runs[0].text, "hello");
         assert_eq!(runs[0].bold, Some(true));
         assert_eq!(runs[1].text, " world");
+    }
+
+    #[test]
+    fn test_xml_entity_roundtrip() {
+        // Verify XML special characters survive SST write → parse roundtrip.
+        let mut builder = SharedStringTableBuilder::new();
+        builder.insert("Tom & Jerry");
+        builder.insert("2 < 3");
+        builder.insert("5 > 4");
+        builder.insert(r#"She said "hello""#);
+        builder.insert("it's fine");
+
+        let xml = builder.to_xml().unwrap();
+        let xml_str = std::str::from_utf8(&xml).unwrap();
+        println!("SST XML:\n{xml_str}");
+
+        let sst = SharedStringTable::parse(&xml).unwrap();
+        assert_eq!(sst.get(0), Some("Tom & Jerry"));
+        assert_eq!(sst.get(1), Some("2 < 3"));
+        assert_eq!(sst.get(2), Some("5 > 4"));
+        assert_eq!(sst.get(3), Some(r#"She said "hello""#));
+        assert_eq!(sst.get(4), Some("it's fine"));
     }
 }

@@ -40,7 +40,18 @@ export function ensureInitialized(): void {
  */
 export function wasmRead(data: Uint8Array): WorkbookData {
   const json = _wasmReadJson(data);
-  return JSON.parse(json) as WorkbookData;
+  const parsed: unknown = JSON.parse(json);
+  if (!isWorkbookData(parsed)) {
+    throw new Error('WASM returned invalid WorkbookData structure');
+  }
+  return parsed;
+}
+
+/** Lightweight structural check for the WASM boundary. */
+function isWorkbookData(v: unknown): v is WorkbookData {
+  if (typeof v !== 'object' || v === null) return false;
+  if (!('sheets' in v) || !('styles' in v)) return false;
+  return Array.isArray(v.sheets) && typeof v.styles === 'object' && v.styles !== null;
 }
 
 /**

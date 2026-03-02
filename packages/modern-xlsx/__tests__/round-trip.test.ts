@@ -1,16 +1,7 @@
-import { readFile } from 'node:fs/promises';
-import { beforeAll, describe, expect, it } from 'vitest';
-import { initWasm, readBuffer, StyleBuilder, VERSION, Workbook } from '../src/index.js';
+import { describe, expect, it } from 'vitest';
+import { readBuffer, StyleBuilder, VERSION, Workbook } from '../src/index.js';
 import type { WorkbookData } from '../src/types.js';
-import { initSync, read as wasmRead, version as wasmVersion } from '../wasm/modern_xlsx_wasm.js';
-
-beforeAll(async () => {
-  const wasmBytes = await readFile(new URL('../wasm/modern_xlsx_wasm_bg.wasm', import.meta.url));
-  initSync({ module: wasmBytes });
-  // Also call initWasm so the wasm-loader's `initialized` flag is set.
-  // Since the WASM module is already loaded by initSync, init() returns immediately.
-  await initWasm();
-});
+import { read as wasmRead, version as wasmVersion } from '../wasm/modern_xlsx_wasm.js';
 
 describe('version', () => {
   it('wasmVersion() returns a non-empty string', () => {

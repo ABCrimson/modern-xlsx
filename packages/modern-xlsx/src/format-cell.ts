@@ -42,6 +42,7 @@ const BUILTIN_FORMATS: Record<number, string> = {
   49: '@',
 };
 
+/** Options for the {@link formatCell} function. */
 export interface FormatCellOptions {
   /** Date system for serial-to-date conversion. */
   dateSystem?: DateSystem;

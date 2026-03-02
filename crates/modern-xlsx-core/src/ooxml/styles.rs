@@ -272,7 +272,7 @@ impl Styles {
         let mut reader = Reader::from_reader(data);
         reader.config_mut().trim_text(true);
 
-        let mut buf = Vec::new();
+        let mut buf = Vec::with_capacity(1024);
 
         let mut num_fmts: Vec<NumFmt> = Vec::new();
         let mut fonts: Vec<Font> = Vec::new();

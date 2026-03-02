@@ -22,7 +22,7 @@ Full cell styling, data validation, conditional formatting, frozen panes, hyperl
 npm install modern-xlsx
 ```
 
-> Requires a runtime with WASM support (Node.js 25+, Bun, Deno, modern browsers).
+> Requires a runtime with WASM support (Node.js 24+, Bun, Deno, modern browsers).
 
 ## Quick Start
 

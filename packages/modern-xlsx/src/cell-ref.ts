@@ -4,6 +4,7 @@
  */
 
 const CHAR_CODE_A = 65; // 'A'.charCodeAt(0)
+const CELL_REF_RE = /^\$?([A-Z]+)\$?(\d+)$/;
 
 /**
  * Convert a 0-based column index to a column letter (0 → "A", 25 → "Z", 26 → "AA").
@@ -30,8 +31,11 @@ export function letterToColumn(letter: string): number {
   return col - 1;
 }
 
+/** A 0-based cell address with row and column indices. */
 export interface CellAddress {
+  /** 0-based row index. */
   readonly row: number;
+  /** 0-based column index. */
   readonly col: number;
 }
 
@@ -48,7 +52,7 @@ export function encodeCellRef(row: number, col: number): string {
  * `decodeCellRef("A1")` → `{ row: 0, col: 0 }`
  */
 export function decodeCellRef(ref: string): CellAddress {
-  const match = ref.match(/^\$?([A-Z]+)\$?(\d+)$/);
+  const match = ref.match(CELL_REF_RE);
   if (!match?.[1] || !match[2]) {
     throw new Error(`Invalid cell reference: ${ref}`);
   }
@@ -58,8 +62,11 @@ export function decodeCellRef(ref: string): CellAddress {
   };
 }
 
+/** A rectangular cell range defined by start and end addresses. */
 export interface CellRange {
+  /** Top-left corner of the range. */
   readonly start: CellAddress;
+  /** Bottom-right corner of the range. */
   readonly end: CellAddress;
 }
 
