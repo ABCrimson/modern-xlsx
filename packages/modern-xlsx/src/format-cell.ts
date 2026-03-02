@@ -186,145 +186,143 @@ function extractDateParts(date: Date, code: string): DateParts {
   };
 }
 
-/**
- * Single-pass tokenizer for date format strings. Avoids the sequential
- * regex-replace approach which can corrupt output when a substituted value
- * contains characters matching later patterns (e.g. year "1900" → yy matches "00").
- */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: date format tokenizer is inherently complex
-function applyDateTokens(code: string, p: DateParts): string {
-  let result = '';
-  let i = 0;
-  const s = code;
+// ---------------------------------------------------------------------------
+// Token table — data-driven date format tokenizer
+// ---------------------------------------------------------------------------
 
-  while (i < s.length) {
-    // Skip color brackets [Red] etc.
-    if (s[i] === '[') {
-      const close = s.indexOf(']', i);
-      if (close !== -1) {
-        i = close + 1;
-        continue;
-      }
-    }
+type TokenFormatter = (p: DateParts) => string;
 
-    // Quoted literal strings
-    if (s[i] === '"') {
-      const end = s.indexOf('"', i + 1);
-      if (end !== -1) {
-        result += s.slice(i + 1, end);
-        i = end + 1;
-        continue;
-      }
-    }
-
-    // Escape sequence
-    if (s[i] === '\\' && i + 1 < s.length) {
-      result += s[i + 1];
-      i += 2;
-      continue;
-    }
-
-    const lower = s.slice(i).toLowerCase();
-
-    // AM/PM
-    if (lower.startsWith('am/pm')) {
-      result += p.ampm;
-      i += 5;
-      continue;
-    }
-
-    // Year tokens
-    if (lower.startsWith('yyyy')) {
-      result += String(p.year);
-      i += 4;
-      continue;
-    }
-    if (lower.startsWith('yy')) {
-      result += String(p.year).slice(-2);
-      i += 2;
-      continue;
-    }
-
-    // Month tokens (mmmm, mmm, mm, m)
-    const ch = s[i]?.toLowerCase();
-    if (ch === 'm') {
-      const run = countRun(s, i, 'm');
-      if (run >= 4) {
-        result += MONTH_NAMES[p.month - 1] ?? '';
-        i += run;
-        continue;
-      }
-      if (run === 3) {
-        result += MONTH_SHORT[p.month - 1] ?? '';
-        i += 3;
-        continue;
-      }
-      if (run === 2) {
-        result += String(p.month).padStart(2, '0');
-        i += 2;
-        continue;
-      }
-      // single m
-      result += String(p.month);
-      i += 1;
-      continue;
-    }
-
-    // Day tokens
-    if (ch === 'd') {
-      const run = countRun(s, i, 'd');
-      if (run >= 2) {
-        result += String(p.day).padStart(2, '0');
-        i += run;
-        continue;
-      }
-      result += String(p.day);
-      i += 1;
-      continue;
-    }
-
-    // Hour tokens
-    if (ch === 'h') {
-      const run = countRun(s, i, 'h');
-      if (run >= 2) {
-        result += String(p.hours).padStart(2, '0');
-        i += run;
-        continue;
-      }
-      result += String(p.hours);
-      i += 1;
-      continue;
-    }
-
-    // Second tokens
-    if (ch === 's') {
-      const run = countRun(s, i, 's');
-      if (run >= 2) {
-        result += String(p.seconds).padStart(2, '0');
-        i += run;
-        continue;
-      }
-      result += String(p.seconds);
-      i += 1;
-      continue;
-    }
-
-    // Pass through everything else (colons, slashes, spaces, etc.)
-    result += s[i];
-    i += 1;
-  }
-
-  return result;
+interface DateToken {
+  /** Characters to match (case-insensitive). Longest match wins. */
+  readonly pattern: string;
+  readonly render: TokenFormatter;
 }
 
-/** Count consecutive occurrences of a character (case-insensitive). */
+/**
+ * Tokens for run-length date characters (m, d, h, s).
+ * Keyed by lowercase character; value maps run length to formatter.
+ */
+const RUN_TOKENS: Record<string, readonly [number, TokenFormatter][]> = {
+  m: [
+    [4, (p) => MONTH_NAMES[p.month - 1] ?? ''],
+    [3, (p) => MONTH_SHORT[p.month - 1] ?? ''],
+    [2, (p) => String(p.month).padStart(2, '0')],
+    [1, (p) => String(p.month)],
+  ],
+  d: [
+    [2, (p) => String(p.day).padStart(2, '0')],
+    [1, (p) => String(p.day)],
+  ],
+  h: [
+    [2, (p) => String(p.hours).padStart(2, '0')],
+    [1, (p) => String(p.hours)],
+  ],
+  s: [
+    [2, (p) => String(p.seconds).padStart(2, '0')],
+    [1, (p) => String(p.seconds)],
+  ],
+};
+
+/** Fixed-string tokens matched before run tokens. Ordered longest-first. */
+const FIXED_TOKENS: readonly DateToken[] = [
+  { pattern: 'am/pm', render: (p) => p.ampm },
+  { pattern: 'yyyy', render: (p) => String(p.year) },
+  { pattern: 'yy', render: (p) => String(p.year).slice(-2) },
+];
+
+/** Count consecutive case-insensitive occurrences of `ch` starting at `start`. */
 function countRun(s: string, start: number, ch: string): number {
-  const lower = ch.toLowerCase();
   let count = 0;
-  while (start + count < s.length && s[start + count]?.toLowerCase() === lower) {
+  while (start + count < s.length && (s[start + count] ?? '').toLowerCase() === ch) {
     count++;
   }
   return count;
+}
+
+/** Try to match a fixed-string token at position `i`. */
+function matchFixedToken(lower: string): DateToken | undefined {
+  for (const token of FIXED_TOKENS) {
+    if (lower.startsWith(token.pattern)) return token;
+  }
+  return undefined;
+}
+
+/** Try to match a run-length token at position `i`. Returns [consumed, output] or undefined. */
+function matchRunToken(s: string, i: number): [number, TokenFormatter] | undefined {
+  const ch = (s[i] ?? '').toLowerCase();
+  const entries = RUN_TOKENS[ch];
+  if (!entries) return undefined;
+  const run = countRun(s, i, ch);
+  for (const [minLen, render] of entries) {
+    if (run >= minLen) return [Math.max(run, minLen), render];
+  }
+  return undefined;
+}
+
+/** Skip a bracketed sequence like [Red], [Color1], etc. Returns new index or -1. */
+function skipBracket(s: string, i: number): number {
+  const close = s.indexOf(']', i);
+  return close !== -1 ? close + 1 : -1;
+}
+
+/** Extract a quoted literal and return [content, newIndex] or undefined. */
+function extractQuoted(s: string, i: number): [string, number] | undefined {
+  const end = s.indexOf('"', i + 1);
+  return end !== -1 ? [s.slice(i + 1, end), end + 1] : undefined;
+}
+
+/**
+ * Process a single character/token at position `i` in the format string.
+ * Returns [charsConsumed, outputText].
+ */
+function processDateChar(code: string, i: number, p: DateParts): [number, string] {
+  const ch = code[i] ?? '';
+
+  // Bracketed directives: [Red], [Color1], etc.
+  if (ch === '[') {
+    const next = skipBracket(code, i);
+    if (next !== -1) return [next - i, ''];
+  }
+
+  // Quoted literal strings
+  if (ch === '"') {
+    const quoted = extractQuoted(code, i);
+    if (quoted) return [quoted[1] - i, quoted[0]];
+  }
+
+  // Escape sequence
+  if (ch === '\\' && i + 1 < code.length) {
+    return [2, code[i + 1] ?? ''];
+  }
+
+  // Fixed-string tokens (am/pm, yyyy, yy)
+  const fixed = matchFixedToken(code.slice(i).toLowerCase());
+  if (fixed) return [fixed.pattern.length, fixed.render(p)];
+
+  // Run-length tokens (m, d, h, s)
+  const run = matchRunToken(code, i);
+  if (run) return [run[0], run[1](p)];
+
+  // Pass through everything else
+  return [1, ch];
+}
+
+/**
+ * Single-pass tokenizer for date format strings.
+ *
+ * Uses a token table for all date pattern matching — no branching per token type.
+ * Avoids the sequential regex-replace approach which can corrupt output when a
+ * substituted value contains characters matching later patterns.
+ */
+function applyDateTokens(code: string, p: DateParts): string {
+  let result = '';
+  let i = 0;
+  while (i < code.length) {
+    const [consumed, output] = processDateChar(code, i, p);
+    result += output;
+    i += consumed;
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
