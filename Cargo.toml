@@ -1,8 +1,8 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/ironsheet-core",
-    "crates/ironsheet-wasm",
+    "crates/modern-xlsx-core",
+    "crates/modern-xlsx-wasm",
 ]
 
 [workspace.package]
@@ -10,7 +10,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.94.0"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/nicholasgasior/ironsheet"
+repository = "https://github.com/ABCrimson/modern-xlsx"
 
 [workspace.dependencies]
 # XML parsing — SAX-style, zero-copy, serde support
@@ -28,12 +28,24 @@ chrono = { version = "0.4", default-features = false, features = ["serde"] }
 # Error handling
 thiserror = "2.0"
 
+# JSON serialization (golden file tests + JSON export)
+serde_json = "1.0"
+
+# Logging facade (zero-cost when no backend configured)
+log = "0.4"
+
+# Zero-alloc integer formatting for XML output
+itoa = "1.0"
+
 # WASM bindings
 wasm-bindgen = "0.2.114"
 serde-wasm-bindgen = "0.6"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "console", "Performance"] }
 
 # Dev
 wasm-bindgen-test = "0.3"
+pretty_assertions = "1.4"
 
 [profile.release]
 opt-level = 3

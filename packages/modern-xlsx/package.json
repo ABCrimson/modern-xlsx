@@ -1,0 +1,61 @@
+{
+  "name": "modern-xlsx",
+  "version": "0.1.0",
+  "description": "High-performance XLSX read/write library powered by Rust WASM. Full styling, data validation, conditional formatting — features SheetJS charges for, free and open source.",
+  "license": "MIT",
+  "author": "modern-xlsx contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ABCrimson/modern-xlsx"
+  },
+  "homepage": "https://github.com/ABCrimson/modern-xlsx#readme",
+  "keywords": [
+    "xlsx",
+    "excel",
+    "spreadsheet",
+    "wasm",
+    "rust",
+    "ooxml",
+    "styles",
+    "formatting",
+    "data-validation",
+    "conditional-formatting"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist/",
+    "wasm/",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=25.0.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:watch": "vitest",
+    "lint": "biome check src/ __tests__/",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "@vitest/browser": "4.1.0-beta.5",
+    "@vitest/coverage-v8": "4.1.0-beta.5",
+    "playwright": "^1.50.0",
+    "tsdown": "0.21.0-beta.2",
+    "typescript": "6.0.0-dev.20260301",
+    "vitest": "4.1.0-beta.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}

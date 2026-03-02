@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>modern-xlsx — High-Performance XLSX for JavaScript</title>
+  <meta name="description" content="Read and write Excel files with full styling support, powered by Rust + WASM. Free and open source.">
+  <meta name="theme-color" content="#0a0a0a">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111111;
+      --surface-2: #1a1a1a;
+      --border: #222222;
+      --border-hover: #333333;
+      --text: #e5e5e5;
+      --text-muted: #888888;
+      --text-dim: #555555;
+      --accent: #3b82f6;
+      --accent-dim: #1d4ed8;
+      --green: #22c55e;
+      --green-dim: #15803d;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* --- NAV --- */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(10, 10, 10, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+    }
+
+    nav .inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+
+    nav .logo {
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+
+    nav .links { display: flex; gap: 1.5rem; }
+
+    nav .links a {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+
+    nav .links a:hover { color: var(--text); text-decoration: none; }
+
+    /* --- HERO --- */
+    .hero {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 6rem 2rem 4rem;
+      text-align: center;
+    }
+
+    .hero .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 0.35rem 1rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+    }
+
+    .hero .badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 4rem);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero h1 .gradient {
+      background: linear-gradient(135deg, var(--accent), #818cf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero .subtitle {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 640px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.7;
+    }
+
+    .hero .actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 1.5rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover { background: var(--accent-dim); text-decoration: none; }
+
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover { border-color: var(--border-hover); text-decoration: none; }
+
+    /* --- INSTALL BAR --- */
+    .install {
+      max-width: 480px;
+      margin: 2rem auto 0;
+      display: flex;
+      align-items: center;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .install code { flex: 1; color: var(--text); }
+    .install .prefix { color: var(--text-dim); margin-right: 0.5rem; }
+
+    /* --- STATS --- */
+    .stats {
+      max-width: 1200px;
+      margin: 4rem auto;
+      padding: 0 2rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      text-align: center;
+    }
+
+    .stat .number {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.25rem;
+    }
+
+    .stat .number.fast { color: var(--green); }
+    .stat .number.small { color: var(--accent); }
+    .stat .number.zero { color: var(--amber); }
+
+    .stat .label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* --- SECTIONS --- */
+    section {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 4rem 2rem;
+    }
+
+    section h2 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+    }
+
+    section .section-sub {
+      color: var(--text-muted);
+      margin-bottom: 2.5rem;
+      font-size: 1rem;
+    }
+
+    /* --- FEATURE GRID --- */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+    }
+
+    .feature {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      transition: border-color 0.15s;
+    }
+
+    .feature:hover { border-color: var(--border-hover); }
+
+    .feature .icon {
+      width: 36px; height: 36px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+    }
+
+    .feature h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .feature p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* --- CODE BLOCKS --- */
+    .code-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .code-block .header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .code-block .header .dots {
+      display: flex; gap: 6px;
+    }
+
+    .code-block .header .dots span {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--surface-2);
+    }
+
+    .code-block pre {
+      padding: 1.25rem;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: var(--text);
+    }
+
+    .code-block pre .kw { color: #c084fc; }
+    .code-block pre .fn { color: #60a5fa; }
+    .code-block pre .str { color: #34d399; }
+    .code-block pre .num { color: #fbbf24; }
+    .code-block pre .cmt { color: var(--text-dim); }
+    .code-block pre .typ { color: #818cf8; }
+
+    /* --- COMPARISON TABLE --- */
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    th, td { padding: 0.75rem 1rem; text-align: left; }
+
+    th {
+      background: var(--surface);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    td { border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+
+    td.yes { color: var(--green); font-weight: 600; }
+    td.no { color: var(--text-dim); }
+    td.paid { color: var(--amber); }
+    td.fast { color: var(--green); font-weight: 600; }
+
+    /* --- BENCHMARK TABLE --- */
+    .bench-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+    .bench-label { width: 140px; font-size: 0.875rem; color: var(--text-muted); flex-shrink: 0; }
+    .bench-bars { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+
+    .bench-bar {
+      height: 28px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      padding: 0 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      font-family: var(--mono);
+      color: white;
+      min-width: 60px;
+    }
+
+    .bench-bar.ours { background: linear-gradient(90deg, var(--accent), #818cf8); }
+    .bench-bar.theirs { background: var(--surface-2); color: var(--text-dim); }
+
+    /* --- ARCH DIAGRAM --- */
+    .arch {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem;
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      line-height: 2;
+    }
+
+    .arch .layer {
+      display: inline-block;
+      padding: 0.5rem 2rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      margin: 0.25rem;
+      background: var(--surface-2);
+    }
+
+    .arch .layer.ts { border-color: #3b82f6; color: #60a5fa; }
+    .arch .layer.wasm { border-color: #a855f7; color: #c084fc; }
+    .arch .layer.rust { border-color: #f97316; color: #fb923c; }
+    .arch .arrow { color: var(--text-dim); display: block; }
+
+    /* --- FOOTER --- */
+    footer {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 3rem 2rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    footer .links { display: flex; gap: 1.5rem; }
+    footer .links a { color: var(--text-muted); }
+
+    /* --- RESPONSIVE --- */
+    @media (max-width: 640px) {
+      .hero { padding: 4rem 1.5rem 3rem; }
+      section { padding: 3rem 1.5rem; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .features { grid-template-columns: 1fr; }
+      .bench-label { width: 100px; }
+      footer { flex-direction: column; gap: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="inner">
+    <div class="logo">modern-xlsx</div>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#performance">Performance</a>
+      <a href="#quickstart">Quick Start</a>
+      <a href="#api">API</a>
+      <a href="https://github.com/ABCrimson/modern-xlsx">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="badge">
+    <span class="dot"></span>
+    v0.1.0 — MIT Licensed
+  </div>
+  <h1>
+    Excel files,<br>
+    <span class="gradient">handled right.</span>
+  </h1>
+  <p class="subtitle">
+    High-performance XLSX read/write for JavaScript and TypeScript. Full styling, validation,
+    and formatting &mdash; powered by Rust + WASM. Everything SheetJS Pro charges for, free and open source.
+  </p>
+  <div class="actions">
+    <a href="#quickstart" class="btn btn-primary">Get Started</a>
+    <a href="https://github.com/ABCrimson/modern-xlsx" class="btn btn-secondary">View on GitHub</a>
+  </div>
+  <div class="install">
+    <span class="prefix">$</span>
+    <code>npm install modern-xlsx</code>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat">
+    <div class="number fast">4.3x</div>
+    <div class="label">Faster reads vs SheetJS</div>
+  </div>
+  <div class="stat">
+    <div class="number small">~870 KB</div>
+    <div class="label">WASM binary size</div>
+  </div>
+  <div class="stat">
+    <div class="number zero">0</div>
+    <div class="label">Runtime dependencies</div>
+  </div>
+  <div class="stat">
+    <div class="number" style="color: var(--text)">340+</div>
+    <div class="label">Tests (Rust + TypeScript)</div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section id="features">
+  <h2>Features</h2>
+  <p class="section-sub">Everything you need for production XLSX handling, without the paywall.</p>
+  <div class="features">
+    <div class="feature">
+      <div class="icon">&#9998;</div>
+      <h3>Cell Styling</h3>
+      <p>Fonts, fills, borders, alignment, text rotation, shrink-to-fit. Fluent builder API produces style indices for any cell.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#9783;</div>
+      <h3>Number Formats</h3>
+      <p>Built-in Excel format codes plus custom formats. Dates, currency, percentages, scientific notation — all rendered correctly.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#10003;</div>
+      <h3>Data Validation</h3>
+      <p>List, whole number, decimal, date, time, text length, and custom formula validators with error messages.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#9881;</div>
+      <h3>Conditional Formatting</h3>
+      <p>Color scales, data bars, icon sets, and formula-based rules. Read and write preserving all OOXML attributes.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#9974;</div>
+      <h3>Frozen Panes</h3>
+      <p>Freeze rows, columns, or both. Maintains scroll position for large worksheets.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#128279;</div>
+      <h3>Hyperlinks</h3>
+      <p>Internal sheet links, external URLs, email links — with display text and tooltips.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#128172;</div>
+      <h3>Comments & Notes</h3>
+      <p>Add, read, and remove cell comments with author attribution.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#128274;</div>
+      <h3>Sheet Protection</h3>
+      <p>Protect worksheets with granular permissions — lock formatting, insertion, deletion, sorting, and filtering independently.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#128196;</div>
+      <h3>Page Setup</h3>
+      <p>Paper size, orientation, margins, headers, footers — full print configuration.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#128338;</div>
+      <h3>Temporal API</h3>
+      <p>First-class support for the Temporal API alongside classic Date objects. Future-proof date handling.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#9889;</div>
+      <h3>WASM Performance</h3>
+      <p>Rust core compiled to WASM. ZIP decompression and XML parsing run at near-native speed inside the WASM sandbox.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#128230;</div>
+      <h3>Tree-shakable ESM</h3>
+      <p>Pure ESM with zero runtime dependencies. Import only what you need — bundlers eliminate the rest.</p>
+    </div>
+  </div>
+</section>
+
+<!-- PERFORMANCE -->
+<section id="performance">
+  <h2>Performance</h2>
+  <p class="section-sub">Benchmarked with a 100,000-row workbook. Node.js, single thread.</p>
+
+  <div class="bench-row">
+    <div class="bench-label">Read 100K</div>
+    <div class="bench-bars">
+      <div class="bench-bar ours" style="width: 23%">1,155 ms</div>
+      <div class="bench-bar theirs" style="width: 100%">4,927 ms</div>
+    </div>
+  </div>
+
+  <div class="bench-row">
+    <div class="bench-label">Write 100K</div>
+    <div class="bench-bars">
+      <div class="bench-bar ours" style="width: 100%">5,048 ms</div>
+      <div class="bench-bar theirs" style="width: 100%">5,048 ms</div>
+    </div>
+  </div>
+
+  <div class="bench-row">
+    <div class="bench-label">aoaToSheet 50K</div>
+    <div class="bench-bars">
+      <div class="bench-bar ours" style="width: 62%">213 ms</div>
+      <div class="bench-bar theirs" style="width: 100%">341 ms</div>
+    </div>
+  </div>
+
+  <div class="bench-row">
+    <div class="bench-label">sheetToJson 10K</div>
+    <div class="bench-bars">
+      <div class="bench-bar ours" style="width: 52%">54 ms</div>
+      <div class="bench-bar theirs" style="width: 100%">103 ms</div>
+    </div>
+  </div>
+
+  <div class="bench-row">
+    <div class="bench-label">sheetToCsv 10K</div>
+    <div class="bench-bars">
+      <div class="bench-bar ours" style="width: 66%">83 ms</div>
+      <div class="bench-bar theirs" style="width: 100%">126 ms</div>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 2rem; margin-top: 1rem; font-size: 0.8rem; color: var(--text-muted);">
+    <div><span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: linear-gradient(90deg, var(--accent), #818cf8); vertical-align: middle; margin-right: 0.4rem;"></span>modern-xlsx</div>
+    <div><span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: var(--surface-2); vertical-align: middle; margin-right: 0.4rem;"></span>SheetJS CE</div>
+  </div>
+</section>
+
+<!-- QUICK START -->
+<section id="quickstart">
+  <h2>Quick Start</h2>
+  <p class="section-sub">Create a styled spreadsheet in under 30 lines.</p>
+
+  <div class="code-block">
+    <div class="header">
+      <div class="dots"><span></span><span></span><span></span></div>
+      example.ts
+    </div>
+<pre><span class="kw">import</span> { initWasm, Workbook, readFile } <span class="kw">from</span> <span class="str">'modern-xlsx'</span>;
+
+<span class="kw">await</span> <span class="fn">initWasm</span>();
+
+<span class="cmt">// Create a new workbook</span>
+<span class="kw">const</span> wb = <span class="kw">new</span> <span class="typ">Workbook</span>();
+<span class="kw">const</span> ws = wb.<span class="fn">addSheet</span>(<span class="str">'Sales'</span>);
+
+ws.<span class="fn">cell</span>(<span class="str">'A1'</span>).value = <span class="str">'Product'</span>;
+ws.<span class="fn">cell</span>(<span class="str">'B1'</span>).value = <span class="str">'Revenue'</span>;
+ws.<span class="fn">cell</span>(<span class="str">'A2'</span>).value = <span class="str">'Widget'</span>;
+ws.<span class="fn">cell</span>(<span class="str">'B2'</span>).value = <span class="num">9999.99</span>;
+
+<span class="cmt">// Style headers</span>
+<span class="kw">const</span> header = wb.<span class="fn">createStyle</span>()
+  .<span class="fn">font</span>({ bold: <span class="kw">true</span>, size: <span class="num">14</span>, color: <span class="str">'1F4E79'</span> })
+  .<span class="fn">fill</span>({ pattern: <span class="str">'solid'</span>, fgColor: <span class="str">'D6E4F0'</span> })
+  .<span class="fn">alignment</span>({ horizontal: <span class="str">'center'</span> })
+  .<span class="fn">build</span>(wb.styles);
+
+ws.<span class="fn">cell</span>(<span class="str">'A1'</span>).styleIndex = header;
+ws.<span class="fn">cell</span>(<span class="str">'B1'</span>).styleIndex = header;
+
+<span class="cmt">// Currency format</span>
+<span class="kw">const</span> currency = wb.<span class="fn">createStyle</span>()
+  .<span class="fn">numberFormat</span>(<span class="str">'$#,##0.00'</span>)
+  .<span class="fn">build</span>(wb.styles);
+ws.<span class="fn">cell</span>(<span class="str">'B2'</span>).styleIndex = currency;
+
+<span class="kw">await</span> wb.<span class="fn">toFile</span>(<span class="str">'sales.xlsx'</span>);
+
+<span class="cmt">// Read an existing file</span>
+<span class="kw">const</span> existing = <span class="kw">await</span> <span class="fn">readFile</span>(<span class="str">'report.xlsx'</span>);
+console.<span class="fn">log</span>(existing.<span class="fn">getSheet</span>(<span class="str">'Sheet1'</span>)?.<span class="fn">cell</span>(<span class="str">'A1'</span>).value);</pre>
+  </div>
+</section>
+
+<!-- API OVERVIEW -->
+<section id="api">
+  <h2>API Reference</h2>
+  <p class="section-sub">Full documentation available in the <a href="https://github.com/ABCrimson/modern-xlsx/blob/main/packages/modern-xlsx/README.md">package README</a>.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Category</th><th>Functions / Classes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Core</td>
+          <td><code>initWasm()</code> &middot; <code>Workbook</code> &middot; <code>Worksheet</code> &middot; <code>Cell</code></td>
+        </tr>
+        <tr>
+          <td>I/O</td>
+          <td><code>readFile()</code> &middot; <code>readBuffer()</code> &middot; <code>toFile()</code> &middot; <code>toBuffer()</code> &middot; <code>writeBlob()</code></td>
+        </tr>
+        <tr>
+          <td>Styles</td>
+          <td><code>StyleBuilder</code> — <code>.font()</code> <code>.fill()</code> <code>.border()</code> <code>.alignment()</code> <code>.numberFormat()</code> <code>.build()</code></td>
+        </tr>
+        <tr>
+          <td>Conversions</td>
+          <td><code>aoaToSheet()</code> &middot; <code>jsonToSheet()</code> &middot; <code>sheetToJson()</code> &middot; <code>sheetToCsv()</code> &middot; <code>sheetToHtml()</code></td>
+        </tr>
+        <tr>
+          <td>Dates</td>
+          <td><code>dateToSerial()</code> &middot; <code>serialToDate()</code> &middot; <code>isDateFormatId()</code></td>
+        </tr>
+        <tr>
+          <td>Formatting</td>
+          <td><code>formatCell()</code> &middot; <code>getBuiltinFormat()</code></td>
+        </tr>
+        <tr>
+          <td>Cell Refs</td>
+          <td><code>encodeCellRef()</code> &middot; <code>decodeCellRef()</code> &middot; <code>encodeRange()</code> &middot; <code>decodeRange()</code></td>
+        </tr>
+        <tr>
+          <td>Rich Text</td>
+          <td><code>RichTextBuilder</code> — <code>.text()</code> <code>.bold()</code> <code>.italic()</code> <code>.styled()</code> <code>.build()</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="architecture">
+  <h2>Architecture</h2>
+  <p class="section-sub">Hybrid Rust + TypeScript design for maximum performance and developer experience.</p>
+
+  <div class="arch">
+    <div class="layer ts">TypeScript API</div>
+    <div class="layer ts">Workbook &middot; Worksheet &middot; Cell &middot; StyleBuilder</div>
+    <div class="arrow">&darr; JSON &darr;</div>
+    <div class="layer wasm">wasm-bindgen Bridge</div>
+    <div class="arrow">&darr;</div>
+    <div class="layer rust">Rust Core &mdash; OOXML Parser &amp; Writer</div>
+    <div class="layer rust">quick-xml (SAX) &middot; zip (deflate) &middot; SharedStringTable</div>
+  </div>
+
+  <div style="margin-top: 1.5rem; font-size: 0.875rem; color: var(--text-muted); line-height: 1.8;">
+    Data crosses the WASM boundary as JSON strings &mdash; 8&ndash;13x faster than <code>serde_wasm_bindgen</code>
+    for large workbooks (100K+ rows). The Rust core handles ZIP compression, SAX-style XML parsing,
+    shared string table construction, and style resolution. The writer builds the SST inline during
+    XML generation, avoiding a full worksheet clone.
+  </div>
+</section>
+
+<!-- COMPARISON -->
+<section id="comparison">
+  <h2>Comparison</h2>
+  <p class="section-sub">How modern-xlsx stacks up against SheetJS Community and Pro editions.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Feature</th><th>modern-xlsx</th><th>SheetJS CE</th><th>SheetJS Pro</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Read / write XLSX</td><td class="yes">Free</td><td class="yes">Free</td><td class="yes">Paid</td></tr>
+        <tr><td>Cell styling</td><td class="yes">Free</td><td class="no">No</td><td class="paid">Paid</td></tr>
+        <tr><td>Number formats</td><td class="yes">Free</td><td class="no">Read only</td><td class="paid">Paid</td></tr>
+        <tr><td>Data validation</td><td class="yes">Free</td><td class="no">No</td><td class="paid">Paid</td></tr>
+        <tr><td>Conditional formatting</td><td class="yes">Free</td><td class="no">No</td><td class="paid">Paid</td></tr>
+        <tr><td>Comments</td><td class="yes">Free</td><td class="no">Read only</td><td class="paid">Paid</td></tr>
+        <tr><td>Rich text</td><td class="yes">Free</td><td class="no">No</td><td class="paid">Paid</td></tr>
+        <tr><td>Sheet protection</td><td class="yes">Free</td><td class="no">Read only</td><td class="paid">Paid</td></tr>
+        <tr><td>Frozen panes</td><td class="yes">Free</td><td class="no">Partial</td><td class="paid">Paid</td></tr>
+        <tr><td>Temporal API dates</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+        <tr><td>Available on npm</td><td class="yes">Yes</td><td class="no">CDN only</td><td class="no">No</td></tr>
+        <tr><td>Tree-shakable ESM</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+        <tr><td>TypeScript types</td><td class="yes">Built-in</td><td class="no">Partial</td><td class="no">Partial</td></tr>
+        <tr><td>WASM-accelerated</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div>MIT License &copy; 2026 modern-xlsx contributors</div>
+  <div class="links">
+    <a href="https://github.com/ABCrimson/modern-xlsx">GitHub</a>
+    <a href="https://www.npmjs.com/package/modern-xlsx">npm</a>
+    <a href="https://github.com/ABCrimson/modern-xlsx/issues">Issues</a>
+  </div>
+</footer>
+
+</body>
+</html>

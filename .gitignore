@@ -8,7 +8,7 @@ dist/
 *.tgz
 
 # WASM build artifacts (built, not source)
-packages/ironsheet/wasm/
+packages/modern-xlsx/wasm/
 
 # OS
 .DS_Store
@@ -22,3 +22,9 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Claude Code
+.claude/
+
+# Lock files (pnpm uses pnpm-lock.yaml)
+package-lock.json

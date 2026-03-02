@@ -6,16 +6,21 @@
   },
   "packageManager": "pnpm@11.0.0-alpha.11",
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "scripts": {
-    "build:wasm": "cd crates/ironsheet-wasm && wasm-pack build --target web --release --out-dir ../../packages/ironsheet/wasm",
-    "build:ts": "pnpm -C packages/ironsheet build",
+    "build:wasm": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm",
+    "build:ts": "pnpm -C packages/modern-xlsx build",
     "build": "pnpm build:wasm && pnpm build:ts",
     "test:rust": "cargo test --workspace",
-    "test:ts": "pnpm -C packages/ironsheet test",
+    "test:ts": "pnpm -C packages/modern-xlsx test",
     "test": "pnpm test:rust && pnpm test:ts",
     "lint": "biome check .",
     "fmt": "biome format --write ."
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
   }
 }
