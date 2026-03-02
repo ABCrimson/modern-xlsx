@@ -1,3 +1,6 @@
 packages:
   - 'packages/*'
   - 'benchmarks'
+
+onlyBuiltDependencies:
+  - esbuild
