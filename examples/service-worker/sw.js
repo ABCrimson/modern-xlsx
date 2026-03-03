@@ -8,14 +8,14 @@
  *   navigator.serviceWorker.register('/sw.js', { type: 'module' });
  */
 
-import init, { write } from 'https://cdn.jsdelivr.net/npm/modern-xlsx@0.2.0/wasm/modern_xlsx_wasm.js';
+import init, { write } from 'https://cdn.jsdelivr.net/npm/modern-xlsx@0.3.0/wasm/modern_xlsx_wasm.js';
 
 let initialized = false;
 
 async function ensureInit() {
   if (initialized) return;
   // Service Workers support fetch-based WASM init
-  await init(new URL('https://cdn.jsdelivr.net/npm/modern-xlsx@0.2.0/dist/modern-xlsx.wasm'));
+  await init(new URL('https://cdn.jsdelivr.net/npm/modern-xlsx@0.3.0/dist/modern-xlsx.wasm'));
   initialized = true;
 }
 

@@ -38,10 +38,10 @@ pnpm -C packages/modern-xlsx build
 ### Test
 
 ```bash
-# Rust tests (170 tests)
+# Rust tests (157 tests)
 cargo test -p modern-xlsx-core
 
-# TypeScript tests (171 tests)
+# TypeScript tests (280 tests)
 pnpm -C packages/modern-xlsx test
 
 # Lint

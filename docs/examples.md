@@ -376,3 +376,73 @@ serialToDate(46113); // { year: 2026, month: 3, day: 1 }
 isDateFormatCode('yyyy-mm-dd'); // true
 isDateFormatCode('#,##0.00');   // false
 ```
+
+---
+
+## Barcode & QR Code Generation
+
+### Embed a QR code
+
+```typescript
+import { initWasm, Workbook } from 'modern-xlsx';
+
+await initWasm();
+
+const wb = new Workbook();
+wb.addSheet('Labels');
+
+wb.addBarcode('Labels',
+  { fromCol: 1, fromRow: 0, toCol: 5, toRow: 4 },
+  'https://example.com/product/12345',
+  { type: 'qr', ecLevel: 'M' },
+);
+
+await wb.toFile('labels.xlsx');
+```
+
+### Embed a Code 128 barcode
+
+```typescript
+wb.addBarcode('Sheet1',
+  { fromCol: 0, fromRow: 0, toCol: 4, toRow: 2 },
+  'SKU-12345',
+  { type: 'code128', showText: true },
+);
+```
+
+### Low-level barcode pipeline
+
+```typescript
+import { encodeQR, renderBarcodePNG } from 'modern-xlsx';
+
+const matrix = encodeQR('Hello World', { ecLevel: 'H' });
+const png = renderBarcodePNG(matrix, {
+  moduleSize: 6,
+  quietZone: 4,
+  showText: true,
+  textValue: 'Hello World',
+});
+
+// Use PNG bytes however you want
+wb.addImage('Sheet1', { fromCol: 0, fromRow: 0, toCol: 3, toRow: 3 }, png);
+```
+
+---
+
+## Image Embedding
+
+```typescript
+import { Workbook, encodeQR, renderBarcodePNG } from 'modern-xlsx';
+
+const wb = new Workbook();
+wb.addSheet('Images');
+
+// Any Uint8Array PNG bytes
+const pngBytes = renderBarcodePNG(encodeQR('Test'), { moduleSize: 4 });
+
+wb.addImage('Images',
+  { fromCol: 0, fromRow: 0, toCol: 4, toRow: 4 },
+  pngBytes,
+  'png', // format: 'png' | 'jpeg' | 'gif'
+);
+```

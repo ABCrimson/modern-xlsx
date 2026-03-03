@@ -340,6 +340,7 @@
       <option value="batch">Batch Data (aoaToSheet)</option>
       <option value="json">JSON to Sheet</option>
       <option value="formulas">Formulas & Dates</option>
+      <option value="barcodes">Barcodes & QR Codes</option>
     </select>
     <button id="run-btn" class="btn btn-run" disabled>Run</button>
     <button id="clear-btn" class="btn btn-secondary">Clear</button>
@@ -612,6 +613,51 @@ ws.setColumnWidth(3, 14);
 log('Created invoice with formulas and date');
 const blob = ModernXlsx.writeBlob(wb);
 download(blob, 'invoice.xlsx');`,
+
+    barcodes: `// Generate barcodes and QR codes embedded in XLSX
+const wb = new ModernXlsx.Workbook();
+const ws = wb.addSheet('Labels');
+
+// Title
+ws.cell('A1').value = 'Product Labels';
+const titleStyle = new ModernXlsx.StyleBuilder()
+  .font({ bold: true, size: 16, color: '1F4E79' })
+  .build(wb.styles);
+ws.cell('A1').styleIndex = titleStyle;
+ws.addMergeCell('A1:F1');
+
+// QR Code — embedded as image in cells B3:F7
+ws.cell('A3').value = 'QR Code:';
+wb.addBarcode('Labels',
+  { fromCol: 1, fromRow: 2, toCol: 5, toRow: 6 },
+  'https://example.com/product/12345',
+  { type: 'qr', ecLevel: 'M' },
+);
+
+// Code 128 barcode — embedded in cells B9:F11
+ws.cell('A9').value = 'Barcode:';
+wb.addBarcode('Labels',
+  { fromCol: 1, fromRow: 8, toCol: 5, toRow: 10 },
+  'SKU-12345',
+  { type: 'code128', showText: true },
+);
+
+// Low-level: generate QR PNG and embed manually
+const matrix = ModernXlsx.encodeQR('Hello World', { ecLevel: 'H' });
+const png = ModernXlsx.renderBarcodePNG(matrix, { moduleSize: 4, showText: true, textValue: 'Hello World' });
+ws.cell('A13').value = 'Manual QR:';
+wb.addImage('Labels', { fromCol: 1, fromRow: 12, toCol: 5, toRow: 16 }, png);
+
+log('QR matrix: ' + matrix.width + 'x' + matrix.height + ' modules');
+log('PNG size: ' + (png.length / 1024).toFixed(1) + ' KB');
+log('Created workbook with 3 embedded barcodes');
+
+ws.setColumnWidth(0, 12);
+for (let i = 1; i <= 5; i++) ws.setColumnWidth(i, 10);
+
+const blob = ModernXlsx.writeBlob(wb);
+log('File size: ' + (blob.size / 1024).toFixed(1) + ' KB');
+download(blob, 'labels.xlsx');`,
   };
 
   // --- Helpers ---

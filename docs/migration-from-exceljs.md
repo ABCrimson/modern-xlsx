@@ -194,3 +194,4 @@ await initWasm(); // Call once at startup
 | Sheet creation | `wb.addWorksheet(name)` | `wb.addSheet(name)` |
 | Read/write | Streaming in JS | Bulk WASM processing |
 | Dependencies | 14+ | 0 (WASM bundled) |
+| Barcode generation | No | **Yes (9 formats)** |

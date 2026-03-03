@@ -209,3 +209,4 @@ ws.cell('A1').styleIndex = boldRed;
 | Initialization | Sync | Async (`initWasm()`) |
 | Cell access | `ws['A1']` | `ws.cell('A1')` |
 | Dependencies | 0 | 0 (WASM bundled) |
+| Barcode generation | N/A | **Yes** |
