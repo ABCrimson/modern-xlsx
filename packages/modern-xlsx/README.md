@@ -107,6 +107,10 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
 | OOXML validation & repair | **Yes** | No | No |
 | Barcode & QR code generation | **Yes** | No | No |
 | Image embedding | **Yes** | No | Paid |
+| Excel Tables (ListObjects) | **Yes** | No | Paid |
+| Headers & footers | **Yes** | No | Paid |
+| Row/column grouping (outline) | **Yes** | No | Paid |
+| Print titles & areas | **Yes** | No | Paid |
 
 ## How It Works
 
@@ -260,6 +264,38 @@ ws.sheetProtection = {
   deleteColumns: false, deleteRows: false,
   sort: false, autoFilter: false,
 };
+
+// Excel Tables (ListObjects)
+ws.addTable({
+  name: 'SalesData', ref: 'A1:B3',
+  columns: [{ name: 'Product' }, { name: 'Revenue' }],
+  style: { name: 'TableStyleMedium9', showRowStripes: true },
+});
+ws.tables;                         // TableDefinitionData[]
+ws.getTable('SalesData');          // TableDefinitionData | undefined
+ws.removeTable('SalesData');       // boolean
+
+// Headers & Footers
+import { HeaderFooterBuilder } from 'modern-xlsx';
+ws.headerFooter = {
+  oddHeader: new HeaderFooterBuilder()
+    .left(HeaderFooterBuilder.date())
+    .center(HeaderFooterBuilder.bold('Report'))
+    .right(`Page ${HeaderFooterBuilder.pageNumber()}`)
+    .build(),
+};
+
+// Row & Column Grouping
+ws.groupRows(2, 10);              // outline level 1
+ws.groupRows(3, 5, 2);            // nested level 2
+ws.collapseRows(2, 10);
+ws.expandRows(2, 10);
+ws.groupColumns(1, 3);            // columns A-C
+ws.outlineProperties = { summaryBelow: true, summaryRight: true };
+
+// Print Titles & Areas
+wb.setPrintTitles('Sheet1', { rows: { start: 1, end: 1 } });
+wb.setPrintArea('Sheet1', 'A1:G50');
 ```
 
 ### Styles
@@ -432,7 +468,7 @@ const runs = new RichTextBuilder()
 Single `<script>` tag — no bundler required:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.3.0/dist/modern-xlsx.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.5.0/dist/modern-xlsx.min.js"></script>
 <script>
   (async () => {
     await ModernXlsx.initWasm();
@@ -444,7 +480,7 @@ Single `<script>` tag — no bundler required:
 </script>
 ```
 
-Also available via unpkg: `https://unpkg.com/modern-xlsx@0.3.0/dist/modern-xlsx.min.js`
+Also available via unpkg: `https://unpkg.com/modern-xlsx@0.5.0/dist/modern-xlsx.min.js`
 
 ### Web Worker (Off-Thread)
 
@@ -507,6 +543,9 @@ import type {
   ValidationReport, ValidationIssue, Severity, IssueCategory, RepairResult,
   // Barcode & image embedding
   BarcodeMatrix, DrawBarcodeOptions, RenderOptions, ImageAnchor,
+  // Tables & print layout
+  TableDefinitionData, TableColumnData, TableStyleInfoData,
+  HeaderFooterData, OutlinePropertiesData,
 } from 'modern-xlsx';
 ```
 
