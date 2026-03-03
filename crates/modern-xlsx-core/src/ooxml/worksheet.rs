@@ -3102,77 +3102,153 @@ impl WorksheetXml {
                 .map_err(map_err)?;
         }
 
-        // <sheetViews> — if frozen_pane or split_pane is present.
-        // Split pane takes priority over frozen pane (mutually exclusive).
-        let has_pane = self.split_pane.is_some() || self.frozen_pane.is_some();
-        if has_pane {
+        // <sheetViews> — if sheet_view, frozen_pane, or split_pane is present.
+        let has_sheet_views = self.sheet_view.is_some()
+            || self.split_pane.is_some()
+            || self.frozen_pane.is_some();
+        if has_sheet_views {
             writer
                 .write_event(Event::Start(BytesStart::new("sheetViews")))
                 .map_err(map_err)?;
 
-            let mut sv = BytesStart::new("sheetView");
-            sv.push_attribute(("workbookViewId", "0"));
-            writer.write_event(Event::Start(sv)).map_err(map_err)?;
+            let mut sv_elem = BytesStart::new("sheetView");
 
-            if let Some(ref sp) = self.split_pane {
-                // --- Split pane ---
-                let mut pane_elem = BytesStart::new("pane");
-                if let Some(x) = sp.vertical {
-                    let s = format_f64(x);
-                    pane_elem.push_attribute(("xSplit", s.as_str()));
+            // Write non-default sheetView attributes.
+            if let Some(ref sv) = self.sheet_view {
+                if !sv.show_grid_lines {
+                    sv_elem.push_attribute(("showGridLines", "0"));
                 }
-                if let Some(y) = sp.horizontal {
-                    let s = format_f64(y);
-                    pane_elem.push_attribute(("ySplit", s.as_str()));
+                if !sv.show_row_col_headers {
+                    sv_elem.push_attribute(("showRowColHeaders", "0"));
                 }
-                if let Some(ref tlc) = sp.top_left_cell {
-                    pane_elem.push_attribute(("topLeftCell", tlc.as_str()));
+                if !sv.show_zeros {
+                    sv_elem.push_attribute(("showZeros", "0"));
                 }
-                if let Some(ref ap) = sp.active_pane {
-                    pane_elem.push_attribute(("activePane", ap.as_str()));
+                if sv.right_to_left {
+                    sv_elem.push_attribute(("rightToLeft", "1"));
                 }
-                pane_elem.push_attribute(("state", "split"));
-                writer.write_event(Event::Empty(pane_elem)).map_err(map_err)?;
-            } else if let Some(ref pane) = self.frozen_pane {
-                // --- Frozen pane (existing logic preserved exactly) ---
-                let mut pane_elem = BytesStart::new("pane");
-                if pane.cols > 0 {
-                    pane_elem.push_attribute(("xSplit", ibuf.format(pane.cols)));
+                if sv.tab_selected {
+                    sv_elem.push_attribute(("tabSelected", "1"));
                 }
-                if pane.rows > 0 {
-                    pane_elem.push_attribute(("ySplit", ibuf.format(pane.rows)));
+                if !sv.show_ruler {
+                    sv_elem.push_attribute(("showRuler", "0"));
                 }
-                let mut top_left = col_index_to_letter(pane.cols + 1);
-                top_left.push_str(ibuf.format(pane.rows + 1));
-                pane_elem.push_attribute(("topLeftCell", top_left.as_str()));
-                let active_pane = match (pane.rows > 0, pane.cols > 0) {
-                    (true, true) => "bottomRight",
-                    (true, false) => "bottomLeft",
-                    (false, true) => "topRight",
-                    (false, false) => "bottomLeft",
-                };
-                pane_elem.push_attribute(("activePane", active_pane));
-                pane_elem.push_attribute(("state", "frozen"));
-                writer.write_event(Event::Empty(pane_elem)).map_err(map_err)?;
+                if !sv.show_outline_symbols {
+                    sv_elem.push_attribute(("showOutlineSymbols", "0"));
+                }
+                if !sv.show_white_space {
+                    sv_elem.push_attribute(("showWhiteSpace", "0"));
+                }
+                if !sv.default_grid_color {
+                    sv_elem.push_attribute(("defaultGridColor", "0"));
+                }
+                if let Some(z) = sv.zoom_scale {
+                    sv_elem.push_attribute(("zoomScale", ibuf.format(z)));
+                }
+                if let Some(z) = sv.zoom_scale_normal {
+                    sv_elem.push_attribute(("zoomScaleNormal", ibuf.format(z)));
+                }
+                if let Some(z) = sv.zoom_scale_page_layout_view {
+                    sv_elem.push_attribute(("zoomScalePageLayoutView", ibuf.format(z)));
+                }
+                if let Some(z) = sv.zoom_scale_sheet_layout_view {
+                    sv_elem.push_attribute(("zoomScaleSheetLayoutView", ibuf.format(z)));
+                }
+                if let Some(c) = sv.color_id {
+                    sv_elem.push_attribute(("colorId", ibuf.format(c)));
+                }
+                if let Some(ref v) = sv.view {
+                    sv_elem.push_attribute(("view", v.as_str()));
+                }
             }
 
-            // Write <selection> elements for each pane selection.
-            for sel in &self.pane_selections {
-                let mut sel_elem = BytesStart::new("selection");
-                if let Some(ref p) = sel.pane {
-                    sel_elem.push_attribute(("pane", p.as_str()));
+            sv_elem.push_attribute(("workbookViewId", "0"));
+
+            // Determine if sheetView has child elements (pane, selection).
+            let has_children = self.split_pane.is_some()
+                || self.frozen_pane.is_some()
+                || !self.pane_selections.is_empty();
+
+            if has_children {
+                writer
+                    .write_event(Event::Start(sv_elem))
+                    .map_err(map_err)?;
+
+                // Write pane element (split takes priority over frozen).
+                if let Some(ref sp) = self.split_pane {
+                    let mut pane_elem = BytesStart::new("pane");
+                    if let Some(x) = sp.vertical {
+                        let s = format_f64(x);
+                        pane_elem.push_attribute(("xSplit", s.as_str()));
+                    }
+                    if let Some(y) = sp.horizontal {
+                        let s = format_f64(y);
+                        pane_elem.push_attribute(("ySplit", s.as_str()));
+                    }
+                    if let Some(ref tlc) = sp.top_left_cell {
+                        pane_elem.push_attribute(("topLeftCell", tlc.as_str()));
+                    }
+                    if let Some(ref ap) = sp.active_pane {
+                        pane_elem.push_attribute(("activePane", ap.as_str()));
+                    }
+                    pane_elem.push_attribute(("state", "split"));
+                    writer
+                        .write_event(Event::Empty(pane_elem))
+                        .map_err(map_err)?;
+                } else if let Some(ref pane) = self.frozen_pane {
+                    let mut pane_elem = BytesStart::new("pane");
+                    if pane.cols > 0 {
+                        pane_elem.push_attribute(("xSplit", ibuf.format(pane.cols)));
+                    }
+                    if pane.rows > 0 {
+                        pane_elem.push_attribute(("ySplit", ibuf.format(pane.rows)));
+                    }
+                    let mut top_left = col_index_to_letter(pane.cols + 1);
+                    top_left.push_str(ibuf.format(pane.rows + 1));
+                    pane_elem.push_attribute(("topLeftCell", top_left.as_str()));
+                    let active_pane = match (pane.rows > 0, pane.cols > 0) {
+                        (true, true) => "bottomRight",
+                        (true, false) => "bottomLeft",
+                        (false, true) => "topRight",
+                        (false, false) => "bottomLeft",
+                    };
+                    pane_elem.push_attribute(("activePane", active_pane));
+                    pane_elem.push_attribute(("state", "frozen"));
+                    writer
+                        .write_event(Event::Empty(pane_elem))
+                        .map_err(map_err)?;
                 }
-                if let Some(ref ac) = sel.active_cell {
-                    sel_elem.push_attribute(("activeCell", ac.as_str()));
+
+                // Write <selection> elements.
+                for sel in &self.pane_selections {
+                    let mut sel_elem = BytesStart::new("selection");
+                    if let Some(ref p) = sel.pane {
+                        sel_elem.push_attribute(("pane", p.as_str()));
+                    }
+                    if let Some(ref ac) = sel.active_cell {
+                        sel_elem.push_attribute(("activeCell", ac.as_str()));
+                    }
+                    if let Some(ref sq) = sel.sqref {
+                        sel_elem.push_attribute(("sqref", sq.as_str()));
+                    }
+                    writer
+                        .write_event(Event::Empty(sel_elem))
+                        .map_err(map_err)?;
                 }
-                if let Some(ref sq) = sel.sqref {
-                    sel_elem.push_attribute(("sqref", sq.as_str()));
-                }
-                writer.write_event(Event::Empty(sel_elem)).map_err(map_err)?;
+
+                writer
+                    .write_event(Event::End(BytesEnd::new("sheetView")))
+                    .map_err(map_err)?;
+            } else {
+                // No children — write self-closing <sheetView ... />
+                writer
+                    .write_event(Event::Empty(sv_elem))
+                    .map_err(map_err)?;
             }
 
-            writer.write_event(Event::End(BytesEnd::new("sheetView"))).map_err(map_err)?;
-            writer.write_event(Event::End(BytesEnd::new("sheetViews"))).map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("sheetViews")))
+                .map_err(map_err)?;
         }
 
         // <cols> — only if non-empty.
@@ -5754,5 +5830,108 @@ mod tests {
         assert!(!sv.show_grid_lines);
         assert_eq!(sv.zoom_scale, Some(120));
         assert!(ws.frozen_pane.is_some());
+    }
+
+    /// Helper to construct a default WorksheetXml for testing.
+    fn default_test_ws() -> WorksheetXml {
+        WorksheetXml {
+            dimension: None,
+            rows: vec![],
+            merge_cells: vec![],
+            auto_filter: None,
+            frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
+            sheet_view: None,
+            columns: vec![],
+            data_validations: vec![],
+            conditional_formatting: vec![],
+            hyperlinks: vec![],
+            page_setup: None,
+            sheet_protection: None,
+            comments: vec![],
+            tab_color: None,
+            tables: vec![],
+            header_footer: None,
+            outline_properties: None,
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_sheet_view_hide_gridlines_zoom() {
+        let mut ws = default_test_ws();
+        ws.sheet_view = Some(SheetViewData {
+            show_grid_lines: false,
+            zoom_scale: Some(150),
+            ..SheetViewData::default()
+        });
+        let xml = ws.to_xml().unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        let sv = ws2.sheet_view.as_ref().unwrap();
+        assert!(!sv.show_grid_lines);
+        assert_eq!(sv.zoom_scale, Some(150));
+    }
+
+    #[test]
+    fn test_roundtrip_sheet_view_rtl() {
+        let mut ws = default_test_ws();
+        ws.sheet_view = Some(SheetViewData {
+            right_to_left: true,
+            show_row_col_headers: false,
+            ..SheetViewData::default()
+        });
+        let xml = ws.to_xml().unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        let sv = ws2.sheet_view.as_ref().unwrap();
+        assert!(sv.right_to_left);
+        assert!(!sv.show_row_col_headers);
+    }
+
+    #[test]
+    fn test_roundtrip_sheet_view_page_break_preview() {
+        let mut ws = default_test_ws();
+        ws.sheet_view = Some(SheetViewData {
+            view: Some("pageBreakPreview".to_owned()),
+            zoom_scale: Some(60),
+            zoom_scale_normal: Some(100),
+            ..SheetViewData::default()
+        });
+        let xml = ws.to_xml().unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        let sv = ws2.sheet_view.as_ref().unwrap();
+        assert_eq!(sv.view.as_deref(), Some("pageBreakPreview"));
+        assert_eq!(sv.zoom_scale, Some(60));
+        assert_eq!(sv.zoom_scale_normal, Some(100));
+    }
+
+    #[test]
+    fn test_roundtrip_sheet_view_with_frozen_pane() {
+        let mut ws = default_test_ws();
+        ws.sheet_view = Some(SheetViewData {
+            show_grid_lines: false,
+            zoom_scale: Some(120),
+            ..SheetViewData::default()
+        });
+        ws.frozen_pane = Some(FrozenPane { rows: 1, cols: 0 });
+        let xml = ws.to_xml().unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        assert!(ws2.sheet_view.is_some());
+        assert!(ws2.frozen_pane.is_some());
+        assert!(!ws2.sheet_view.unwrap().show_grid_lines);
+    }
+
+    #[test]
+    fn test_sheet_view_defaults_minimal_xml() {
+        let mut ws = default_test_ws();
+        ws.sheet_view = Some(SheetViewData::default());
+        let xml = ws.to_xml().unwrap();
+        let xml_str = std::str::from_utf8(&xml).unwrap();
+        // All defaults → no non-default attributes should appear
+        assert!(!xml_str.contains("showGridLines"));
+        assert!(!xml_str.contains("zoomScale"));
+        assert!(!xml_str.contains("rightToLeft"));
+        // But sheetViews should still be written
+        assert!(xml_str.contains("sheetViews"));
+        assert!(xml_str.contains("sheetView"));
     }
 }
