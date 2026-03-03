@@ -143,6 +143,10 @@ pub struct WorksheetXml {
     pub auto_filter: Option<AutoFilter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frozen_pane: Option<FrozenPane>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_pane: Option<SplitPane>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pane_selections: Vec<PaneSelection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub columns: Vec<ColumnInfo>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -244,6 +248,41 @@ pub struct FrozenPane {
     pub rows: u32,
     /// Number of frozen columns (xSplit).
     pub cols: u32,
+}
+
+/// Split pane configuration — divides the sheet view into 2 or 4 scrollable regions.
+/// `xSplit` / `ySplit` values are in **twips** (1/20th of a point) for split mode.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitPane {
+    /// Horizontal split position in twips (ySplit). `None` or `0.0` means no horizontal split.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub horizontal: Option<f64>,
+    /// Vertical split position in twips (xSplit). `None` or `0.0` means no vertical split.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vertical: Option<f64>,
+    /// Cell reference for the top-left cell in the bottom-right pane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_left_cell: Option<String>,
+    /// The active pane: `"topLeft"`, `"topRight"`, `"bottomLeft"`, `"bottomRight"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_pane: Option<String>,
+}
+
+/// Per-pane selection state within a `<sheetView>`.
+/// Each visible pane can have its own active cell and selection range.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PaneSelection {
+    /// Which pane this selection belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane: Option<String>,
+    /// The active (focused) cell reference, e.g. `"A1"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_cell: Option<String>,
+    /// The selected range, e.g. `"A1:C5"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sqref: Option<String>,
 }
 
 /// Column formatting information from the `<cols>` section.
@@ -1491,6 +1530,8 @@ impl WorksheetXml {
             merge_cells,
             auto_filter,
             frozen_pane,
+            split_pane: None,
+            pane_selections: vec![],
             columns,
             data_validations,
             conditional_formatting,
@@ -3635,6 +3676,8 @@ mod tests {
             merge_cells: vec!["A1:C1".to_string()],
             auto_filter: Some(AutoFilter { range: "A1:C1".to_string(), filter_columns: vec![] }),
             frozen_pane: Some(FrozenPane { rows: 1, cols: 0 }),
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![ColumnInfo {
                 min: 1,
                 max: 1,
@@ -3732,6 +3775,8 @@ mod tests {
             merge_cells: Vec::new(),
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: Vec::new(),
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -3822,6 +3867,8 @@ mod tests {
             merge_cells: Vec::new(),
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: Vec::new(),
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -3867,6 +3914,8 @@ mod tests {
             merge_cells: Vec::new(),
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: Vec::new(),
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -3950,6 +3999,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![
                 DataValidation {
@@ -4099,6 +4150,8 @@ mod tests {
             merge_cells: Vec::new(),
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: Vec::new(),
             data_validations: Vec::new(),
             conditional_formatting: vec![
@@ -4208,6 +4261,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4272,6 +4327,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4337,6 +4394,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4450,6 +4509,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4520,6 +4581,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![DataValidation {
                 sqref: "A1:A10".to_string(),
@@ -4604,6 +4667,8 @@ mod tests {
                 ],
             }),
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4664,6 +4729,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![ConditionalFormatting {
@@ -4762,6 +4829,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![ConditionalFormatting {
@@ -4828,6 +4897,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4864,6 +4935,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4912,6 +4985,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![
                 ColumnInfo { min: 1, max: 1, width: 10.0, hidden: false, custom_width: true, outline_level: None, collapsed: false },
                 ColumnInfo { min: 2, max: 3, width: 10.0, hidden: false, custom_width: true, outline_level: Some(1), collapsed: false },
@@ -4942,6 +5017,8 @@ mod tests {
             merge_cells: vec![],
             auto_filter: None,
             frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],

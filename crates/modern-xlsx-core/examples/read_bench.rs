@@ -79,6 +79,8 @@ fn main() {
         merge_cells: Vec::new(),
         auto_filter: None,
         frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
         columns: Vec::new(),
         data_validations: Vec::new(),
         conditional_formatting: Vec::new(),
