@@ -200,7 +200,8 @@ export class Workbook {
     if (this.data.sheets.some((s) => s.name === newName)) {
       throw new Error(`Sheet "${newName}" already exists`);
     }
-    const source = this.data.sheets[sourceIndex]!;
+    const source = this.data.sheets[sourceIndex];
+    if (!source) throw new Error(`Invalid source index: ${sourceIndex}`);
     const clone: SheetData = structuredClone(source);
     clone.name = newName;
     const idx = insertIndex ?? this.data.sheets.length;
@@ -223,7 +224,9 @@ export class Workbook {
     if (this.data.sheets.some((s, i) => s.name === newName && i !== idx)) {
       throw new Error(`Sheet "${newName}" already exists`);
     }
-    this.data.sheets[idx]!.name = newName;
+    const sheet = this.data.sheets[idx];
+    if (!sheet) throw new Error(`Sheet not found: ${nameOrIndex}`);
+    sheet.name = newName;
   }
 
   /**
@@ -237,13 +240,16 @@ export class Workbook {
     if (idx < 0 || idx >= this.data.sheets.length) {
       throw new Error(`Sheet not found: ${nameOrIndex}`);
     }
+    const target = this.data.sheets[idx];
+    if (!target) throw new Error(`Sheet not found: ${nameOrIndex}`);
+    if (target.state === 'hidden' || target.state === 'veryHidden') return;
     const visibleCount = this.data.sheets.filter(
       (s) => !s.state || s.state === 'visible',
     ).length;
     if (visibleCount <= 1) {
       throw new Error('Cannot hide the last visible sheet');
     }
-    this.data.sheets[idx]!.state = 'hidden';
+    target.state = 'hidden';
   }
 
   /**
@@ -257,7 +263,9 @@ export class Workbook {
     if (idx < 0 || idx >= this.data.sheets.length) {
       throw new Error(`Sheet not found: ${nameOrIndex}`);
     }
-    this.data.sheets[idx]!.state = null;
+    const sheet = this.data.sheets[idx];
+    if (!sheet) throw new Error(`Sheet not found: ${nameOrIndex}`);
+    sheet.state = null;
   }
 
   // --- Named ranges ---
