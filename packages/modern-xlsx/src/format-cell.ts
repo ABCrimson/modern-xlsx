@@ -7,7 +7,7 @@
  * and custom format strings.
  */
 
-import { serialToDate } from './dates.js';
+import { isDateFormatCode, serialToDate } from './dates.js';
 import type { DateSystem } from './types.js';
 
 /** Built-in Excel format codes (ECMA-376 18.8.30). */
@@ -88,39 +88,13 @@ export function getBuiltinFormat(id: number): string | undefined {
 // ---------------------------------------------------------------------------
 
 function dispatchFormat(numVal: number, code: string, system: DateSystem): string {
-  if (isDateFormat(code)) return formatDate(numVal, code, system);
+  if (isDateFormatCode(code)) return formatDate(numVal, code, system);
   if (code.includes('%')) return formatPercentage(numVal, code);
   if (code.includes('E+') || code.includes('E-') || code.includes('e+')) {
     return formatScientific(numVal, code);
   }
   if (code.includes('?/') || code.includes('#/')) return formatFraction(numVal);
   return formatNumber(numVal, code);
-}
-
-// ---------------------------------------------------------------------------
-// Date format detection
-// ---------------------------------------------------------------------------
-
-function isDateFormat(code: string): boolean {
-  let inQuote = false;
-  for (let i = 0; i < code.length; i++) {
-    const ch = code.charAt(i);
-    if (ch === '"') {
-      inQuote = !inQuote;
-      continue;
-    }
-    if (inQuote) continue;
-    if (ch === '\\') {
-      i++;
-      continue;
-    }
-    const lower = ch.toLowerCase();
-    if (lower === 'y' || lower === 'd' || lower === 'h' || lower === 's' || lower === 'm') {
-      return true;
-    }
-    if (code.slice(i, i + 5).toUpperCase() === 'AM/PM') return true;
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------

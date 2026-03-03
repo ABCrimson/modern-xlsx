@@ -369,7 +369,7 @@
 </div>
 
 <!-- Load modern-xlsx IIFE bundle from jsDelivr CDN -->
-<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.2.0/dist/modern-xlsx.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.3.0/dist/modern-xlsx.min.js"></script>
 <script>
 (async () => {
   const statusEl = document.getElementById('wasm-status');
@@ -423,7 +423,7 @@ const percentStyle = new ModernXlsx.StyleBuilder()
 // Headers
 const headers = ['Product', 'Q1', 'Q2', 'Q3', 'Q4', 'Growth'];
 headers.forEach((h, i) => {
-  const ref = ModernXlsx.encodeCellRef({ row: 0, col: i });
+  const ref = ModernXlsx.encodeCellRef(0, i);
   ws.cell(ref).value = h;
   ws.cell(ref).styleIndex = headerStyle;
 });
@@ -437,7 +437,7 @@ const data = [
 
 data.forEach((row, ri) => {
   row.forEach((val, ci) => {
-    const ref = ModernXlsx.encodeCellRef({ row: ri + 1, col: ci });
+    const ref = ModernXlsx.encodeCellRef(ri + 1, ci);
     ws.cell(ref).value = val;
     if (ci >= 1 && ci <= 4) ws.cell(ref).styleIndex = currencyStyle;
     if (ci === 5) ws.cell(ref).styleIndex = percentStyle;
@@ -445,7 +445,7 @@ data.forEach((row, ri) => {
 });
 
 // Auto-filter on header row
-ws.autoFilter = { ref: 'A1:F4' };
+ws.autoFilter = { range: 'A1:F4' };
 
 // Column widths
 ws.setColumnWidth(0, 15);
@@ -484,17 +484,25 @@ log('A3 = ' + ws2?.cell('A3').value);
 log('B3 = ' + ws2?.cell('B3').value);
 log('Round-trip successful!', 'success');`,
 
-    batch: `// Build a 1000-row sheet using aoaToSheet (batch API)
+    batch: `// Build a 1000-row sheet using cell API
 const t0 = performance.now();
 
-const rows = [['ID', 'Name', 'Value', 'Active']];
-for (let i = 1; i <= 1000; i++) {
-  rows.push([i, 'Item ' + i, Math.random() * 1000, i % 3 !== 0]);
-}
-
 const wb = new ModernXlsx.Workbook();
-const sheet = ModernXlsx.aoaToSheet(rows);
-wb.addSheetData('Data', sheet);
+const ws = wb.addSheet('Data');
+
+// Header
+const headers = ['ID', 'Name', 'Value', 'Active'];
+headers.forEach((h, i) => {
+  ws.cell(ModernXlsx.encodeCellRef(0, i)).value = h;
+});
+
+// Data rows
+for (let i = 1; i <= 1000; i++) {
+  ws.cell(ModernXlsx.encodeCellRef(i, 0)).value = i;
+  ws.cell(ModernXlsx.encodeCellRef(i, 1)).value = 'Item ' + i;
+  ws.cell(ModernXlsx.encodeCellRef(i, 2)).value = Math.random() * 1000;
+  ws.cell(ModernXlsx.encodeCellRef(i, 3)).value = i % 3 !== 0;
+}
 
 const elapsed = (performance.now() - t0).toFixed(1);
 log('Built 1000 rows in ' + elapsed + 'ms');
@@ -513,13 +521,25 @@ const employees = [
 ];
 
 const wb = new ModernXlsx.Workbook();
-const sheet = ModernXlsx.jsonToSheet(employees);
-wb.addSheetData('Employees', sheet);
+const ws = wb.addSheet('Employees');
+
+// Write headers
+const keys = Object.keys(employees[0]);
+keys.forEach((k, i) => {
+  ws.cell(ModernXlsx.encodeCellRef(0, i)).value = k;
+});
+
+// Write data rows
+employees.forEach((emp, ri) => {
+  keys.forEach((k, ci) => {
+    ws.cell(ModernXlsx.encodeCellRef(ri + 1, ci)).value = emp[k];
+  });
+});
 
 log('Converted ' + employees.length + ' records to sheet');
 
-// Read it back as JSON to verify
-const json = ModernXlsx.sheetToJson(sheet);
+// Read it back as JSON to verify round-trip
+const json = ModernXlsx.sheetToJson(ws);
 log('Round-trip JSON: ' + json.length + ' rows');
 json.forEach(row => log('  ' + JSON.stringify(row)));
 
@@ -646,7 +666,7 @@ download(blob, 'invoice.xlsx');`,
     appendLog('Trying to load from a local path...', 'warn');
     // Fallback: try loading from relative path (for local development)
     try {
-      await ModernXlsx.initWasm(new URL('../../packages/modern-xlsx/dist/modern-xlsx.wasm', location.href));
+      await ModernXlsx.initWasm('https://cdn.jsdelivr.net/npm/modern-xlsx@0.3.0/dist/modern-xlsx.wasm');
       statusEl.className = 'status ready';
       statusEl.innerHTML = '<span class="dot"></span>WASM Ready (local)';
       runBtn.disabled = false;

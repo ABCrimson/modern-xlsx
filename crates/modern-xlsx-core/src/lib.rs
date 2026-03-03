@@ -4,6 +4,7 @@ pub mod number_format;
 pub mod ooxml;
 pub mod reader;
 pub mod streaming;
+pub mod validate;
 pub mod writer;
 pub mod zip;
 

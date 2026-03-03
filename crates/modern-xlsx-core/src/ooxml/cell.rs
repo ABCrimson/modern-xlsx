@@ -58,35 +58,65 @@ impl CellRef {
     }
 
     /// Convert this cell reference back to an A1-style string.
+    #[inline]
     pub fn to_a1(&self) -> String {
-        let letters = col_to_letters(self.col);
-        format!("{}{}", letters, self.row + 1)
+        let mut buf = [0u8; 3];
+        let col_len = col_to_letters_buf(self.col, &mut buf);
+        let mut result = String::with_capacity(col_len + 7);
+        // SAFETY: col_to_letters_buf writes only ASCII uppercase letters
+        result.push_str(unsafe { std::str::from_utf8_unchecked(&buf[..col_len]) });
+        let mut itoa_buf = itoa::Buffer::new();
+        result.push_str(itoa_buf.format(self.row + 1));
+        result
     }
 }
 
 impl std::fmt::Display for CellRef {
+    #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_a1())
+        let mut buf = [0u8; 3];
+        let col_len = col_to_letters_buf(self.col, &mut buf);
+        // SAFETY: col_to_letters_buf writes only ASCII uppercase letters
+        f.write_str(unsafe { std::str::from_utf8_unchecked(&buf[..col_len]) })?;
+        let mut itoa_buf = itoa::Buffer::new();
+        f.write_str(itoa_buf.format(self.row + 1))
     }
 }
 
-/// Convert a zero-based column index to A1-style column letters.
+/// Write column letters into a 3-byte stack buffer (max XLSX column is "XFD").
 ///
-/// 0 → "A", 1 → "B", ..., 25 → "Z", 26 → "AA", 27 → "AB", ..., 16383 → "XFD"
-pub fn col_to_letters(col: u32) -> String {
-    let mut result = Vec::new();
+/// Returns the number of bytes written (1–3). The caller can slice `buf[..len]`.
+#[inline]
+fn col_to_letters_buf(col: u32, buf: &mut [u8; 3]) -> usize {
     let mut n = col;
+    let mut pos = 3usize;
 
     loop {
-        result.push(b'A' + (n % 26) as u8);
+        pos -= 1;
+        buf[pos] = b'A' + (n % 26) as u8;
         if n < 26 {
             break;
         }
         n = n / 26 - 1;
     }
 
-    result.reverse();
-    String::from_utf8(result).expect("column letters are always valid ASCII")
+    // Shift to front if needed
+    let len = 3 - pos;
+    if pos > 0 {
+        buf.copy_within(pos..3, 0);
+    }
+    len
+}
+
+/// Convert a zero-based column index to A1-style column letters.
+///
+/// 0 → "A", 1 → "B", ..., 25 → "Z", 26 → "AA", 27 → "AB", ..., 16383 → "XFD"
+#[inline]
+pub fn col_to_letters(col: u32) -> String {
+    let mut buf = [0u8; 3];
+    let len = col_to_letters_buf(col, &mut buf);
+    // SAFETY: col_to_letters_buf only writes ASCII uppercase letters
+    unsafe { String::from_utf8_unchecked(buf[..len].to_vec()) }
 }
 
 /// Convert A1-style column letters to a zero-based column index.

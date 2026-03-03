@@ -15,15 +15,17 @@ import type {
   HyperlinkData,
   PageMarginsData,
   PageSetupData,
+  RepairResult,
   RowData,
   SheetData,
   SheetProtectionData,
   StylesData,
   ThemeColorsData,
+  ValidationReport,
   WorkbookData,
   WorkbookViewData,
 } from './types.js';
-import { ensureInitialized, wasmWrite } from './wasm-loader.js';
+import { ensureInitialized, wasmRepair, wasmValidate, wasmWrite } from './wasm-loader.js';
 
 // ---------------------------------------------------------------------------
 // Binary search helpers for sorted rows
@@ -244,6 +246,31 @@ export class Workbook {
     const buffer = await this.toBuffer();
     const { writeFile } = await import('node:fs/promises');
     await writeFile(path, buffer);
+  }
+
+  /**
+   * Validate the workbook for OOXML compliance issues.
+   * Returns a structured report with errors, warnings, and fix suggestions.
+   */
+  validate(): ValidationReport {
+    ensureInitialized();
+    return wasmValidate(this.data);
+  }
+
+  /**
+   * Validate and auto-repair the workbook.
+   * Fixes repairable issues (dangling style indices, missing default styles,
+   * bad sheet names, missing theme, invalid metadata, row ordering).
+   * Returns a new Workbook with repairs applied, plus a validation report.
+   */
+  repair(): { workbook: Workbook; report: ValidationReport; repairCount: number } {
+    ensureInitialized();
+    const result: RepairResult = wasmRepair(this.data);
+    return {
+      workbook: new Workbook(result.workbook),
+      report: result.report,
+      repairCount: result.repairCount,
+    };
   }
 
   /** Returns the raw internal `WorkbookData` for serialization or inspection. */

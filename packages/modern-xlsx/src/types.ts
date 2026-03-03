@@ -425,3 +425,45 @@ export interface WorkbookData {
   /** Opaque ZIP entries preserved through roundtrip (drawings, media, charts, etc.) */
   preservedEntries?: Record<string, number[]>;
 }
+
+// ---------------------------------------------------------------------------
+// Validation & Compliance
+// ---------------------------------------------------------------------------
+
+export type Severity = 'info' | 'warning' | 'error';
+
+export type IssueCategory =
+  | 'cellReference'
+  | 'styleIndex'
+  | 'mergeCell'
+  | 'sharedString'
+  | 'sheetName'
+  | 'definedName'
+  | 'dataValidation'
+  | 'conditionalFormatting'
+  | 'theme'
+  | 'metadata'
+  | 'structure';
+
+export interface ValidationIssue {
+  severity: Severity;
+  category: IssueCategory;
+  message: string;
+  location: string;
+  suggestion: string;
+  autoFixable: boolean;
+}
+
+export interface ValidationReport {
+  issues: ValidationIssue[];
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  isValid: boolean;
+}
+
+export interface RepairResult {
+  workbook: WorkbookData;
+  report: ValidationReport;
+  repairCount: number;
+}

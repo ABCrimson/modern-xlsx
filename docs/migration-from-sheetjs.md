@@ -148,7 +148,7 @@ await initWasm();
 ```diff
 - const data = XLSX.utils.sheet_to_json(ws);
 + import { sheetToJson } from 'modern-xlsx';
-+ const data = sheetToJson(ws.rows);
++ const data = sheetToJson(ws);
 ```
 
 ### Array of arrays to sheet
@@ -172,7 +172,7 @@ await initWasm();
 ```diff
 - const csv = XLSX.utils.sheet_to_csv(ws);
 + import { sheetToCsv } from 'modern-xlsx';
-+ const csv = sheetToCsv(ws.rows);
++ const csv = sheetToCsv(ws);
 ```
 
 ---
@@ -187,7 +187,7 @@ const ws = wb.addSheet('Styled');
 
 const boldRed = wb.createStyle()
   .font({ bold: true, color: 'FF0000' })
-  .fill({ patternType: 'solid', fgColor: 'FFFF00' })
+  .fill({ pattern: 'solid', fgColor: 'FFFF00' })
   .border({ bottom: { style: 'thin', color: '000000' } })
   .build(wb.styles);
 

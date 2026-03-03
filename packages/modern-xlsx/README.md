@@ -70,13 +70,15 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
 
 | Operation | modern-xlsx | SheetJS CE | Factor |
 |-----------|------------:|-----------:|-------:|
-| **Read** | 1,155 ms | 4,927 ms | **4.3x faster** |
-| **Write** | 5,048 ms | 5,048 ms | 1.0x |
-| aoaToSheet (50K) | 213 ms | 341 ms | **1.6x faster** |
-| sheetToJson (10K) | 54 ms | 103 ms | **1.9x faster** |
-| sheetToCsv (10K) | 83 ms | 126 ms | **1.5x faster** |
+| **Read 100K rows** | 1,377 ms | 5,942 ms | **4.3x faster** |
+| **Read 10K rows** | 156 ms | 732 ms | **4.7x faster** |
+| **Write 10K** (cell-by-cell) | 469 ms | 645 ms | **1.4x faster** |
+| **Write 100K** (batch) | 1,172 ms | 6,248 ms | **5.3x faster** |
+| aoaToSheet (50K) | 242 ms | 508 ms | **2.1x faster** |
+| sheetToCsv (10K) | 134 ms | 151 ms | **1.1x faster** |
+| sheetToJson (10K) | 130 ms | 127 ms | ~1.0x |
 
-> JS payload ~25 KB + ~870 KB WASM binary. Zero runtime dependencies.
+> ESM 55 KB + IIFE 29 KB + WASM 939 KB. Zero runtime dependencies. Output files **8.4x smaller**.
 
 ## Feature Comparison
 
@@ -102,6 +104,7 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
 | Tree-shakable ESM | **Yes** | No | No |
 | Strict TypeScript types | **Yes** | Partial | Partial |
 | WASM-accelerated I/O | **Yes** | No | No |
+| OOXML validation & repair | **Yes** | No | No |
 
 ## How It Works
 
@@ -329,6 +332,40 @@ decodeCellRef('B3');  // { row: 2, col: 1 }
 encodeCellRef(2, 1);  // "B3"
 ```
 
+### Validation & Repair
+
+WASM-accelerated OOXML compliance checking and auto-repair:
+
+```typescript
+const wb = new Workbook();
+const ws = wb.addSheet('Sheet1');
+ws.cell('A1').value = 'Hello';
+ws.cell('A1').styleIndex = 999; // dangling!
+
+// Validate — returns a structured report
+const report = wb.validate();
+console.log(report.isValid);       // false
+console.log(report.errorCount);    // 1
+console.log(report.issues[0]);
+// {
+//   severity: 'error',
+//   category: 'styleIndex',
+//   message: 'Cell A1 styleIndex=999 exceeds cellXfs count (1)',
+//   location: 'Sheet1!A1',
+//   suggestion: 'Clamp styleIndex to 0',
+//   autoFixable: true
+// }
+
+// Repair — auto-fixes all repairable issues
+const { workbook, report: postReport, repairCount } = wb.repair();
+console.log(repairCount);          // 2 (style index + missing theme)
+console.log(postReport.isValid);   // true
+```
+
+Detects: dangling style/font/fill/border indices, overlapping merges, invalid
+cell refs, duplicate sheet names, bad metadata dates, missing required styles,
+missing theme colors, unsorted rows, SharedString cells without values.
+
 ### Rich Text
 
 ```typescript
@@ -366,7 +403,7 @@ const runs = new RichTextBuilder()
 Single `<script>` tag — no bundler required:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.2.0/dist/modern-xlsx.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.3.0/dist/modern-xlsx.min.js"></script>
 <script>
   (async () => {
     await ModernXlsx.initWasm();
@@ -378,7 +415,7 @@ Single `<script>` tag — no bundler required:
 </script>
 ```
 
-Also available via unpkg: `https://unpkg.com/modern-xlsx@0.2.0/dist/modern-xlsx.min.js`
+Also available via unpkg: `https://unpkg.com/modern-xlsx@0.3.0/dist/modern-xlsx.min.js`
 
 ### Web Worker (Off-Thread)
 
@@ -437,6 +474,8 @@ import type {
   PageSetupData, SheetProtectionData,
   DocPropertiesData, ThemeColorsData, WorkbookViewData,
   RichTextRun, DefinedNameData, CalcChainEntryData,
+  // Validation & compliance
+  ValidationReport, ValidationIssue, Severity, IssueCategory, RepairResult,
 } from 'modern-xlsx';
 ```
 

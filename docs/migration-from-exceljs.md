@@ -79,7 +79,7 @@ await initWasm(); // Call once at startup
 - };
 + const style = wb.createStyle()
 +   .font({ bold: true, color: 'FF0000' })
-+   .fill({ patternType: 'solid', fgColor: 'FFFF00' })
++   .fill({ pattern: 'solid', fgColor: 'FFFF00' })
 +   .build(wb.styles);
 + ws.cell('A1').styleIndex = style;
 ```
@@ -117,7 +117,7 @@ await initWasm(); // Call once at startup
 
 ```diff
 - ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
-+ ws.frozenPane = { row: 1, column: 0, topLeftCell: 'A2' };
++ ws.frozenPane = { rows: 1, cols: 0 };
 ```
 
 ---
@@ -126,7 +126,8 @@ await initWasm(); // Call once at startup
 
 ```diff
 - ws.autoFilter = 'A1:D10';
-+ ws.autoFilter = 'A1:D10';
++ ws.autoFilter = 'A1:D10';                  // string form (same API)
++ ws.autoFilter = { range: 'A1:D10' };       // or object form
 ```
 
 ---
@@ -141,7 +142,6 @@ await initWasm(); // Call once at startup
 + ws.addValidation('A1', {
 +   validationType: 'list',
 +   formula1: '"Yes,No,Maybe"',
-+   showDropDown: true,
 + });
 ```
 

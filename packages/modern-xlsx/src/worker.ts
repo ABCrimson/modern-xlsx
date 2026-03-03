@@ -10,13 +10,14 @@
 
 import init, { read as _wasmReadJson, write as _wasmWriteJson } from '../wasm/modern_xlsx_wasm.js';
 
-let initialized = false;
+let initPromise: Promise<void> | null = null;
 
-async function ensureInit(wasmUrl?: string): Promise<void> {
-  if (initialized) return;
-  const source = wasmUrl ? new URL(wasmUrl) : undefined;
-  await init(source);
-  initialized = true;
+function ensureInit(wasmUrl?: string): Promise<void> {
+  if (!initPromise) {
+    const source = wasmUrl ? new URL(wasmUrl) : undefined;
+    initPromise = init(source).then(() => {});
+  }
+  return initPromise;
 }
 
 export interface WorkerRequest {

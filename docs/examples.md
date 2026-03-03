@@ -61,7 +61,7 @@ const ws = wb.addSheet('Styled');
 // Create a header style
 const headerStyle = wb.createStyle()
   .font({ name: 'Arial', size: 14, bold: true, color: 'FFFFFF' })
-  .fill({ patternType: 'solid', fgColor: '4472C4' })
+  .fill({ pattern: 'solid', fgColor: '4472C4' })
   .alignment({ horizontal: 'center', vertical: 'center' })
   .border({
     bottom: { style: 'medium', color: '000000' },
@@ -135,13 +135,13 @@ ws.setRowHidden(5, true);
 const ws = wb.addSheet('Frozen');
 
 // Freeze top row
-ws.frozenPane = { row: 1, column: 0, topLeftCell: 'A2' };
+ws.frozenPane = { rows: 1, cols: 0 };
 
 // Freeze first column
-ws.frozenPane = { row: 0, column: 1, topLeftCell: 'B1' };
+ws.frozenPane = { rows: 0, cols: 1 };
 
 // Freeze both
-ws.frozenPane = { row: 1, column: 1, topLeftCell: 'B2' };
+ws.frozenPane = { rows: 1, cols: 1 };
 ```
 
 ---
@@ -155,7 +155,6 @@ const ws = wb.addSheet('Validation');
 ws.addValidation('B2', {
   validationType: 'list',
   formula1: '"Yes,No,Maybe"',
-  showDropDown: true,
   prompt: 'Select an option',
   promptTitle: 'Choice',
 });
@@ -286,7 +285,7 @@ import { sheetToCsv } from 'modern-xlsx';
 
 const ws = wb.getSheet('Sheet1');
 if (ws) {
-  const csv = sheetToCsv(ws.rows);
+  const csv = sheetToCsv(ws);
   console.log(csv);
 }
 ```
@@ -356,8 +355,8 @@ columnToLetter(27);  // 'AA'
 letterToColumn('A'); // 1
 letterToColumn('AA'); // 27
 
-decodeCellRef('B3');  // { row: 2, col: 2 } (0-based)
-encodeCellRef({ row: 2, col: 2 }); // 'B3'
+decodeCellRef('B3');  // { row: 2, col: 1 } (0-based)
+encodeCellRef(2, 1); // 'B3'
 ```
 
 ---

@@ -56,18 +56,24 @@ export type {
   GradientStopData,
   HyperlinkData,
   IconSetData,
+  // Validation & compliance
+  IssueCategory,
   NumFmt,
   PageMarginsData,
   PageSetupData,
   PatternType,
   ProtectionData,
+  RepairResult,
   RichTextRun,
   RowData,
+  Severity,
   SharedStringsData,
   SheetData,
   SheetProtectionData,
   StylesData,
   ThemeColorsData,
+  ValidationIssue,
+  ValidationReport,
   WorkbookData,
   WorkbookViewData,
   WorksheetData,
@@ -138,4 +144,4 @@ export async function readFile(path: string): Promise<Workbook> {
   return readBuffer(new Uint8Array(buffer));
 }
 
-export const VERSION = '0.2.0' as const;
+export const VERSION = '0.3.0' as const;

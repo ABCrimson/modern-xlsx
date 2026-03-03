@@ -58,7 +58,7 @@ export function ExcelExport<T extends Record<string, unknown>>({
 
       // Write headers
       headers.forEach((header, col) => {
-        const ref = encodeCellRef({ row: 0, col });
+        const ref = encodeCellRef(0, col);
         ws.cell(ref).value = header;
         ws.cell(ref).styleIndex = headerStyle;
       });
@@ -66,7 +66,7 @@ export function ExcelExport<T extends Record<string, unknown>>({
       // Write data rows
       data.forEach((row, rowIdx) => {
         headers.forEach((header, col) => {
-          const ref = encodeCellRef({ row: rowIdx + 1, col });
+          const ref = encodeCellRef(rowIdx + 1, col);
           const value = row[header];
           if (value !== null && value !== undefined) {
             ws.cell(ref).value = value as string | number | boolean;

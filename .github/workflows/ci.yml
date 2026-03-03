@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@beta
+        uses: dtolnay/rust-toolchain@1.94.0
         with:
           components: clippy
           targets: wasm32-unknown-unknown
@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@beta
+        uses: dtolnay/rust-toolchain@1.94.0
         with:
           targets: wasm32-unknown-unknown
 
@@ -67,15 +67,17 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build WASM
-        run: wasm-pack build crates/modern-xlsx-wasm --target web --out-dir ../../packages/modern-xlsx/wasm
+        run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 11
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "25"
           cache: "pnpm"
 
       - name: Install dependencies
@@ -105,7 +107,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@beta
+        uses: dtolnay/rust-toolchain@1.94.0
         with:
           targets: wasm32-unknown-unknown
 
@@ -113,15 +115,17 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build WASM
-        run: wasm-pack build crates/modern-xlsx-wasm --target web --out-dir ../../packages/modern-xlsx/wasm
+        run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 11
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "25"
           registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies

@@ -453,7 +453,7 @@
 <div class="hero">
   <div class="badge">
     <span class="dot"></span>
-    v0.2.0 — MIT Licensed
+    v0.3.0 — MIT Licensed
   </div>
   <h1>
     Excel files,<br>
@@ -476,7 +476,7 @@
 <!-- STATS -->
 <div class="stats">
   <div class="stat">
-    <div class="number fast">4.3x</div>
+    <div class="number fast">4.7x</div>
     <div class="label">Faster reads vs SheetJS</div>
   </div>
   <div class="stat">
@@ -569,40 +569,40 @@
   <div class="bench-row">
     <div class="bench-label">Read 100K</div>
     <div class="bench-bars">
-      <div class="bench-bar ours" style="width: 23%">1,155 ms</div>
-      <div class="bench-bar theirs" style="width: 100%">4,927 ms</div>
+      <div class="bench-bar ours" style="width: 23%">1,377 ms</div>
+      <div class="bench-bar theirs" style="width: 100%">5,942 ms</div>
     </div>
   </div>
 
   <div class="bench-row">
-    <div class="bench-label">Write 100K</div>
+    <div class="bench-label">Write 10K</div>
     <div class="bench-bars">
-      <div class="bench-bar ours" style="width: 100%">5,048 ms</div>
-      <div class="bench-bar theirs" style="width: 100%">5,048 ms</div>
+      <div class="bench-bar ours" style="width: 73%">469 ms</div>
+      <div class="bench-bar theirs" style="width: 100%">645 ms</div>
+    </div>
+  </div>
+
+  <div class="bench-row">
+    <div class="bench-label">Write 100K (batch)</div>
+    <div class="bench-bars">
+      <div class="bench-bar ours" style="width: 19%">1,172 ms</div>
+      <div class="bench-bar theirs" style="width: 100%">6,248 ms</div>
     </div>
   </div>
 
   <div class="bench-row">
     <div class="bench-label">aoaToSheet 50K</div>
     <div class="bench-bars">
-      <div class="bench-bar ours" style="width: 62%">213 ms</div>
-      <div class="bench-bar theirs" style="width: 100%">341 ms</div>
+      <div class="bench-bar ours" style="width: 48%">242 ms</div>
+      <div class="bench-bar theirs" style="width: 100%">508 ms</div>
     </div>
   </div>
 
   <div class="bench-row">
-    <div class="bench-label">sheetToJson 10K</div>
+    <div class="bench-label">Read 10K</div>
     <div class="bench-bars">
-      <div class="bench-bar ours" style="width: 52%">54 ms</div>
-      <div class="bench-bar theirs" style="width: 100%">103 ms</div>
-    </div>
-  </div>
-
-  <div class="bench-row">
-    <div class="bench-label">sheetToCsv 10K</div>
-    <div class="bench-bars">
-      <div class="bench-bar ours" style="width: 66%">83 ms</div>
-      <div class="bench-bar theirs" style="width: 100%">126 ms</div>
+      <div class="bench-bar ours" style="width: 21%">156 ms</div>
+      <div class="bench-bar theirs" style="width: 100%">732 ms</div>
     </div>
   </div>
 
@@ -755,6 +755,7 @@ console.<span class="fn">log</span>(existing.<span class="fn">getSheet</span>(<s
         <tr><td>Tree-shakable ESM</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
         <tr><td>TypeScript types</td><td class="yes">Built-in</td><td class="no">Partial</td><td class="no">Partial</td></tr>
         <tr><td>WASM-accelerated</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+        <tr><td>OOXML validation &amp; repair</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
       </tbody>
     </table>
   </div>

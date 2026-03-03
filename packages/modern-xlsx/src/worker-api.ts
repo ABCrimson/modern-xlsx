@@ -79,7 +79,8 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
 
   return {
     async readBuffer(data: Uint8Array): Promise<WorkbookData> {
-      const response = await send({ type: 'read', data });
+      // Transfer the buffer to the worker (zero-copy)
+      const response = await send({ type: 'read', data }, [data.buffer]);
       if (!response.json) throw new Error('Worker returned no data');
       return JSON.parse(response.json) as WorkbookData;
     },

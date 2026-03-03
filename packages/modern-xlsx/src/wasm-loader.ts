@@ -1,12 +1,14 @@
 import init, {
   initSync as _initSync,
   read as _wasmReadJson,
+  repair as _wasmRepairJson,
+  validate as _wasmValidateJson,
   writeBlob as _wasmWriteBlobJson,
   write as _wasmWriteJson,
   version as wasmVersion,
 } from '../wasm/modern_xlsx_wasm.js';
 
-import type { WorkbookData } from './types.js';
+import type { RepairResult, ValidationReport, WorkbookData } from './types.js';
 
 let initPromise: Promise<void> | null = null;
 let initialized = false;
@@ -122,6 +124,24 @@ export function wasmWrite(data: WorkbookData): Uint8Array {
  */
 export function wasmWriteBlob(data: WorkbookData): Blob {
   return _wasmWriteBlobJson(JSON.stringify(data));
+}
+
+/**
+ * Validate a workbook and return a structured report.
+ * Uses WASM-accelerated validation for structural compliance checking.
+ */
+export function wasmValidate(data: WorkbookData): ValidationReport {
+  const json = _wasmValidateJson(JSON.stringify(data));
+  return JSON.parse(json) as ValidationReport;
+}
+
+/**
+ * Validate and auto-repair a workbook. Returns the repaired workbook,
+ * a post-repair validation report, and the number of repairs applied.
+ */
+export function wasmRepair(data: WorkbookData): RepairResult {
+  const json = _wasmRepairJson(JSON.stringify(data));
+  return JSON.parse(json) as RepairResult;
 }
 
 export { wasmVersion };

@@ -51,10 +51,46 @@ pub fn write_blob(json: &str) -> Result<Blob, JsError> {
         .map_err(|e| JsError::new(&format!("{e:?}")))
 }
 
+/// Validate a workbook and return a JSON report.
+///
+/// Accepts a JSON string describing the workbook (same format as `write`).
+/// Returns a JSON string containing the `ValidationReport`.
+#[wasm_bindgen]
+pub fn validate(json: &str) -> Result<String, JsError> {
+    let workbook: modern_xlsx_core::WorkbookData =
+        serde_json::from_str(json)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+    let report = modern_xlsx_core::validate::validate_workbook(&workbook);
+    serde_json::to_string(&report)
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+
+/// Validate and auto-repair a workbook. Returns repaired workbook as JSON.
+///
+/// Accepts a JSON string describing the workbook.
+/// Returns a JSON object with `{ workbook, report, repairCount }`.
+#[wasm_bindgen]
+pub fn repair(json: &str) -> Result<String, JsError> {
+    let mut workbook: modern_xlsx_core::WorkbookData =
+        serde_json::from_str(json)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+    let repair_count = modern_xlsx_core::validate::repair_workbook(&mut workbook);
+    let report = modern_xlsx_core::validate::validate_workbook(&workbook);
+
+    // Build combined result as JSON.
+    let result = serde_json::json!({
+        "workbook": workbook,
+        "report": report,
+        "repairCount": repair_count,
+    });
+    serde_json::to_string(&result)
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+
 /// Get the library version.
 #[wasm_bindgen]
 pub fn version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
+    env!("CARGO_PKG_VERSION").into()
 }
 
 #[cfg(test)]

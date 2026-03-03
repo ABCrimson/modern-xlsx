@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+description = "WASM bridge for modern-xlsx-core — wasm-bindgen exports for reading and writing XLSX in JavaScript"
+keywords = ["xlsx", "wasm", "wasm-bindgen", "excel", "spreadsheet"]
+categories = ["wasm", "encoding"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
