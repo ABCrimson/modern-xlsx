@@ -34,6 +34,7 @@ import type {
   ValidationReport,
   ViewMode,
   WorkbookData,
+  WorkbookProtectionData,
   WorkbookViewData,
 } from './types.js';
 import { ensureInitialized, wasmRepair, wasmValidate, wasmWrite } from './wasm-loader.js';
@@ -92,6 +93,7 @@ export class Workbook {
     if (data?.themeColors) this.data.themeColors = data.themeColors;
     if (data?.calcChain) this.data.calcChain = data.calcChain;
     if (data?.workbookViews) this.data.workbookViews = data.workbookViews;
+    if (data?.protection) this.data.protection = data.protection;
     if (data?.preservedEntries) this.data.preservedEntries = data.preservedEntries;
   }
 
@@ -315,6 +317,18 @@ export class Workbook {
   /** Sets the workbook view settings (window position, active tab, etc.). */
   set workbookViews(views: WorkbookViewData[]) {
     this.data.workbookViews = views;
+  }
+
+  // --- Workbook protection ---
+
+  /** Returns the workbook protection settings, or `null` if unprotected. */
+  get protection(): WorkbookProtectionData | null {
+    return this.data.protection ?? null;
+  }
+
+  /** Sets or clears the workbook protection settings. Pass `null` to remove protection. */
+  set protection(value: WorkbookProtectionData | null) {
+    this.data.protection = value;
   }
 
   // --- Serialization ---

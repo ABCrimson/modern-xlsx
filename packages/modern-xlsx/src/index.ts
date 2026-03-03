@@ -126,6 +126,7 @@ export type {
   ValidationReport,
   ViewMode,
   WorkbookData,
+  WorkbookProtectionData,
   WorkbookViewData,
   WorksheetData,
 } from './types.js';

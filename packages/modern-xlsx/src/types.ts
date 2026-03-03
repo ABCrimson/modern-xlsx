@@ -467,6 +467,26 @@ export interface StylesData {
 }
 
 // ---------------------------------------------------------------------------
+// Workbook Protection
+// ---------------------------------------------------------------------------
+
+export interface WorkbookProtectionData {
+  lockStructure?: boolean;
+  lockWindows?: boolean;
+  lockRevision?: boolean;
+  workbookAlgorithmName?: string;
+  workbookHashValue?: string;
+  workbookSaltValue?: string;
+  workbookSpinCount?: number;
+  revisionsAlgorithmName?: string;
+  revisionsHashValue?: string;
+  revisionsSaltValue?: string;
+  revisionsSpinCount?: number;
+  workbookPassword?: string;
+  revisionsPassword?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Sheet & Workbook
 // ---------------------------------------------------------------------------
 
@@ -559,6 +579,7 @@ export interface WorkbookData {
   themeColors?: ThemeColorsData | null;
   calcChain?: CalcChainEntryData[];
   workbookViews?: WorkbookViewData[];
+  protection?: WorkbookProtectionData | null;
   /** Opaque ZIP entries preserved through roundtrip (drawings, media, charts, etc.) */
   preservedEntries?: Record<string, number[]>;
 }
