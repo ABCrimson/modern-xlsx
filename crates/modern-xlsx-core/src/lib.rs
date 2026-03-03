@@ -20,7 +20,7 @@ use crate::ooxml::doc_props::DocProperties;
 use crate::ooxml::shared_strings::SharedStringTable;
 use crate::ooxml::styles::Styles;
 use crate::ooxml::theme::ThemeColors;
-use crate::ooxml::workbook::{DefinedName, WorkbookView};
+use crate::ooxml::workbook::{DefinedName, WorkbookProtection, WorkbookView};
 use crate::ooxml::worksheet::WorksheetXml;
 
 // ---------------------------------------------------------------------------
@@ -59,6 +59,9 @@ pub struct WorkbookData {
     /// Workbook view settings from <bookViews> in workbook.xml.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub workbook_views: Vec<WorkbookView>,
+    /// Workbook-level protection settings from `<workbookProtection>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protection: Option<WorkbookProtection>,
     /// Opaque ZIP entries not parsed by the reader (drawings, media, charts, etc.)
     /// Preserved through roundtrip without modification.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

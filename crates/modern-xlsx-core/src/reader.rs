@@ -297,6 +297,7 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
         theme_colors: ctx.theme_colors,
         calc_chain: ctx.calc_chain,
         workbook_views: ctx.workbook_xml.workbook_views,
+        protection: ctx.workbook_xml.protection,
         preserved_entries,
     })
 }
@@ -393,6 +394,12 @@ pub fn read_xlsx_json_with_options(data: &[u8], limits: &ZipSecurityLimits) -> R
     if !ctx.workbook_xml.workbook_views.is_empty() {
         out.push_str(",\"workbookViews\":");
         out.push_str(&serde_json::to_string(&ctx.workbook_xml.workbook_views).map_err(serde_err)?);
+    }
+
+    // protection
+    if let Some(ref prot) = ctx.workbook_xml.protection {
+        out.push_str(",\"protection\":");
+        out.push_str(&serde_json::to_string(prot).map_err(serde_err)?);
     }
 
     // preservedEntries
@@ -1222,6 +1229,7 @@ mod tests {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1341,6 +1349,7 @@ mod tests {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 

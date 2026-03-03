@@ -86,7 +86,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         date_system: workbook.date_system,
         defined_names: workbook.defined_names.clone(),
         workbook_views: workbook.workbook_views.clone(),
-        protection: None,
+        protection: workbook.protection.clone(),
     };
 
     // 3. Assemble ZIP entries.
@@ -360,6 +360,7 @@ mod tests {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         }
     }
@@ -399,6 +400,7 @@ mod tests {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -430,6 +432,7 @@ mod tests {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
         let result = write_xlsx(&wb);
@@ -497,6 +500,7 @@ mod tests {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -944,6 +948,7 @@ mod tests {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1114,6 +1119,7 @@ mod tests {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1500,6 +1506,7 @@ mod tests {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1620,6 +1627,7 @@ mod tests {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 

@@ -245,6 +245,7 @@ impl StreamingWriter {
             theme_colors: None,
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -321,6 +322,7 @@ mod tests {
             theme_colors: None,
             calc_chain: vec![],
             workbook_views: vec![],
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -371,6 +373,7 @@ mod tests {
             theme_colors: None,
             calc_chain: vec![],
             workbook_views: vec![],
+            protection: None,
             preserved_entries: std::collections::BTreeMap::new(),
         };
 

@@ -1155,6 +1155,7 @@ mod tests {
             theme_colors: Some(ThemeColors::default()),
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
             preserved_entries: Default::default(),
         }
     }

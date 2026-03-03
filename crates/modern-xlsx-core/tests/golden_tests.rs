@@ -72,6 +72,7 @@ fn build_simple_workbook() -> WorkbookData {
         theme_colors: None,
         calc_chain: vec![],
         workbook_views: vec![],
+        protection: None,
         preserved_entries: std::collections::BTreeMap::new(),
     }
 }
@@ -190,6 +191,7 @@ fn golden_multi_sheet_roundtrip() {
         theme_colors: None,
         calc_chain: vec![],
         workbook_views: vec![],
+        protection: None,
         preserved_entries: std::collections::BTreeMap::new(),
     };
 

@@ -107,6 +107,7 @@ fn main() {
         theme_colors: None,
         calc_chain: Vec::new(),
         workbook_views: Vec::new(),
+        protection: None,
         preserved_entries: Default::default(),
     };
 
