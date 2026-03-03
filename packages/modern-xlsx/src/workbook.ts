@@ -16,7 +16,9 @@ import type {
   DefinedNameData,
   DocPropertiesData,
   FrozenPane,
+  HeaderFooterData,
   HyperlinkData,
+  OutlinePropertiesData,
   PageMarginsData,
   PageSetupData,
   RepairResult,
@@ -24,6 +26,7 @@ import type {
   SheetData,
   SheetProtectionData,
   StylesData,
+  TableDefinitionData,
   ThemeColorsData,
   ValidationReport,
   WorkbookData,
@@ -196,6 +199,78 @@ export class Workbook {
     if (idx === -1) return false;
     this.data.definedNames.splice(idx, 1);
     return true;
+  }
+
+  // --- Print titles & print area ---
+
+  /**
+   * Gets the print titles (repeat rows/columns) for the given sheet.
+   * @param sheetIndex 0-based sheet index.
+   * @returns The defined name value (e.g., `"Sheet1!$1:$2,Sheet1!$A:$B"`) or `null`.
+   */
+  getPrintTitles(sheetIndex: number): string | null {
+    const dn = this.data.definedNames?.find(
+      (d) => d.name === '_xlnm.Print_Titles' && d.sheetId === sheetIndex,
+    );
+    return dn?.value ?? null;
+  }
+
+  /**
+   * Sets print titles (repeat rows/columns) for the given sheet.
+   * @param sheetIndex 0-based sheet index.
+   * @param value The range reference (e.g., `"Sheet1!$1:$2"` for first 2 rows). Pass `null` to clear.
+   */
+  setPrintTitles(sheetIndex: number, value: string | null): void {
+    if (!this.data.definedNames) this.data.definedNames = [];
+    const idx = this.data.definedNames.findIndex(
+      (d) => d.name === '_xlnm.Print_Titles' && d.sheetId === sheetIndex,
+    );
+    if (value === null) {
+      if (idx !== -1) this.data.definedNames.splice(idx, 1);
+    } else if (idx !== -1) {
+      this.data.definedNames[idx]!.value = value;
+    } else {
+      this.data.definedNames.push({
+        name: '_xlnm.Print_Titles',
+        value,
+        sheetId: sheetIndex,
+      });
+    }
+  }
+
+  /**
+   * Gets the print area for the given sheet.
+   * @param sheetIndex 0-based sheet index.
+   * @returns The defined name value (e.g., `"Sheet1!$A$1:$D$50"`) or `null`.
+   */
+  getPrintArea(sheetIndex: number): string | null {
+    const dn = this.data.definedNames?.find(
+      (d) => d.name === '_xlnm.Print_Area' && d.sheetId === sheetIndex,
+    );
+    return dn?.value ?? null;
+  }
+
+  /**
+   * Sets the print area for the given sheet.
+   * @param sheetIndex 0-based sheet index.
+   * @param value The range reference (e.g., `"Sheet1!$A$1:$D$50"`). Pass `null` to clear.
+   */
+  setPrintArea(sheetIndex: number, value: string | null): void {
+    if (!this.data.definedNames) this.data.definedNames = [];
+    const idx = this.data.definedNames.findIndex(
+      (d) => d.name === '_xlnm.Print_Area' && d.sheetId === sheetIndex,
+    );
+    if (value === null) {
+      if (idx !== -1) this.data.definedNames.splice(idx, 1);
+    } else if (idx !== -1) {
+      this.data.definedNames[idx]!.value = value;
+    } else {
+      this.data.definedNames.push({
+        name: '_xlnm.Print_Area',
+        value,
+        sheetId: sheetIndex,
+      });
+    }
   }
 
   // --- Document properties ---
@@ -714,6 +789,179 @@ export class Worksheet {
     const insertAt = binaryInsertIndex(this.data.worksheet.rows, rowIndex);
     this.data.worksheet.rows.splice(insertAt, 0, newRow);
     return newRow;
+  }
+
+  // --- Tables (Excel ListObjects) ---
+
+  /** Returns all table definitions on this sheet. */
+  get tables(): readonly TableDefinitionData[] {
+    return this.data.worksheet.tables ?? [];
+  }
+
+  /** Returns the table with the given display name, or `undefined` if not found. */
+  getTable(displayName: string): TableDefinitionData | undefined {
+    return this.data.worksheet.tables?.find((t) => t.displayName === displayName);
+  }
+
+  /** Adds a table definition to the sheet. */
+  addTable(table: TableDefinitionData): void {
+    if (!this.data.worksheet.tables) {
+      this.data.worksheet.tables = [];
+    }
+    this.data.worksheet.tables.push(table);
+  }
+
+  /**
+   * Removes the table with the given display name.
+   * @returns `true` if the table was removed, `false` if not found.
+   */
+  removeTable(displayName: string): boolean {
+    if (!this.data.worksheet.tables) return false;
+    const idx = this.data.worksheet.tables.findIndex((t) => t.displayName === displayName);
+    if (idx === -1) return false;
+    this.data.worksheet.tables.splice(idx, 1);
+    return true;
+  }
+
+  // --- Header / Footer ---
+
+  /** Returns the header/footer configuration, or `null` if unset. */
+  get headerFooter(): HeaderFooterData | null {
+    return this.data.worksheet.headerFooter ?? null;
+  }
+
+  /** Sets or clears the header/footer configuration. */
+  set headerFooter(hf: HeaderFooterData | null) {
+    this.data.worksheet.headerFooter = hf;
+  }
+
+  // --- Outline properties ---
+
+  /** Returns the outline (grouping) properties, or `null` if unset. */
+  get outlineProperties(): OutlinePropertiesData | null {
+    return this.data.worksheet.outlineProperties ?? null;
+  }
+
+  /** Sets or clears the outline properties (summaryBelow, summaryRight). */
+  set outlineProperties(props: OutlinePropertiesData | null) {
+    this.data.worksheet.outlineProperties = props;
+  }
+
+  // --- Row / Column grouping ---
+
+  /**
+   * Groups rows by setting their outline level (1-7).
+   * @param startRow 1-based start row index (inclusive).
+   * @param endRow 1-based end row index (inclusive).
+   * @param level Outline level (1-7). Defaults to 1.
+   */
+  groupRows(startRow: number, endRow: number, level = 1): void {
+    const clamped = Math.min(Math.max(level, 0), 7);
+    for (let i = startRow; i <= endRow; i++) {
+      const row = this.ensureRow(i);
+      row.outlineLevel = clamped > 0 ? clamped : null;
+    }
+  }
+
+  /**
+   * Ungroups rows by clearing their outline level.
+   * @param startRow 1-based start row index (inclusive).
+   * @param endRow 1-based end row index (inclusive).
+   */
+  ungroupRows(startRow: number, endRow: number): void {
+    for (let i = startRow; i <= endRow; i++) {
+      const row = findRowBinary(this.data.worksheet.rows, i);
+      if (row) {
+        row.outlineLevel = null;
+        row.collapsed = false;
+      }
+    }
+  }
+
+  /**
+   * Groups columns by setting their outline level (1-7).
+   * @param startCol 1-based start column index (inclusive).
+   * @param endCol 1-based end column index (inclusive).
+   * @param level Outline level (1-7). Defaults to 1.
+   */
+  groupColumns(startCol: number, endCol: number, level = 1): void {
+    const clamped = Math.min(Math.max(level, 0), 7);
+    const clampedLevel = clamped > 0 ? clamped : null;
+    for (let col = startCol; col <= endCol; col++) {
+      const existing = this.data.worksheet.columns.find(
+        (c) => c.min === col && c.max === col,
+      );
+      if (existing) {
+        existing.outlineLevel = clampedLevel;
+      } else {
+        this.data.worksheet.columns.push({
+          min: col,
+          max: col,
+          width: 8.43,
+          hidden: false,
+          customWidth: false,
+          outlineLevel: clampedLevel,
+        });
+      }
+    }
+  }
+
+  /**
+   * Ungroups columns by clearing their outline level.
+   * @param startCol 1-based start column index (inclusive).
+   * @param endCol 1-based end column index (inclusive).
+   */
+  ungroupColumns(startCol: number, endCol: number): void {
+    for (let col = startCol; col <= endCol; col++) {
+      const existing = this.data.worksheet.columns.find(
+        (c) => c.min === col && c.max === col,
+      );
+      if (existing) {
+        existing.outlineLevel = null;
+        existing.collapsed = false;
+      }
+    }
+  }
+
+  /**
+   * Collapses grouped rows at the given outline level.
+   * @param startRow 1-based start row index (inclusive).
+   * @param endRow 1-based end row index (inclusive).
+   */
+  collapseRows(startRow: number, endRow: number): void {
+    for (let i = startRow; i <= endRow; i++) {
+      const row = findRowBinary(this.data.worksheet.rows, i);
+      if (row?.outlineLevel) {
+        row.hidden = true;
+      }
+    }
+    // Set collapsed flag on the summary row (row after group if summaryBelow).
+    const summaryBelow = this.data.worksheet.outlineProperties?.summaryBelow !== false;
+    const summaryIdx = summaryBelow ? endRow + 1 : startRow - 1;
+    if (summaryIdx > 0) {
+      const summary = this.ensureRow(summaryIdx);
+      summary.collapsed = true;
+    }
+  }
+
+  /**
+   * Expands collapsed grouped rows.
+   * @param startRow 1-based start row index (inclusive).
+   * @param endRow 1-based end row index (inclusive).
+   */
+  expandRows(startRow: number, endRow: number): void {
+    for (let i = startRow; i <= endRow; i++) {
+      const row = findRowBinary(this.data.worksheet.rows, i);
+      if (row?.outlineLevel) {
+        row.hidden = false;
+      }
+    }
+    const summaryBelow = this.data.worksheet.outlineProperties?.summaryBelow !== false;
+    const summaryIdx = summaryBelow ? endRow + 1 : startRow - 1;
+    if (summaryIdx > 0) {
+      const summary = findRowBinary(this.data.worksheet.rows, summaryIdx);
+      if (summary) summary.collapsed = false;
+    }
   }
 }
 

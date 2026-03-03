@@ -832,12 +832,12 @@ impl WorksheetXml {
                             header_footer = Some(hf);
                             state = ParseState::HeaderFooter;
                         }
-                        (ParseState::HeaderFooter, b"oddHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(0); }
-                        (ParseState::HeaderFooter, b"oddFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(1); }
-                        (ParseState::HeaderFooter, b"evenHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(2); }
-                        (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(3); }
-                        (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(4); }
-                        (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(5); }
+                        (ParseState::HeaderFooter, b"oddHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(0); }
+                        (ParseState::HeaderFooter, b"oddFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(1); }
+                        (ParseState::HeaderFooter, b"evenHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(2); }
+                        (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
+                        (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
+                        (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
                         _ => {}
                     }
                 }
@@ -1449,6 +1449,7 @@ impl WorksheetXml {
                             state = ParseState::InCfRule;
                         }
                         (ParseState::HeaderFooterChild(idx), _) => {
+                            reader.config_mut().trim_text(true);
                             if let Some(ref mut hf) = header_footer {
                                 let text = if hf_text_buf.is_empty() { None } else { Some(std::mem::take(&mut hf_text_buf)) };
                                 match idx {
@@ -1885,12 +1886,12 @@ impl WorksheetXml {
                             header_footer = Some(hf);
                             state = ParseState::HeaderFooter;
                         }
-                        (ParseState::HeaderFooter, b"oddHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(0); }
-                        (ParseState::HeaderFooter, b"oddFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(1); }
-                        (ParseState::HeaderFooter, b"evenHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(2); }
-                        (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(3); }
-                        (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(4); }
-                        (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(5); }
+                        (ParseState::HeaderFooter, b"oddHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(0); }
+                        (ParseState::HeaderFooter, b"oddFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(1); }
+                        (ParseState::HeaderFooter, b"evenHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(2); }
+                        (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
+                        (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
+                        (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
 
                         _ => {}
                     }
@@ -2528,6 +2529,7 @@ impl WorksheetXml {
                             state = ParseState::InCfRule;
                         }
                         (ParseState::HeaderFooterChild(idx), _) => {
+                            reader.config_mut().trim_text(true);
                             if let Some(ref mut hf) = header_footer {
                                 let text = if hf_text_buf.is_empty() { None } else { Some(std::mem::take(&mut hf_text_buf)) };
                                 match idx {
@@ -2649,15 +2651,19 @@ impl WorksheetXml {
 
     /// Serialize this worksheet to valid XML bytes.
     pub fn to_xml(&self) -> Result<Vec<u8>> {
-        self.to_xml_with_sst(None)
+        self.to_xml_with_sst(None, &[])
     }
 
     /// Serialize to worksheet XML bytes, optionally remapping SharedString
     /// cell values to SST indices on-the-fly (avoiding a full clone of the
     /// worksheet).
+    ///
+    /// `table_r_ids` are the relationship IDs for `<tableParts>` elements;
+    /// pass an empty slice when no tables are attached to this sheet.
     pub fn to_xml_with_sst(
         &self,
         sst: Option<&super::shared_strings::SharedStringTableBuilder>,
+        table_r_ids: &[String],
     ) -> Result<Vec<u8>> {
         let mut buf: Vec<u8> = Vec::with_capacity(1024 + self.rows.len() * 128);
         let mut writer = Writer::new(&mut buf);
@@ -2670,9 +2676,10 @@ impl WorksheetXml {
             .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), Some("yes"))))
             .map_err(map_err)?;
 
-        // <worksheet xmlns="...">
+        // <worksheet xmlns="..." xmlns:r="...">
         let mut ws = BytesStart::new("worksheet");
         ws.push_attribute(("xmlns", SPREADSHEET_NS));
+        ws.push_attribute(("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"));
         writer.write_event(Event::Start(ws)).map_err(map_err)?;
 
         // <sheetPr> — write if tab_color or outline_properties.
@@ -2753,10 +2760,10 @@ impl WorksheetXml {
                 if col.hidden {
                     elem.push_attribute(("hidden", "1"));
                 }
-                if let Some(level) = col.outline_level {
-                    if level > 0 {
-                        elem.push_attribute(("outlineLevel", ibuf.format(level)));
-                    }
+                if let Some(level) = col.outline_level
+                    && level > 0
+                {
+                    elem.push_attribute(("outlineLevel", ibuf.format(level)));
                 }
                 if col.collapsed {
                     elem.push_attribute(("collapsed", "1"));
@@ -2784,10 +2791,10 @@ impl WorksheetXml {
             if row.hidden {
                 row_elem.push_attribute(("hidden", "1"));
             }
-            if let Some(level) = row.outline_level {
-                if level > 0 {
-                    row_elem.push_attribute(("outlineLevel", ibuf.format(level)));
-                }
+            if let Some(level) = row.outline_level
+                && level > 0
+            {
+                row_elem.push_attribute(("outlineLevel", ibuf.format(level)));
             }
             if row.collapsed {
                 row_elem.push_attribute(("collapsed", "1"));
@@ -3311,6 +3318,21 @@ impl WorksheetXml {
             }
 
             writer.write_event(Event::End(BytesEnd::new("headerFooter"))).map_err(map_err)?;
+        }
+
+        // <tableParts> — only if table rIds are provided.
+        if !table_r_ids.is_empty() {
+            let mut tp = BytesStart::new("tableParts");
+            tp.push_attribute(("count", ibuf.format(table_r_ids.len())));
+            writer.write_event(Event::Start(tp)).map_err(map_err)?;
+            for rid in table_r_ids {
+                let mut part = BytesStart::new("tablePart");
+                part.push_attribute(("r:id", rid.as_str()));
+                writer.write_event(Event::Empty(part)).map_err(map_err)?;
+            }
+            writer
+                .write_event(Event::End(BytesEnd::new("tableParts")))
+                .map_err(map_err)?;
         }
 
         // </worksheet>
@@ -4774,5 +4796,168 @@ mod tests {
         let is = ws2.conditional_formatting[0].rules[0].icon_set.as_ref().unwrap();
         assert_eq!(is.icon_set_type, Some("3TrafficLights1".to_string()));
         assert_eq!(is.cfvos.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_header_footer() {
+        let xml = r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData/>
+  <headerFooter differentFirst="1">
+    <oddHeader>&amp;CConfidential Report</oddHeader>
+    <oddFooter>&amp;LPage &amp;P of &amp;N&amp;R&amp;D</oddFooter>
+    <firstHeader>&amp;C&amp;BTitle Page</firstHeader>
+  </headerFooter>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        let hf = ws.header_footer.as_ref().unwrap();
+        assert_eq!(hf.odd_header.as_deref(), Some("&CConfidential Report"));
+        assert_eq!(hf.odd_footer.as_deref(), Some("&LPage &P of &N&R&D"));
+        assert_eq!(hf.first_header.as_deref(), Some("&C&BTitle Page"));
+        assert!(hf.different_first);
+        assert!(!hf.different_odd_even);
+    }
+
+    #[test]
+    fn test_header_footer_roundtrip() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![],
+            merge_cells: vec![],
+            auto_filter: None,
+            frozen_pane: None,
+            columns: vec![],
+            data_validations: vec![],
+            conditional_formatting: vec![],
+            hyperlinks: vec![],
+            page_setup: None,
+            sheet_protection: None,
+            comments: vec![],
+            tab_color: None,
+            tables: vec![],
+            header_footer: Some(HeaderFooter {
+                odd_header: Some("&CPage &P of &N".into()),
+                odd_footer: Some("&L&D&R&F".into()),
+                ..Default::default()
+            }),
+            outline_properties: None,
+        };
+        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        let hf = ws2.header_footer.as_ref().unwrap();
+        assert_eq!(hf.odd_header.as_deref(), Some("&CPage &P of &N"));
+        assert_eq!(hf.odd_footer.as_deref(), Some("&L&D&R&F"));
+    }
+
+    #[test]
+    fn test_row_outline_level_roundtrip() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![
+                Row { index: 1, cells: vec![], height: None, hidden: false, outline_level: None, collapsed: false },
+                Row { index: 2, cells: vec![], height: None, hidden: false, outline_level: Some(1), collapsed: false },
+                Row { index: 3, cells: vec![], height: None, hidden: false, outline_level: Some(1), collapsed: false },
+                Row { index: 4, cells: vec![], height: None, hidden: false, outline_level: None, collapsed: false },
+            ],
+            merge_cells: vec![],
+            auto_filter: None,
+            frozen_pane: None,
+            columns: vec![],
+            data_validations: vec![],
+            conditional_formatting: vec![],
+            hyperlinks: vec![],
+            page_setup: None,
+            sheet_protection: None,
+            comments: vec![],
+            tab_color: None,
+            tables: vec![],
+            header_footer: None,
+            outline_properties: None,
+        };
+        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        assert_eq!(ws2.rows[1].outline_level, Some(1));
+        assert_eq!(ws2.rows[2].outline_level, Some(1));
+        assert!(ws2.rows[0].outline_level.is_none());
+    }
+
+    #[test]
+    fn test_collapsed_row_group_roundtrip() {
+        let xml = r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="2" outlineLevel="1" hidden="1"><c r="A2"><v>100</v></c></row>
+    <row r="3" outlineLevel="1" hidden="1"><c r="A3"><v>200</v></c></row>
+    <row r="4" collapsed="1"><c r="A4"><v>300</v></c></row>
+  </sheetData>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        assert_eq!(ws.rows[0].outline_level, Some(1));
+        assert!(ws.rows[0].hidden);
+        assert!(ws.rows[2].collapsed);
+
+        let xml2 = ws.to_xml_with_sst(None, &[]).unwrap();
+        let ws2 = WorksheetXml::parse(&xml2).unwrap();
+        assert_eq!(ws2.rows[0].outline_level, Some(1));
+        assert!(ws2.rows[0].hidden);
+        assert!(ws2.rows[2].collapsed);
+    }
+
+    #[test]
+    fn test_column_outline_level_roundtrip() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![],
+            merge_cells: vec![],
+            auto_filter: None,
+            frozen_pane: None,
+            columns: vec![
+                ColumnInfo { min: 1, max: 1, width: 10.0, hidden: false, custom_width: true, outline_level: None, collapsed: false },
+                ColumnInfo { min: 2, max: 3, width: 10.0, hidden: false, custom_width: true, outline_level: Some(1), collapsed: false },
+                ColumnInfo { min: 4, max: 4, width: 12.0, hidden: false, custom_width: true, outline_level: None, collapsed: false },
+            ],
+            data_validations: vec![],
+            conditional_formatting: vec![],
+            hyperlinks: vec![],
+            page_setup: None,
+            sheet_protection: None,
+            comments: vec![],
+            tab_color: None,
+            tables: vec![],
+            header_footer: None,
+            outline_properties: None,
+        };
+        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        assert!(ws2.columns[0].outline_level.is_none());
+        assert_eq!(ws2.columns[1].outline_level, Some(1));
+    }
+
+    #[test]
+    fn test_outline_properties_roundtrip() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![],
+            merge_cells: vec![],
+            auto_filter: None,
+            frozen_pane: None,
+            columns: vec![],
+            data_validations: vec![],
+            conditional_formatting: vec![],
+            hyperlinks: vec![],
+            page_setup: None,
+            sheet_protection: None,
+            comments: vec![],
+            tab_color: None,
+            tables: vec![],
+            header_footer: None,
+            outline_properties: Some(OutlineProperties {
+                summary_below: false,
+                summary_right: true,
+            }),
+        };
+        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        let op = ws2.outline_properties.as_ref().unwrap();
+        assert!(!op.summary_below);
+        assert!(op.summary_right);
     }
 }

@@ -1,11 +1,12 @@
 //! Excel Table (ListObject) definitions — `xl/tables/table{n}.xml`.
 
-use quick_xml::events::{BytesStart, Event};
-use quick_xml::Reader;
+use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
+use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
 
 use super::push_entity;
-use crate::Result;
+use super::SPREADSHEET_NS;
+use crate::{ModernXlsxError, Result};
 
 fn default_header_row_count() -> u32 {
     1
@@ -98,6 +99,130 @@ pub struct TableStyleInfo {
 }
 
 impl TableDefinition {
+    /// Serialize this table definition to valid `xl/tables/table{n}.xml` bytes.
+    pub fn to_xml(&self) -> Result<Vec<u8>> {
+        let mut buf: Vec<u8> = Vec::with_capacity(512);
+        let mut writer = Writer::new(&mut buf);
+        let mut ibuf = itoa::Buffer::new();
+
+        let map_err = |e: std::io::Error| ModernXlsxError::XmlWrite(e.to_string());
+
+        // XML declaration.
+        writer
+            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), Some("yes"))))
+            .map_err(map_err)?;
+
+        // <table xmlns="..." id="..." ...>
+        let mut table_elem = BytesStart::new("table");
+        table_elem.push_attribute(("xmlns", SPREADSHEET_NS));
+        table_elem.push_attribute(("id", ibuf.format(self.id)));
+        if let Some(ref name) = self.name {
+            table_elem.push_attribute(("name", name.as_str()));
+        }
+        table_elem.push_attribute(("displayName", self.display_name.as_str()));
+        table_elem.push_attribute(("ref", self.ref_range.as_str()));
+        if self.header_row_count != 1 {
+            table_elem.push_attribute(("headerRowCount", ibuf.format(self.header_row_count)));
+        }
+        if self.totals_row_count > 0 {
+            table_elem.push_attribute(("totalsRowCount", ibuf.format(self.totals_row_count)));
+        }
+        if !self.totals_row_shown {
+            table_elem.push_attribute(("totalsRowShown", "0"));
+        }
+        writer
+            .write_event(Event::Start(table_elem))
+            .map_err(map_err)?;
+
+        // <autoFilter ref="..."/>
+        if let Some(ref af_ref) = self.auto_filter_ref {
+            let mut af = BytesStart::new("autoFilter");
+            af.push_attribute(("ref", af_ref.as_str()));
+            writer.write_event(Event::Empty(af)).map_err(map_err)?;
+        }
+
+        // <tableColumns count="N">
+        let mut tc_elem = BytesStart::new("tableColumns");
+        tc_elem.push_attribute(("count", ibuf.format(self.columns.len())));
+        writer
+            .write_event(Event::Start(tc_elem))
+            .map_err(map_err)?;
+
+        for col in &self.columns {
+            let mut col_elem = BytesStart::new("tableColumn");
+            col_elem.push_attribute(("id", ibuf.format(col.id)));
+            col_elem.push_attribute(("name", col.name.as_str()));
+            if let Some(ref func) = col.totals_row_function {
+                col_elem.push_attribute(("totalsRowFunction", func.as_str()));
+            }
+            if let Some(ref label) = col.totals_row_label {
+                col_elem.push_attribute(("totalsRowLabel", label.as_str()));
+            }
+            if let Some(dxf_id) = col.header_row_dxf_id {
+                col_elem.push_attribute(("headerRowDxfId", ibuf.format(dxf_id)));
+            }
+            if let Some(dxf_id) = col.data_dxf_id {
+                col_elem.push_attribute(("dataDxfId", ibuf.format(dxf_id)));
+            }
+            if let Some(dxf_id) = col.totals_row_dxf_id {
+                col_elem.push_attribute(("totalsRowDxfId", ibuf.format(dxf_id)));
+            }
+
+            if col.calculated_column_formula.is_some() {
+                writer
+                    .write_event(Event::Start(col_elem))
+                    .map_err(map_err)?;
+
+                if let Some(ref formula) = col.calculated_column_formula {
+                    writer
+                        .write_event(Event::Start(BytesStart::new("calculatedColumnFormula")))
+                        .map_err(map_err)?;
+                    writer
+                        .write_event(Event::Text(BytesText::new(formula)))
+                        .map_err(map_err)?;
+                    writer
+                        .write_event(Event::End(BytesEnd::new("calculatedColumnFormula")))
+                        .map_err(map_err)?;
+                }
+
+                writer
+                    .write_event(Event::End(BytesEnd::new("tableColumn")))
+                    .map_err(map_err)?;
+            } else {
+                writer
+                    .write_event(Event::Empty(col_elem))
+                    .map_err(map_err)?;
+            }
+        }
+
+        // </tableColumns>
+        writer
+            .write_event(Event::End(BytesEnd::new("tableColumns")))
+            .map_err(map_err)?;
+
+        // <tableStyleInfo .../>
+        if let Some(ref si) = self.style_info {
+            let mut si_elem = BytesStart::new("tableStyleInfo");
+            if let Some(ref name) = si.name {
+                si_elem.push_attribute(("name", name.as_str()));
+            }
+            si_elem.push_attribute(("showFirstColumn", if si.show_first_column { "1" } else { "0" }));
+            si_elem.push_attribute(("showLastColumn", if si.show_last_column { "1" } else { "0" }));
+            si_elem.push_attribute(("showRowStripes", if si.show_row_stripes { "1" } else { "0" }));
+            si_elem.push_attribute(("showColumnStripes", if si.show_column_stripes { "1" } else { "0" }));
+            writer
+                .write_event(Event::Empty(si_elem))
+                .map_err(map_err)?;
+        }
+
+        // </table>
+        writer
+            .write_event(Event::End(BytesEnd::new("table")))
+            .map_err(map_err)?;
+
+        Ok(buf)
+    }
+
     /// Parse a table definition from `xl/tables/table{n}.xml` bytes.
     pub fn parse(data: &[u8]) -> Result<Self> {
         let mut reader = Reader::from_reader(data);
@@ -261,6 +386,7 @@ impl TableDefinition {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn parse_table_attrs(
         e: &BytesStart<'_>,
         id: &mut u32,
@@ -546,5 +672,173 @@ mod tests {
             table.columns[3].calculated_column_formula.as_deref(),
             Some("Sales[@Qty]*Sales[@Price]")
         );
+    }
+
+    #[test]
+    fn test_table_xml_roundtrip_basic() {
+        let table = TableDefinition {
+            id: 1,
+            name: Some("Table1".into()),
+            display_name: "Table1".into(),
+            ref_range: "A1:C4".into(),
+            header_row_count: 1,
+            totals_row_count: 0,
+            totals_row_shown: false,
+            columns: vec![
+                TableColumn {
+                    id: 1,
+                    name: "Name".into(),
+                    ..Default::default()
+                },
+                TableColumn {
+                    id: 2,
+                    name: "Age".into(),
+                    ..Default::default()
+                },
+                TableColumn {
+                    id: 3,
+                    name: "City".into(),
+                    ..Default::default()
+                },
+            ],
+            style_info: Some(TableStyleInfo {
+                name: Some("TableStyleMedium2".into()),
+                show_first_column: false,
+                show_last_column: false,
+                show_row_stripes: true,
+                show_column_stripes: false,
+            }),
+            auto_filter_ref: Some("A1:C4".into()),
+        };
+        let xml = table.to_xml().unwrap();
+        let parsed = TableDefinition::parse(&xml).unwrap();
+        assert_eq!(parsed.id, table.id);
+        assert_eq!(parsed.name.as_deref(), Some("Table1"));
+        assert_eq!(parsed.display_name, table.display_name);
+        assert_eq!(parsed.ref_range, table.ref_range);
+        assert_eq!(parsed.header_row_count, 1);
+        assert_eq!(parsed.totals_row_count, 0);
+        assert!(!parsed.totals_row_shown);
+        assert_eq!(parsed.columns.len(), 3);
+        assert_eq!(parsed.columns[0].name, "Name");
+        assert_eq!(parsed.columns[1].name, "Age");
+        assert_eq!(parsed.columns[2].name, "City");
+        assert_eq!(parsed.auto_filter_ref.as_deref(), Some("A1:C4"));
+        let si = parsed.style_info.as_ref().unwrap();
+        assert_eq!(si.name.as_deref(), Some("TableStyleMedium2"));
+        assert!(!si.show_first_column);
+        assert!(!si.show_last_column);
+        assert!(si.show_row_stripes);
+        assert!(!si.show_column_stripes);
+    }
+
+    #[test]
+    fn test_table_xml_roundtrip_with_formulas_and_totals() {
+        let table = TableDefinition {
+            id: 2,
+            name: None,
+            display_name: "Sales".into(),
+            ref_range: "A1:D6".into(),
+            header_row_count: 1,
+            totals_row_count: 1,
+            totals_row_shown: true,
+            columns: vec![
+                TableColumn {
+                    id: 1,
+                    name: "Product".into(),
+                    totals_row_label: Some("Total".into()),
+                    ..Default::default()
+                },
+                TableColumn {
+                    id: 2,
+                    name: "Qty".into(),
+                    totals_row_function: Some("sum".into()),
+                    ..Default::default()
+                },
+                TableColumn {
+                    id: 3,
+                    name: "Price".into(),
+                    totals_row_function: Some("average".into()),
+                    ..Default::default()
+                },
+                TableColumn {
+                    id: 4,
+                    name: "Total".into(),
+                    totals_row_function: Some("sum".into()),
+                    totals_row_label: None,
+                    calculated_column_formula: Some("Sales[@Qty]*Sales[@Price]".into()),
+                    header_row_dxf_id: Some(0),
+                    data_dxf_id: Some(1),
+                    totals_row_dxf_id: Some(2),
+                },
+            ],
+            style_info: Some(TableStyleInfo {
+                name: Some("TableStyleMedium9".into()),
+                show_first_column: true,
+                show_last_column: false,
+                show_row_stripes: true,
+                show_column_stripes: true,
+            }),
+            auto_filter_ref: Some("A1:D5".into()),
+        };
+        let xml = table.to_xml().unwrap();
+        let parsed = TableDefinition::parse(&xml).unwrap();
+        assert_eq!(parsed.id, 2);
+        assert!(parsed.name.is_none());
+        assert_eq!(parsed.display_name, "Sales");
+        assert_eq!(parsed.totals_row_count, 1);
+        assert!(parsed.totals_row_shown);
+        assert_eq!(parsed.columns.len(), 4);
+        assert_eq!(parsed.columns[0].totals_row_label.as_deref(), Some("Total"));
+        assert_eq!(parsed.columns[1].totals_row_function.as_deref(), Some("sum"));
+        assert_eq!(parsed.columns[2].totals_row_function.as_deref(), Some("average"));
+        assert_eq!(
+            parsed.columns[3].calculated_column_formula.as_deref(),
+            Some("Sales[@Qty]*Sales[@Price]")
+        );
+        assert_eq!(parsed.columns[3].header_row_dxf_id, Some(0));
+        assert_eq!(parsed.columns[3].data_dxf_id, Some(1));
+        assert_eq!(parsed.columns[3].totals_row_dxf_id, Some(2));
+        assert_eq!(parsed.auto_filter_ref.as_deref(), Some("A1:D5"));
+        let si = parsed.style_info.as_ref().unwrap();
+        assert!(si.show_first_column);
+        assert!(si.show_column_stripes);
+    }
+
+    #[test]
+    fn test_table_xml_no_style_no_autofilter() {
+        let table = TableDefinition {
+            id: 5,
+            name: None,
+            display_name: "Plain".into(),
+            ref_range: "B2:D10".into(),
+            header_row_count: 0,
+            totals_row_count: 0,
+            totals_row_shown: true,
+            columns: vec![TableColumn {
+                id: 1,
+                name: "Col1".into(),
+                ..Default::default()
+            }],
+            style_info: None,
+            auto_filter_ref: None,
+        };
+        let xml = table.to_xml().unwrap();
+        let xml_str = std::str::from_utf8(&xml).unwrap();
+        // headerRowCount="0" should be written since != 1
+        assert!(xml_str.contains("headerRowCount=\"0\""));
+        // No totalsRowCount since 0 is default
+        assert!(!xml_str.contains("totalsRowCount"));
+        // No totalsRowShown since true is default
+        assert!(!xml_str.contains("totalsRowShown"));
+        // No autoFilter or tableStyleInfo
+        assert!(!xml_str.contains("autoFilter"));
+        assert!(!xml_str.contains("tableStyleInfo"));
+
+        let parsed = TableDefinition::parse(&xml).unwrap();
+        assert_eq!(parsed.id, 5);
+        assert_eq!(parsed.header_row_count, 0);
+        assert!(parsed.style_info.is_none());
+        assert!(parsed.auto_filter_ref.is_none());
     }
 }

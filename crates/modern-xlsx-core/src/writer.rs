@@ -10,8 +10,8 @@ use log::{debug, trace};
 use crate::ooxml::{
     calc_chain,
     comments,
-    content_types::{ContentTypes, CT_COMMENTS},
-    relationships::{Relationships, REL_COMMENTS},
+    content_types::{ContentTypes, CT_COMMENTS, CT_TABLE},
+    relationships::{Relationships, REL_COMMENTS, REL_TABLE},
     shared_strings::SharedStringTableBuilder,
     workbook::{SheetInfo, SheetState, WorkbookXml},
     worksheet::CellType,
@@ -140,17 +140,78 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
     // 5. Generate each worksheet, remapping SST indices inline during XML
     // serialization (avoids cloning the entire worksheet).
-    // Also write comments XML and worksheet .rels files for sheets with comments.
+    // Also write comments XML, table XML, and worksheet .rels files.
+    let mut global_table_id: u32 = 0;
+    let mut generated_rels: HashSet<String> = HashSet::new();
+
     for (i, sheet) in workbook.sheets.iter().enumerate() {
         let sheet_num = i + 1;
-        let ws_xml = sheet.worksheet.to_xml_with_sst(Some(&sst_builder))?;
+        let has_comments = !sheet.worksheet.comments.is_empty();
+        let has_tables = !sheet.worksheet.tables.is_empty();
+        let needs_rels = has_comments || has_tables;
+
+        // Build (or merge) the worksheet .rels when we need to add relationships.
+        let rels_path = format!("xl/worksheets/_rels/sheet{sheet_num}.xml.rels");
+        let mut ws_rels = if needs_rels {
+            if let Some(existing) = workbook.preserved_entries.get(&rels_path) {
+                Relationships::parse(existing)?
+            } else {
+                Relationships::new()
+            }
+        } else {
+            Relationships::new()
+        };
+
+        // Helper: compute next available rId.
+        let next_r_id = |rels: &Relationships| -> usize {
+            rels.relationships
+                .iter()
+                .filter_map(|r| r.id.strip_prefix("rId").and_then(|n| n.parse::<usize>().ok()))
+                .max()
+                .unwrap_or(0)
+                + 1
+        };
+
+        // --- Tables ---
+        let mut table_r_ids: Vec<String> = Vec::new();
+        if has_tables {
+            debug!(
+                "writing {} tables for sheet {}",
+                sheet.worksheet.tables.len(),
+                sheet_num
+            );
+            for table in &sheet.worksheet.tables {
+                global_table_id += 1;
+                let table_xml = table.to_xml()?;
+                let table_path = format!("xl/tables/table{global_table_id}.xml");
+
+                content_types.add_override(format!("/{table_path}"), CT_TABLE);
+
+                entries.push(ZipEntry {
+                    name: table_path,
+                    data: table_xml,
+                });
+
+                let rid_num = next_r_id(&ws_rels);
+                let rid = format!("rId{rid_num}");
+                ws_rels.add(
+                    rid.clone(),
+                    REL_TABLE,
+                    format!("../tables/table{global_table_id}.xml"),
+                );
+                table_r_ids.push(rid);
+            }
+        }
+
+        // --- Worksheet XML (must come after table rIds are computed) ---
+        let ws_xml = sheet.worksheet.to_xml_with_sst(Some(&sst_builder), &table_r_ids)?;
         entries.push(ZipEntry {
             name: format!("xl/worksheets/sheet{sheet_num}.xml"),
             data: ws_xml,
         });
 
-        // Write comments if the worksheet has any.
-        if !sheet.worksheet.comments.is_empty() {
+        // --- Comments ---
+        if has_comments {
             debug!(
                 "writing {} comments for sheet {}",
                 sheet.worksheet.comments.len(),
@@ -159,7 +220,6 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             let comments_xml = comments::write_comments(&sheet.worksheet.comments)?;
             let comments_path = format!("xl/comments{sheet_num}.xml");
 
-            // Add content type override before moving the path into the entry.
             content_types.add_override(format!("/{comments_path}"), CT_COMMENTS);
 
             entries.push(ZipEntry {
@@ -167,41 +227,24 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 data: comments_xml,
             });
 
-            // Create (or merge into) the worksheet .rels file.
-            // The comments target is relative to the worksheet directory:
-            //   ../comments1.xml (from xl/worksheets/ up to xl/)
-            let rels_path = format!("xl/worksheets/_rels/sheet{sheet_num}.xml.rels");
-
-            // Check if a preserved worksheet .rels already exists.
-            let mut ws_rels = if let Some(existing) = workbook.preserved_entries.get(&rels_path) {
-                Relationships::parse(existing)?
-            } else {
-                Relationships::new()
-            };
-
             // Only add the comments relationship if not already present.
             let already_has_comments = ws_rels
                 .find_by_type(REL_COMMENTS)
                 .next()
                 .is_some();
             if !already_has_comments {
-                // Pick an rId that does not collide with existing ones.
-                // Use max existing numeric ID + 1 (not len+1) to avoid
-                // collisions when IDs are non-sequential.
-                let max_existing_id = ws_rels
-                    .relationships
-                    .iter()
-                    .filter_map(|r| r.id.strip_prefix("rId").and_then(|n| n.parse::<usize>().ok()))
-                    .max()
-                    .unwrap_or(0);
-                let next_id = max_existing_id + 1;
+                let rid_num = next_r_id(&ws_rels);
                 ws_rels.add(
-                    format!("rId{next_id}"),
+                    format!("rId{rid_num}"),
                     REL_COMMENTS,
                     format!("../comments{sheet_num}.xml"),
                 );
             }
+        }
 
+        // --- Write worksheet .rels ---
+        if needs_rels {
+            generated_rels.insert(rels_path.clone());
             entries.push(ZipEntry {
                 name: rels_path,
                 data: ws_rels.to_xml()?,
@@ -210,18 +253,11 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     }
 
     // 6. Append preserved entries (drawings, media, charts, etc.)
-    // Skip worksheet .rels files that we already generated for comments,
+    // Skip worksheet .rels files that we already generated for comments/tables,
     // to avoid duplicate entries in the ZIP.
-    let generated_rels: HashSet<String> = workbook
-        .sheets
-        .iter()
-        .enumerate()
-        .filter(|(_, s)| !s.worksheet.comments.is_empty())
-        .map(|(i, _)| format!("xl/worksheets/_rels/sheet{}.xml.rels", i + 1))
-        .collect();
     for (path, data) in &workbook.preserved_entries {
         if generated_rels.contains(path) {
-            // Already written with comments relationship merged in.
+            // Already written with comments/table relationships merged in.
             continue;
         }
         trace!("writing preserved ZIP entry: {}", path);
@@ -968,7 +1004,7 @@ mod tests {
         sst.insert("Alpha"); // index 7
 
         // Generate XML with inline SST remapping (no clone needed).
-        let xml_bytes = ws.to_xml_with_sst(Some(&sst)).expect("to_xml_with_sst should succeed");
+        let xml_bytes = ws.to_xml_with_sst(Some(&sst), &[]).expect("to_xml_with_sst should succeed");
         let xml_str = std::str::from_utf8(&xml_bytes).unwrap();
 
         // The SharedString cell's <v> should contain the SST index "7", not "Alpha".
@@ -1297,5 +1333,294 @@ mod tests {
             Some("A1*2".to_string())
         );
         assert_eq!(ws.rows[0].cells[0].value.as_deref(), Some("100"));
+    }
+
+    #[test]
+    fn test_write_workbook_with_tables() {
+        use crate::ooxml::content_types::ContentTypes;
+        use crate::ooxml::tables::{TableColumn, TableDefinition, TableStyleInfo};
+
+        let rows = vec![
+            Row {
+                index: 1,
+                cells: vec![
+                    Cell {
+                        reference: "A1".to_string(),
+                        cell_type: CellType::SharedString,
+                        style_index: None,
+                        value: Some("Name".to_string()),
+                        formula: None,
+                        formula_type: None,
+                        formula_ref: None,
+                        shared_index: None,
+                        inline_string: None,
+                        dynamic_array: None,
+                    },
+                    Cell {
+                        reference: "B1".to_string(),
+                        cell_type: CellType::SharedString,
+                        style_index: None,
+                        value: Some("Age".to_string()),
+                        formula: None,
+                        formula_type: None,
+                        formula_ref: None,
+                        shared_index: None,
+                        inline_string: None,
+                        dynamic_array: None,
+                    },
+                ],
+                height: None,
+                hidden: false,
+                outline_level: None,
+                collapsed: false,
+            },
+            Row {
+                index: 2,
+                cells: vec![
+                    Cell {
+                        reference: "A2".to_string(),
+                        cell_type: CellType::SharedString,
+                        style_index: None,
+                        value: Some("Alice".to_string()),
+                        formula: None,
+                        formula_type: None,
+                        formula_ref: None,
+                        shared_index: None,
+                        inline_string: None,
+                        dynamic_array: None,
+                    },
+                    Cell {
+                        reference: "B2".to_string(),
+                        cell_type: CellType::Number,
+                        style_index: None,
+                        value: Some("30".to_string()),
+                        formula: None,
+                        formula_type: None,
+                        formula_ref: None,
+                        shared_index: None,
+                        inline_string: None,
+                        dynamic_array: None,
+                    },
+                ],
+                height: None,
+                hidden: false,
+                outline_level: None,
+                collapsed: false,
+            },
+        ];
+
+        let table = TableDefinition {
+            id: 1,
+            name: Some("Table1".into()),
+            display_name: "Table1".into(),
+            ref_range: "A1:B2".into(),
+            header_row_count: 1,
+            totals_row_count: 0,
+            totals_row_shown: false,
+            columns: vec![
+                TableColumn {
+                    id: 1,
+                    name: "Name".into(),
+                    ..Default::default()
+                },
+                TableColumn {
+                    id: 2,
+                    name: "Age".into(),
+                    ..Default::default()
+                },
+            ],
+            style_info: Some(TableStyleInfo {
+                name: Some("TableStyleMedium2".into()),
+                show_first_column: false,
+                show_last_column: false,
+                show_row_stripes: true,
+                show_column_stripes: false,
+            }),
+            auto_filter_ref: Some("A1:B2".into()),
+        };
+
+        let wb = WorkbookData {
+            sheets: vec![SheetData {
+                name: "Sheet1".to_string(),
+                worksheet: WorksheetXml {
+                    dimension: Some("A1:B2".to_string()),
+                    rows,
+                    merge_cells: Vec::new(),
+                    auto_filter: None,
+                    frozen_pane: None,
+                    columns: Vec::new(),
+                    data_validations: Vec::new(),
+                    conditional_formatting: Vec::new(),
+                    hyperlinks: Vec::new(),
+                    page_setup: None,
+                    sheet_protection: None,
+                    comments: Vec::new(),
+                    tab_color: None,
+                    tables: vec![table],
+                    header_footer: None,
+                    outline_properties: None,
+                },
+            }],
+            date_system: DateSystem::Date1900,
+            styles: Styles::default_styles(),
+            defined_names: Vec::new(),
+            shared_strings: None,
+            doc_properties: None,
+            theme_colors: None,
+            calc_chain: Vec::new(),
+            workbook_views: Vec::new(),
+            preserved_entries: std::collections::BTreeMap::new(),
+        };
+
+        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
+
+        // Verify it is a valid ZIP with table entries.
+        let limits = ZipSecurityLimits::default();
+        let zip_entries = read_zip_entries(&bytes, &limits).expect("should be a valid ZIP");
+
+        // Table XML file should exist.
+        assert!(
+            zip_entries.contains_key("xl/tables/table1.xml"),
+            "should contain xl/tables/table1.xml"
+        );
+
+        // Worksheet .rels should reference the table.
+        let rels_xml = std::str::from_utf8(
+            zip_entries
+                .get("xl/worksheets/_rels/sheet1.xml.rels")
+                .expect("should have worksheet rels"),
+        )
+        .unwrap();
+        assert!(
+            rels_xml.contains("tables/table1.xml"),
+            "rels should reference table: {rels_xml}"
+        );
+
+        // Content types should include the table override.
+        let ct_xml =
+            std::str::from_utf8(zip_entries.get("[Content_Types].xml").unwrap()).unwrap();
+        let ct = ContentTypes::parse(ct_xml.as_bytes()).unwrap();
+        assert!(
+            ct.overrides.contains_key("/xl/tables/table1.xml"),
+            "content types should have table override"
+        );
+
+        // Worksheet XML should contain <tableParts>.
+        let ws_xml =
+            std::str::from_utf8(zip_entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
+        assert!(
+            ws_xml.contains("<tableParts"),
+            "worksheet should contain tableParts: {ws_xml}"
+        );
+        assert!(
+            ws_xml.contains("r:id=\"rId1\""),
+            "tablePart should reference rId1: {ws_xml}"
+        );
+
+        // Table XML should parse back correctly.
+        let table_data = zip_entries.get("xl/tables/table1.xml").unwrap();
+        let parsed_table = crate::ooxml::tables::TableDefinition::parse(table_data).unwrap();
+        assert_eq!(parsed_table.display_name, "Table1");
+        assert_eq!(parsed_table.columns.len(), 2);
+    }
+
+    #[test]
+    fn test_write_workbook_with_tables_across_sheets() {
+        use crate::ooxml::tables::{TableColumn, TableDefinition, TableStyleInfo};
+
+        let make_table = |id: u32, name: &str| TableDefinition {
+            id,
+            name: Some(name.into()),
+            display_name: name.into(),
+            ref_range: "A1:B2".into(),
+            header_row_count: 1,
+            totals_row_count: 0,
+            totals_row_shown: true,
+            columns: vec![TableColumn {
+                id: 1,
+                name: "Col1".into(),
+                ..Default::default()
+            }],
+            style_info: Some(TableStyleInfo {
+                name: Some("TableStyleLight1".into()),
+                show_first_column: false,
+                show_last_column: false,
+                show_row_stripes: true,
+                show_column_stripes: false,
+            }),
+            auto_filter_ref: None,
+        };
+
+        let make_sheet = |name: &str, tables: Vec<TableDefinition>| SheetData {
+            name: name.to_string(),
+            worksheet: WorksheetXml {
+                dimension: None,
+                rows: Vec::new(),
+                merge_cells: Vec::new(),
+                auto_filter: None,
+                frozen_pane: None,
+                columns: Vec::new(),
+                data_validations: Vec::new(),
+                conditional_formatting: Vec::new(),
+                hyperlinks: Vec::new(),
+                page_setup: None,
+                sheet_protection: None,
+                comments: Vec::new(),
+                tab_color: None,
+                tables,
+                header_footer: None,
+                outline_properties: None,
+            },
+        };
+
+        let wb = WorkbookData {
+            sheets: vec![
+                make_sheet("Sheet1", vec![make_table(1, "T1"), make_table(2, "T2")]),
+                make_sheet("Sheet2", vec![make_table(3, "T3")]),
+            ],
+            date_system: DateSystem::Date1900,
+            styles: Styles::default_styles(),
+            defined_names: Vec::new(),
+            shared_strings: None,
+            doc_properties: None,
+            theme_colors: None,
+            calc_chain: Vec::new(),
+            workbook_views: Vec::new(),
+            preserved_entries: std::collections::BTreeMap::new(),
+        };
+
+        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
+        let limits = ZipSecurityLimits::default();
+        let zip_entries = read_zip_entries(&bytes, &limits).unwrap();
+
+        // Global table numbering: table1, table2 on Sheet1; table3 on Sheet2.
+        assert!(zip_entries.contains_key("xl/tables/table1.xml"));
+        assert!(zip_entries.contains_key("xl/tables/table2.xml"));
+        assert!(zip_entries.contains_key("xl/tables/table3.xml"));
+
+        // Sheet1 rels should have 2 table references.
+        let rels1 = std::str::from_utf8(
+            zip_entries.get("xl/worksheets/_rels/sheet1.xml.rels").unwrap(),
+        )
+        .unwrap();
+        assert!(rels1.contains("tables/table1.xml"));
+        assert!(rels1.contains("tables/table2.xml"));
+
+        // Sheet2 rels should have 1 table reference.
+        let rels2 = std::str::from_utf8(
+            zip_entries.get("xl/worksheets/_rels/sheet2.xml.rels").unwrap(),
+        )
+        .unwrap();
+        assert!(rels2.contains("tables/table3.xml"));
+
+        // Sheet1 worksheet should have tableParts count="2".
+        let ws1 =
+            std::str::from_utf8(zip_entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
+        assert!(ws1.contains("count=\"2\""), "sheet1 tableParts count should be 2: {ws1}");
+
+        // Sheet2 worksheet should have tableParts count="1".
+        let ws2 =
+            std::str::from_utf8(zip_entries.get("xl/worksheets/sheet2.xml").unwrap()).unwrap();
+        assert!(ws2.contains("count=\"1\""), "sheet2 tableParts count should be 1: {ws2}");
     }
 }
