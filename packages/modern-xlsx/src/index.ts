@@ -195,4 +195,4 @@ export async function readFile(path: string): Promise<_Workbook> {
   return readBuffer(new Uint8Array(buffer));
 }
 
-export const VERSION = '0.5.0' as const;
+export const VERSION = '0.5.1' as const;
