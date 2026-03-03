@@ -1,5 +1,22 @@
 // Core classes
 
+// Barcode & QR code generation
+export type { BarcodeMatrix, DrawBarcodeOptions, ImageAnchor, RenderOptions } from './barcode.js';
+export {
+  encodeCode128,
+  encodeCode39,
+  encodeDataMatrix,
+  encodeEAN13,
+  encodeGS1128,
+  encodeITF14,
+  encodePDF417,
+  encodeQR,
+  encodeUPCA,
+  generateBarcode,
+  generateDrawingRels,
+  generateDrawingXml,
+  renderBarcodePNG,
+} from './barcode.js';
 // Cell reference utilities
 export type { CellAddress, CellRange } from './cell-ref.js';
 export {

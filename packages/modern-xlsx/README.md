@@ -78,7 +78,7 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
 | sheetToCsv (10K) | 134 ms | 151 ms | **1.1x faster** |
 | sheetToJson (10K) | 130 ms | 127 ms | ~1.0x |
 
-> ESM 55 KB + IIFE 29 KB + WASM 939 KB. Zero runtime dependencies. Output files **8.4x smaller**.
+> ESM 108 KB + IIFE 29 KB + WASM 939 KB. Zero runtime dependencies. Output files **8.4x smaller**.
 
 ## Feature Comparison
 
@@ -105,6 +105,8 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
 | Strict TypeScript types | **Yes** | Partial | Partial |
 | WASM-accelerated I/O | **Yes** | No | No |
 | OOXML validation & repair | **Yes** | No | No |
+| Barcode & QR code generation | **Yes** | No | No |
+| Image embedding | **Yes** | No | Paid |
 
 ## How It Works
 
@@ -366,6 +368,33 @@ Detects: dangling style/font/fill/border indices, overlapping merges, invalid
 cell refs, duplicate sheet names, bad metadata dates, missing required styles,
 missing theme colors, unsorted rows, SharedString cells without values.
 
+### Barcode & QR Code Generation
+
+Generate barcodes and embed them as images — pure TypeScript, zero dependencies:
+
+```typescript
+import { Workbook, generateBarcode, encodeQR, renderBarcodePNG } from 'modern-xlsx';
+
+const wb = new Workbook();
+wb.addSheet('Labels');
+
+// High-level: generate + embed in one call
+wb.addBarcode('Labels',
+  { fromCol: 0, fromRow: 0, toCol: 4, toRow: 4 },
+  'https://example.com',
+  { type: 'qr', ecLevel: 'M' },
+);
+
+// Or use the low-level pipeline:
+const matrix = encodeQR('Hello', { ecLevel: 'H' });
+const png = renderBarcodePNG(matrix, { moduleSize: 6, showText: true, textValue: 'Hello' });
+wb.addImage('Labels', { fromCol: 5, fromRow: 0, toCol: 9, toRow: 4 }, png);
+```
+
+**Supported formats:** QR Code, Code 128, EAN-13, UPC-A, Code 39, PDF417, Data Matrix, ITF-14, GS1-128.
+
+See the [Barcode Guide](https://github.com/ABCrimson/modern-xlsx/blob/main/docs/guide/barcodes.md) for format comparison and usage details.
+
 ### Rich Text
 
 ```typescript
@@ -476,6 +505,8 @@ import type {
   RichTextRun, DefinedNameData, CalcChainEntryData,
   // Validation & compliance
   ValidationReport, ValidationIssue, Severity, IssueCategory, RepairResult,
+  // Barcode & image embedding
+  BarcodeMatrix, DrawBarcodeOptions, RenderOptions, ImageAnchor,
 } from 'modern-xlsx';
 ```
 

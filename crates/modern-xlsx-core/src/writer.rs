@@ -230,7 +230,34 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         });
     }
 
-    // 7. Write [Content_Types].xml last (after all comment overrides).
+    // 6b. Auto-detect content types from preserved entries.
+    // Images need extension defaults; drawings need part overrides.
+    for path in workbook.preserved_entries.keys() {
+        if let Some(ext) = path.rsplit('.').next() {
+            match ext {
+                "png" => { content_types.add_default("png", "image/png"); }
+                "jpeg" | "jpg" => { content_types.add_default("jpeg", "image/jpeg"); }
+                "gif" => { content_types.add_default("gif", "image/gif"); }
+                "emf" => { content_types.add_default("emf", "image/x-emf"); }
+                "wmf" => { content_types.add_default("wmf", "image/x-wmf"); }
+                _ => {}
+            }
+        }
+        if path.starts_with("xl/drawings/drawing") && path.ends_with(".xml") {
+            content_types.add_override(
+                format!("/{path}"),
+                "application/vnd.openxmlformats-officedocument.drawing+xml",
+            );
+        }
+        if path.starts_with("xl/charts/chart") && path.ends_with(".xml") {
+            content_types.add_override(
+                format!("/{path}"),
+                "application/vnd.openxmlformats-officedocument.drawingml.chart+xml",
+            );
+        }
+    }
+
+    // 7. Write [Content_Types].xml last (after all overrides).
     entries.insert(0, ZipEntry {
         name: "[Content_Types].xml".to_string(),
         data: content_types.to_xml()?,

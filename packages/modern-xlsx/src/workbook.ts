@@ -1,3 +1,5 @@
+import type { DrawBarcodeOptions, ImageAnchor } from './barcode.js';
+import { generateBarcode, generateDrawingRels, generateDrawingXml } from './barcode.js';
 import { columnToLetter, decodeCellRef } from './cell-ref.js';
 import { StyleBuilder } from './style-builder.js';
 import type {
@@ -271,6 +273,94 @@ export class Workbook {
       report: result.report,
       repairCount: result.repairCount,
     };
+  }
+
+  // --- Image embedding ---
+
+  /** Track next image ID for unique naming. */
+  private imageCounter = 0;
+
+  /**
+   * Add an image (PNG bytes) anchored to a cell range on the given sheet.
+   * The image is embedded via `preservedEntries` and OOXML drawing XML.
+   *
+   * @param sheetName - Target sheet name
+   * @param anchor - Cell range to anchor the image to
+   * @param imageBytes - Raw PNG image bytes
+   * @param format - Image format extension (default: `'png'`)
+   */
+  addImage(
+    sheetName: string,
+    anchor: ImageAnchor,
+    imageBytes: Uint8Array,
+    format: 'png' | 'jpeg' | 'gif' = 'png',
+  ): void {
+    const sheetIndex = this.data.sheets.findIndex((s) => s.name === sheetName);
+    if (sheetIndex === -1) throw new Error(`Sheet "${sheetName}" not found`);
+
+    if (!this.data.preservedEntries) {
+      this.data.preservedEntries = {};
+    }
+
+    this.imageCounter++;
+    const imageId = this.imageCounter;
+    const sheetNum = sheetIndex + 1;
+    const mediaPath = `xl/media/image${imageId}.${format}`;
+    const drawingPath = `xl/drawings/drawing${sheetNum}.xml`;
+    const drawingRelsPath = `xl/drawings/_rels/drawing${sheetNum}.xml.rels`;
+    const sheetRelsPath = `xl/worksheets/_rels/sheet${sheetNum}.xml.rels`;
+    const rId = `rId${imageId}`;
+
+    // Store image bytes
+    this.data.preservedEntries[mediaPath] = Array.from(imageBytes);
+
+    // Build or extend drawing XML
+    const existingAnchors: { anchor: ImageAnchor; imageIndex: number }[] = [];
+    existingAnchors.push({ anchor, imageIndex: imageId });
+    const drawingXml = generateDrawingXml(existingAnchors);
+    const enc = new TextEncoder();
+    this.data.preservedEntries[drawingPath] = Array.from(enc.encode(drawingXml));
+
+    // Build drawing rels
+    const drawingRels = generateDrawingRels([
+      { rId, target: `../media/image${imageId}.${format}` },
+    ]);
+    this.data.preservedEntries[drawingRelsPath] = Array.from(enc.encode(drawingRels));
+
+    // Build or extend sheet rels (add drawing relationship)
+    const existingSheetRels = this.data.preservedEntries[sheetRelsPath];
+    let sheetRelsXml: string;
+    if (existingSheetRels) {
+      // Merge: insert a new Relationship before closing </Relationships>
+      const existing = new TextDecoder().decode(new Uint8Array(existingSheetRels));
+      const drawingRel = `<Relationship Id="rIdDrawing${sheetNum}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${sheetNum}.xml"/>`;
+      if (!existing.includes('relationships/drawing')) {
+        sheetRelsXml = existing.replace('</Relationships>', `${drawingRel}</Relationships>`);
+      } else {
+        sheetRelsXml = existing;
+      }
+    } else {
+      sheetRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdDrawing${sheetNum}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${sheetNum}.xml"/></Relationships>`;
+    }
+    this.data.preservedEntries[sheetRelsPath] = Array.from(enc.encode(sheetRelsXml));
+  }
+
+  /**
+   * Generate a barcode and embed it as an image anchored to the given cell range.
+   *
+   * @param sheetName - Target sheet name
+   * @param anchor - Cell range to anchor the barcode image to
+   * @param value - Data to encode in the barcode
+   * @param options - Barcode type, rendering, and sizing options
+   */
+  addBarcode(
+    sheetName: string,
+    anchor: ImageAnchor,
+    value: string,
+    options: DrawBarcodeOptions,
+  ): void {
+    const pngBytes = generateBarcode(value, options);
+    this.addImage(sheetName, anchor, pngBytes);
   }
 
   /** Returns the raw internal `WorkbookData` for serialization or inspection. */
