@@ -74,9 +74,7 @@ describe('Split Pane', () => {
       topLeftCell: 'A5',
       activePane: 'bottomLeft',
     };
-    ws.paneSelections = [
-      { pane: 'bottomLeft', activeCell: 'A5', sqref: 'A5' },
-    ];
+    ws.paneSelections = [{ pane: 'bottomLeft', activeCell: 'A5', sqref: 'A5' }];
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
