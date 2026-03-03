@@ -2907,8 +2907,10 @@ impl WorksheetXml {
                 .map_err(map_err)?;
         }
 
-        // <sheetViews> — only if frozen_pane is present.
-        if let Some(ref pane) = self.frozen_pane {
+        // <sheetViews> — if frozen_pane or split_pane is present.
+        // Split pane takes priority over frozen pane (mutually exclusive).
+        let has_pane = self.split_pane.is_some() || self.frozen_pane.is_some();
+        if has_pane {
             writer
                 .write_event(Event::Start(BytesStart::new("sheetViews")))
                 .map_err(map_err)?;
@@ -2917,35 +2919,65 @@ impl WorksheetXml {
             sv.push_attribute(("workbookViewId", "0"));
             writer.write_event(Event::Start(sv)).map_err(map_err)?;
 
-            let mut pane_elem = BytesStart::new("pane");
-            if pane.cols > 0 {
-                pane_elem.push_attribute(("xSplit", ibuf.format(pane.cols)));
+            if let Some(ref sp) = self.split_pane {
+                // --- Split pane ---
+                let mut pane_elem = BytesStart::new("pane");
+                if let Some(x) = sp.vertical {
+                    let s = format_f64(x);
+                    pane_elem.push_attribute(("xSplit", s.as_str()));
+                }
+                if let Some(y) = sp.horizontal {
+                    let s = format_f64(y);
+                    pane_elem.push_attribute(("ySplit", s.as_str()));
+                }
+                if let Some(ref tlc) = sp.top_left_cell {
+                    pane_elem.push_attribute(("topLeftCell", tlc.as_str()));
+                }
+                if let Some(ref ap) = sp.active_pane {
+                    pane_elem.push_attribute(("activePane", ap.as_str()));
+                }
+                pane_elem.push_attribute(("state", "split"));
+                writer.write_event(Event::Empty(pane_elem)).map_err(map_err)?;
+            } else if let Some(ref pane) = self.frozen_pane {
+                // --- Frozen pane (existing logic preserved exactly) ---
+                let mut pane_elem = BytesStart::new("pane");
+                if pane.cols > 0 {
+                    pane_elem.push_attribute(("xSplit", ibuf.format(pane.cols)));
+                }
+                if pane.rows > 0 {
+                    pane_elem.push_attribute(("ySplit", ibuf.format(pane.rows)));
+                }
+                let mut top_left = col_index_to_letter(pane.cols + 1);
+                top_left.push_str(ibuf.format(pane.rows + 1));
+                pane_elem.push_attribute(("topLeftCell", top_left.as_str()));
+                let active_pane = match (pane.rows > 0, pane.cols > 0) {
+                    (true, true) => "bottomRight",
+                    (true, false) => "bottomLeft",
+                    (false, true) => "topRight",
+                    (false, false) => "bottomLeft",
+                };
+                pane_elem.push_attribute(("activePane", active_pane));
+                pane_elem.push_attribute(("state", "frozen"));
+                writer.write_event(Event::Empty(pane_elem)).map_err(map_err)?;
             }
-            if pane.rows > 0 {
-                pane_elem.push_attribute(("ySplit", ibuf.format(pane.rows)));
-            }
-            // Compute topLeftCell.
-            let mut top_left = col_index_to_letter(pane.cols + 1);
-            top_left.push_str(ibuf.format(pane.rows + 1));
-            pane_elem.push_attribute(("topLeftCell", top_left.as_str()));
-            let active_pane = match (pane.rows > 0, pane.cols > 0) {
-                (true, true) => "bottomRight",
-                (true, false) => "bottomLeft",
-                (false, true) => "topRight",
-                (false, false) => "bottomLeft",
-            };
-            pane_elem.push_attribute(("activePane", active_pane));
-            pane_elem.push_attribute(("state", "frozen"));
-            writer
-                .write_event(Event::Empty(pane_elem))
-                .map_err(map_err)?;
 
-            writer
-                .write_event(Event::End(BytesEnd::new("sheetView")))
-                .map_err(map_err)?;
-            writer
-                .write_event(Event::End(BytesEnd::new("sheetViews")))
-                .map_err(map_err)?;
+            // Write <selection> elements for each pane selection.
+            for sel in &self.pane_selections {
+                let mut sel_elem = BytesStart::new("selection");
+                if let Some(ref p) = sel.pane {
+                    sel_elem.push_attribute(("pane", p.as_str()));
+                }
+                if let Some(ref ac) = sel.active_cell {
+                    sel_elem.push_attribute(("activeCell", ac.as_str()));
+                }
+                if let Some(ref sq) = sel.sqref {
+                    sel_elem.push_attribute(("sqref", sq.as_str()));
+                }
+                writer.write_event(Event::Empty(sel_elem)).map_err(map_err)?;
+            }
+
+            writer.write_event(Event::End(BytesEnd::new("sheetView"))).map_err(map_err)?;
+            writer.write_event(Event::End(BytesEnd::new("sheetViews"))).map_err(map_err)?;
         }
 
         // <cols> — only if non-empty.
@@ -5298,5 +5330,118 @@ mod tests {
         let op = ws2.outline_properties.as_ref().unwrap();
         assert!(!op.summary_below);
         assert!(op.summary_right);
+    }
+
+    #[test]
+    fn test_roundtrip_horizontal_split() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![],
+            merge_cells: vec![],
+            auto_filter: None,
+            frozen_pane: None,
+            split_pane: Some(SplitPane {
+                horizontal: Some(2400.0),
+                vertical: None,
+                top_left_cell: Some("A5".to_owned()),
+                active_pane: Some("bottomLeft".to_owned()),
+            }),
+            pane_selections: vec![PaneSelection {
+                pane: Some("bottomLeft".to_owned()),
+                active_cell: Some("A5".to_owned()),
+                sqref: Some("A5".to_owned()),
+            }],
+            columns: vec![],
+            data_validations: vec![],
+            conditional_formatting: vec![],
+            hyperlinks: vec![],
+            page_setup: None,
+            sheet_protection: None,
+            comments: vec![],
+            tab_color: None,
+            tables: vec![],
+            header_footer: None,
+            outline_properties: None,
+        };
+        let xml = ws.to_xml().unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        assert!(ws2.frozen_pane.is_none());
+        let sp = ws2.split_pane.as_ref().unwrap();
+        assert!((sp.horizontal.unwrap() - 2400.0).abs() < f64::EPSILON);
+        assert!(sp.vertical.is_none());
+        assert_eq!(sp.top_left_cell.as_deref(), Some("A5"));
+        assert_eq!(ws2.pane_selections.len(), 1);
+    }
+
+    #[test]
+    fn test_roundtrip_four_way_split() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![],
+            merge_cells: vec![],
+            auto_filter: None,
+            frozen_pane: None,
+            split_pane: Some(SplitPane {
+                horizontal: Some(2400.0),
+                vertical: Some(3000.0),
+                top_left_cell: Some("D5".to_owned()),
+                active_pane: Some("bottomRight".to_owned()),
+            }),
+            pane_selections: vec![
+                PaneSelection { pane: Some("topRight".to_owned()), active_cell: Some("D1".to_owned()), sqref: Some("D1".to_owned()) },
+                PaneSelection { pane: Some("bottomLeft".to_owned()), active_cell: Some("A5".to_owned()), sqref: Some("A5".to_owned()) },
+                PaneSelection { pane: Some("bottomRight".to_owned()), active_cell: Some("D5".to_owned()), sqref: Some("D5".to_owned()) },
+            ],
+            columns: vec![],
+            data_validations: vec![],
+            conditional_formatting: vec![],
+            hyperlinks: vec![],
+            page_setup: None,
+            sheet_protection: None,
+            comments: vec![],
+            tab_color: None,
+            tables: vec![],
+            header_footer: None,
+            outline_properties: None,
+        };
+        let xml = ws.to_xml().unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        let sp = ws2.split_pane.as_ref().unwrap();
+        assert!((sp.vertical.unwrap() - 3000.0).abs() < f64::EPSILON);
+        assert!((sp.horizontal.unwrap() - 2400.0).abs() < f64::EPSILON);
+        assert_eq!(ws2.pane_selections.len(), 3);
+    }
+
+    #[test]
+    fn test_split_pane_overrides_frozen_on_write() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![],
+            merge_cells: vec![],
+            auto_filter: None,
+            frozen_pane: Some(FrozenPane { rows: 1, cols: 0 }),
+            split_pane: Some(SplitPane {
+                horizontal: Some(2400.0),
+                vertical: None,
+                top_left_cell: Some("A5".to_owned()),
+                active_pane: Some("bottomLeft".to_owned()),
+            }),
+            pane_selections: vec![],
+            columns: vec![],
+            data_validations: vec![],
+            conditional_formatting: vec![],
+            hyperlinks: vec![],
+            page_setup: None,
+            sheet_protection: None,
+            comments: vec![],
+            tab_color: None,
+            tables: vec![],
+            header_footer: None,
+            outline_properties: None,
+        };
+        let xml = ws.to_xml().unwrap();
+        let xml_str = std::str::from_utf8(&xml).unwrap();
+        assert!(xml_str.contains(r#"state="split""#));
+        assert!(!xml_str.contains(r#"state="frozen""#));
     }
 }
