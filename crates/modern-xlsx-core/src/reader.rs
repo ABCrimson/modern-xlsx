@@ -514,6 +514,7 @@ mod tests {
                         formula_ref: None,
                         shared_index: None,
                         inline_string: None,
+                        dynamic_array: None,
                     },
                     Cell {
                         reference: "B1".to_string(),
@@ -525,6 +526,7 @@ mod tests {
                         formula_ref: None,
                         shared_index: None,
                         inline_string: None,
+                        dynamic_array: None,
                     },
                 ],
                 height: None,
@@ -540,6 +542,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -636,6 +639,7 @@ mod tests {
                     formula_ref: None,
                     shared_index: None,
                     inline_string: None,
+                    dynamic_array: None,
                 }],
                 height: None,
                 hidden: false,
@@ -650,6 +654,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -733,6 +738,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -892,6 +898,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -1004,6 +1011,7 @@ mod tests {
                         formula_ref: None,
                         shared_index: None,
                         inline_string: None,
+                        dynamic_array: None,
                     }],
                     height: None,
                     hidden: false,
@@ -1018,6 +1026,7 @@ mod tests {
                 page_setup: None,
                 sheet_protection: None,
                 comments: Vec::new(),
+                tab_color: None,
             };
             let ws_xml = ws.to_xml().unwrap();
             entries.push(ZipEntry {
@@ -1075,6 +1084,7 @@ mod tests {
                                 formula_ref: None,
                                 shared_index: None,
                                 inline_string: None,
+                                dynamic_array: None,
                             },
                             Cell {
                                 reference: "B1".to_string(),
@@ -1086,6 +1096,7 @@ mod tests {
                                 formula_ref: None,
                                 shared_index: None,
                                 inline_string: None,
+                                dynamic_array: None,
                             },
                         ],
                         height: None,
@@ -1112,6 +1123,7 @@ mod tests {
                             text: "Almost 100".to_string(),
                         },
                     ],
+                    tab_color: None,
                 },
             }],
             date_system: DateSystem::Date1900,
@@ -1193,6 +1205,7 @@ mod tests {
                         page_setup: None,
                         sheet_protection: None,
                         comments: Vec::new(),
+                        tab_color: None,
                     },
                 },
                 SheetData {
@@ -1216,6 +1229,7 @@ mod tests {
                                 text: "Note on C3".to_string(),
                             },
                         ],
+                        tab_color: None,
                     },
                 },
             ],

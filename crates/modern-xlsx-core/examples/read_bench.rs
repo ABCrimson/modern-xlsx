@@ -19,6 +19,7 @@ fn main() {
             formula_ref: None,
             shared_index: None,
             inline_string: None,
+            dynamic_array: None,
         })
         .collect();
     rows.push(Row {
@@ -57,6 +58,7 @@ fn main() {
                 formula_ref: None,
                 shared_index: None,
                 inline_string: None,
+                dynamic_array: None,
             });
         }
         rows.push(Row {
@@ -80,6 +82,7 @@ fn main() {
         page_setup: None,
         sheet_protection: None,
         comments: Vec::new(),
+        tab_color: None,
     };
     let wb = WorkbookData {
         sheets: vec![SheetData {

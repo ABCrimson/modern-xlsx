@@ -54,6 +54,12 @@ pub struct DocProperties {
     pub company: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manager: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hyperlink_base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
 }
 
 /// Parse `docProps/core.xml` into a [`DocProperties`].
@@ -78,7 +84,7 @@ pub fn parse_core(data: &[u8]) -> Result<DocProperties> {
                 match local.as_ref() {
                     b"title" | b"creator" | b"subject" | b"keywords" | b"description"
                     | b"lastModifiedBy" | b"created" | b"modified" | b"category"
-                    | b"contentStatus" => {
+                    | b"contentStatus" | b"revision" => {
                         current_element =
                             Some(std::str::from_utf8(local.as_ref())
                                 .unwrap_or_default()
@@ -111,6 +117,7 @@ pub fn parse_core(data: &[u8]) -> Result<DocProperties> {
                         "modified" => props.modified = val,
                         "category" => props.category = val,
                         "contentStatus" => props.content_status = val,
+                        "revision" => props.revision = val,
                         _ => {}
                     }
                     current_element = None;
@@ -145,7 +152,7 @@ pub fn parse_app(props: &mut DocProperties, data: &[u8]) -> Result<()> {
             Ok(Event::Start(ref e)) => {
                 let local = e.local_name();
                 match local.as_ref() {
-                    b"Application" | b"Company" | b"Manager" => {
+                    b"Application" | b"Company" | b"Manager" | b"AppVersion" | b"HyperlinkBase" => {
                         current_element =
                             Some(std::str::from_utf8(local.as_ref())
                                 .unwrap_or_default()
@@ -171,6 +178,8 @@ pub fn parse_app(props: &mut DocProperties, data: &[u8]) -> Result<()> {
                         "Application" => props.application = val,
                         "Company" => props.company = val,
                         "Manager" => props.manager = val,
+                        "AppVersion" => props.app_version = val,
+                        "HyperlinkBase" => props.hyperlink_base = val,
                         _ => {}
                     }
                     current_element = None;
@@ -236,6 +245,7 @@ impl DocProperties {
         write_elem(&mut writer, "cp:lastModifiedBy", &self.last_modified_by)?;
         write_elem(&mut writer, "cp:category", &self.category)?;
         write_elem(&mut writer, "cp:contentStatus", &self.content_status)?;
+        write_elem(&mut writer, "cp:revision", &self.revision)?;
 
         // dcterms:created and dcterms:modified have xsi:type="dcterms:W3CDTF"
         if let Some(ref v) = self.created {
@@ -307,6 +317,8 @@ impl DocProperties {
         write_elem(&mut writer, "Application", &self.application)?;
         write_elem(&mut writer, "Company", &self.company)?;
         write_elem(&mut writer, "Manager", &self.manager)?;
+        write_elem(&mut writer, "AppVersion", &self.app_version)?;
+        write_elem(&mut writer, "HyperlinkBase", &self.hyperlink_base)?;
 
         // </Properties>
         writer
@@ -331,6 +343,9 @@ impl DocProperties {
             && self.application.is_none()
             && self.company.is_none()
             && self.manager.is_none()
+            && self.app_version.is_none()
+            && self.hyperlink_base.is_none()
+            && self.revision.is_none()
     }
 
     /// Returns `true` if any core property (docProps/core.xml) is set.
@@ -345,11 +360,16 @@ impl DocProperties {
             || self.modified.is_some()
             || self.category.is_some()
             || self.content_status.is_some()
+            || self.revision.is_some()
     }
 
     /// Returns `true` if any app property (docProps/app.xml) is set.
     pub fn has_app(&self) -> bool {
-        self.application.is_some() || self.company.is_some() || self.manager.is_some()
+        self.application.is_some()
+            || self.company.is_some()
+            || self.manager.is_some()
+            || self.app_version.is_some()
+            || self.hyperlink_base.is_some()
     }
 }
 
@@ -444,6 +464,9 @@ mod tests {
             application: None,
             company: None,
             manager: None,
+            app_version: None,
+            hyperlink_base: None,
+            revision: None,
         };
 
         let xml = props.to_core_xml().unwrap();
@@ -459,6 +482,7 @@ mod tests {
         assert_eq!(parsed.modified, props.modified);
         assert_eq!(parsed.category, props.category);
         assert_eq!(parsed.content_status, props.content_status);
+        assert_eq!(parsed.revision, props.revision);
     }
 
     #[test]
@@ -493,5 +517,77 @@ mod tests {
         assert!(!with_creator.is_empty());
         assert!(with_creator.has_core());
         assert!(!with_creator.has_app());
+    }
+
+    #[test]
+    fn test_revision_roundtrip() {
+        let props = DocProperties {
+            revision: Some("3".to_string()),
+            ..Default::default()
+        };
+        assert!(props.has_core());
+
+        let xml = props.to_core_xml().unwrap();
+        let parsed = parse_core(&xml).unwrap();
+        assert_eq!(parsed.revision.as_deref(), Some("3"));
+    }
+
+    #[test]
+    fn test_app_version_roundtrip() {
+        let props = DocProperties {
+            app_version: Some("16.0300".to_string()),
+            ..Default::default()
+        };
+        assert!(props.has_app());
+
+        let xml = props.to_app_xml().unwrap();
+        let mut parsed = DocProperties::default();
+        parse_app(&mut parsed, &xml).unwrap();
+        assert_eq!(parsed.app_version.as_deref(), Some("16.0300"));
+    }
+
+    #[test]
+    fn test_hyperlink_base_roundtrip() {
+        let props = DocProperties {
+            hyperlink_base: Some("https://example.com/".to_string()),
+            ..Default::default()
+        };
+        assert!(props.has_app());
+
+        let xml = props.to_app_xml().unwrap();
+        let mut parsed = DocProperties::default();
+        parse_app(&mut parsed, &xml).unwrap();
+        assert_eq!(parsed.hyperlink_base.as_deref(), Some("https://example.com/"));
+    }
+
+    #[test]
+    fn test_parse_core_with_revision() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+                   xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <dc:creator>Author</dc:creator>
+  <cp:revision>5</cp:revision>
+</cp:coreProperties>"#;
+
+        let props = parse_core(xml.as_bytes()).unwrap();
+        assert_eq!(props.creator.as_deref(), Some("Author"));
+        assert_eq!(props.revision.as_deref(), Some("5"));
+    }
+
+    #[test]
+    fn test_parse_app_with_version_and_hyperlink_base() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+            xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>Microsoft Excel</Application>
+  <AppVersion>16.0300</AppVersion>
+  <HyperlinkBase>https://example.com/</HyperlinkBase>
+</Properties>"#;
+
+        let mut props = DocProperties::default();
+        parse_app(&mut props, xml.as_bytes()).unwrap();
+        assert_eq!(props.application.as_deref(), Some("Microsoft Excel"));
+        assert_eq!(props.app_version.as_deref(), Some("16.0300"));
+        assert_eq!(props.hyperlink_base.as_deref(), Some("https://example.com/"));
     }
 }

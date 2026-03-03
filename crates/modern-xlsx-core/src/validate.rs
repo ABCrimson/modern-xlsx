@@ -379,20 +379,20 @@ fn validate_cells(report: &mut ValidationReport, wb: &WorkbookData) {
                 }
 
                 // Validate style index.
-                if let Some(si) = cell.style_index {
-                    if si as usize >= xf_count {
-                        report.push(ValidationIssue {
-                            severity: Severity::Error,
-                            category: IssueCategory::StyleIndex,
-                            message: format!(
-                                "Cell {} styleIndex={si} exceeds cellXfs count ({xf_count})",
-                                cell.reference
-                            ),
-                            location: loc.clone(),
-                            suggestion: "Clamp styleIndex to 0".into(),
-                            auto_fixable: true,
-                        });
-                    }
+                if let Some(si) = cell.style_index
+                    && si as usize >= xf_count
+                {
+                    report.push(ValidationIssue {
+                        severity: Severity::Error,
+                        category: IssueCategory::StyleIndex,
+                        message: format!(
+                            "Cell {} styleIndex={si} exceeds cellXfs count ({xf_count})",
+                            cell.reference
+                        ),
+                        location: loc.clone(),
+                        suggestion: "Clamp styleIndex to 0".into(),
+                        auto_fixable: true,
+                    });
                 }
 
                 // SharedString cell must have a value.
@@ -565,19 +565,19 @@ fn validate_metadata(report: &mut ValidationReport, wb: &WorkbookData) {
             ("created", &props.created),
             ("modified", &props.modified),
         ] {
-            if let Some(date_str) = value {
-                if !is_valid_iso8601(date_str) {
-                    report.push(ValidationIssue {
-                        severity: Severity::Warning,
-                        category: IssueCategory::Metadata,
-                        message: format!(
-                            "Document property '{field_name}' has non-ISO-8601 value '{date_str}'"
-                        ),
-                        location: format!("docProperties.{field_name}"),
-                        suggestion: "Use ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ".into(),
-                        auto_fixable: true,
-                    });
-                }
+            if let Some(date_str) = value
+                && !is_valid_iso8601(date_str)
+            {
+                report.push(ValidationIssue {
+                    severity: Severity::Warning,
+                    category: IssueCategory::Metadata,
+                    message: format!(
+                        "Document property '{field_name}' has non-ISO-8601 value '{date_str}'"
+                    ),
+                    location: format!("docProperties.{field_name}"),
+                    suggestion: "Use ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ".into(),
+                    auto_fixable: true,
+                });
             }
         }
 
@@ -588,19 +588,19 @@ fn validate_metadata(report: &mut ValidationReport, wb: &WorkbookData) {
             ("subject", &props.subject),
             ("description", &props.description),
         ] {
-            if let Some(s) = value {
-                if s.trim().is_empty() && !s.is_empty() {
-                    report.push(ValidationIssue {
-                        severity: Severity::Info,
-                        category: IssueCategory::Metadata,
-                        message: format!(
-                            "Document property '{field_name}' is whitespace-only"
-                        ),
-                        location: format!("docProperties.{field_name}"),
-                        suggestion: "Clear the field or set meaningful content".into(),
-                        auto_fixable: true,
-                    });
-                }
+            if let Some(s) = value
+                && s.trim().is_empty() && !s.is_empty()
+            {
+                report.push(ValidationIssue {
+                    severity: Severity::Info,
+                    category: IssueCategory::Metadata,
+                    message: format!(
+                        "Document property '{field_name}' is whitespace-only"
+                    ),
+                    location: format!("docProperties.{field_name}"),
+                    suggestion: "Clear the field or set meaningful content".into(),
+                    auto_fixable: true,
+                });
             }
         }
     }
@@ -789,11 +789,11 @@ fn repair_cell_style_indices(wb: &mut WorkbookData) -> usize {
     for sheet in &mut wb.sheets {
         for row in &mut sheet.worksheet.rows {
             for cell in &mut row.cells {
-                if let Some(si) = cell.style_index {
-                    if si as usize >= xf_count {
-                        cell.style_index = Some(0);
-                        repairs += 1;
-                    }
+                if let Some(si) = cell.style_index
+                    && si as usize >= xf_count
+                {
+                    cell.style_index = Some(0);
+                    repairs += 1;
                 }
             }
         }
@@ -892,7 +892,7 @@ fn repair_row_ordering(wb: &mut WorkbookData) -> usize {
 ///
 /// Returns `None` for out-of-range indices or special system colors (64, 65).
 pub fn resolve_indexed_color(index: u32) -> Option<&'static str> {
-    if index >= 8 && index < 64 {
+    if (8..64).contains(&index) {
         Some(INDEXED_COLORS[(index - 8) as usize])
     } else if index < 8 {
         // Indices 0-7 map to same as 8-15.
@@ -1131,6 +1131,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         }
     }
 
@@ -1219,6 +1220,7 @@ mod tests {
                 formula_ref: None,
                 shared_index: None,
                 inline_string: None,
+                dynamic_array: None,
             }],
             height: None,
             hidden: false,
@@ -1265,6 +1267,7 @@ mod tests {
                 formula_ref: None,
                 shared_index: None,
                 inline_string: None,
+                dynamic_array: None,
             }],
             height: None,
             hidden: false,
@@ -1333,6 +1336,7 @@ mod tests {
                 formula_ref: None,
                 shared_index: None,
                 inline_string: None,
+                dynamic_array: None,
             }],
             height: None,
             hidden: false,

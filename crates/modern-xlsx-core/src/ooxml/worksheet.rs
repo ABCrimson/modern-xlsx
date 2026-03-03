@@ -49,6 +49,7 @@ fn cell_type_json_str(ct: CellType) -> &'static str {
         CellType::Error => "error",
         CellType::FormulaStr => "formulaStr",
         CellType::InlineStr => "inlineStr",
+        CellType::Stub => "stub",
     }
 }
 
@@ -90,6 +91,8 @@ pub struct WorksheetXml {
     pub sheet_protection: Option<SheetProtection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<super::comments::Comment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_color: Option<String>,
 }
 
 /// A single row in the worksheet.
@@ -132,6 +135,9 @@ pub struct Cell {
     /// Inline string value from `<is><t>...</t></is>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inline_string: Option<String>,
+    /// Whether this is a dynamic array formula (CSE/SPILL), from `cm` attribute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_array: Option<bool>,
 }
 
 /// The type of a cell, determined by the `t` attribute on the `<c>` element.
@@ -150,6 +156,8 @@ pub enum CellType {
     FormulaStr,
     /// `t="inlineStr"` — inline string (value stored in `<is><t>...</t></is>`).
     InlineStr,
+    /// Explicitly empty cell (equivalent to SheetJS type "z").
+    Stub,
 }
 
 /// Frozen pane configuration.
@@ -344,6 +352,7 @@ pub struct IconSet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ParseState {
     Root,
+    SheetPr,
     SheetViews,
     SheetView,
     Cols,
@@ -399,6 +408,7 @@ impl WorksheetXml {
         let mut hyperlinks: Vec<Hyperlink> = Vec::new();
         let mut page_setup: Option<PageSetup> = None;
         let mut sheet_protection: Option<SheetProtection> = None;
+        let mut tab_color: Option<String> = None;
 
         let mut state = ParseState::Root;
 
@@ -418,6 +428,7 @@ impl WorksheetXml {
         let mut cur_cell_formula_ref: Option<String> = None;
         let mut cur_cell_shared_index: Option<u32> = None;
         let mut cur_cell_inline_string: Option<String> = None;
+        let mut cur_cell_dynamic_array: Option<bool> = None;
 
         // Buffers for text content.
         let mut text_buf = String::with_capacity(256);
@@ -447,6 +458,9 @@ impl WorksheetXml {
                 Ok(Event::Start(ref e)) => {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
+                        (ParseState::Root, b"sheetPr") => {
+                            state = ParseState::SheetPr;
+                        }
                         (ParseState::Root, b"sheetViews") => {
                             state = ParseState::SheetViews;
                         }
@@ -496,6 +510,7 @@ impl WorksheetXml {
                             cur_cell_formula_ref = None;
                             cur_cell_shared_index = None;
                             cur_cell_inline_string = None;
+                            cur_cell_dynamic_array = None;
 
                             for attr in e.attributes().flatten() {
                                 let ln = attr.key.local_name();
@@ -537,6 +552,11 @@ impl WorksheetXml {
                                     b"t" => cur_cell_formula_type = Some(val.to_owned()),
                                     b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
                                     b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
+                                    b"cm" => {
+                                        if val == "1" {
+                                            cur_cell_dynamic_array = Some(true);
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -719,6 +739,15 @@ impl WorksheetXml {
                                 }
                             }
                         }
+                        (ParseState::SheetPr, b"tabColor") => {
+                            for attr in e.attributes().flatten() {
+                                if attr.key.local_name().as_ref() == b"rgb" {
+                                    tab_color = Some(
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    );
+                                }
+                            }
+                        }
                         (ParseState::Root, b"autoFilter") => {
                             let mut af_range = String::new();
                             for attr in e.attributes().flatten() {
@@ -817,6 +846,7 @@ impl WorksheetXml {
                                 formula_ref: None,
                                 shared_index: None,
                                 inline_string: None,
+                                dynamic_array: None,
                             });
                         }
                         (ParseState::SheetData, b"row") => {
@@ -862,6 +892,11 @@ impl WorksheetXml {
                                     b"t" => cur_cell_formula_type = Some(val.to_owned()),
                                     b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
                                     b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
+                                    b"cm" => {
+                                        if val == "1" {
+                                            cur_cell_dynamic_array = Some(true);
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -1149,6 +1184,7 @@ impl WorksheetXml {
                                 formula_ref: cur_cell_formula_ref.take(),
                                 shared_index: cur_cell_shared_index.take(),
                                 inline_string: cur_cell_inline_string.take(),
+                                dynamic_array: cur_cell_dynamic_array.take(),
                             });
                             state = ParseState::InRow;
                         }
@@ -1162,6 +1198,9 @@ impl WorksheetXml {
                             state = ParseState::SheetData;
                         }
                         (ParseState::SheetData, b"sheetData") => {
+                            state = ParseState::Root;
+                        }
+                        (ParseState::SheetPr, b"sheetPr") => {
                             state = ParseState::Root;
                         }
                         (ParseState::SheetView, b"sheetView") => {
@@ -1290,6 +1329,7 @@ impl WorksheetXml {
             page_setup,
             sheet_protection,
             comments: Vec::new(),
+            tab_color,
         })
     }
 
@@ -1328,6 +1368,7 @@ impl WorksheetXml {
         let mut hyperlinks: Vec<Hyperlink> = Vec::new();
         let mut page_setup: Option<PageSetup> = None;
         let mut sheet_protection: Option<SheetProtection> = None;
+        let mut tab_color: Option<String> = None;
 
         // Row/cell streaming state (reused each row/cell, no accumulation).
         let mut state = ParseState::Root;
@@ -1344,6 +1385,7 @@ impl WorksheetXml {
         let mut cur_cell_formula_type: Option<String> = None;
         let mut cur_cell_formula_ref: Option<String> = None;
         let mut cur_cell_shared_index: Option<u32> = None;
+        let mut cur_cell_dynamic_array: Option<bool> = None;
 
         // Metadata builder state (same as parse_with_sst).
         let mut cur_dv: Option<DataValidation> = None;
@@ -1367,6 +1409,9 @@ impl WorksheetXml {
                 Ok(Event::Start(ref e)) => {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
+                        // ---- Sheet properties (metadata) ----
+                        (ParseState::Root, b"sheetPr") => state = ParseState::SheetPr,
+
                         // ---- Sheet views / pane (metadata) ----
                         (ParseState::Root, b"sheetViews") => state = ParseState::SheetViews,
                         (ParseState::SheetViews, b"sheetView") => state = ParseState::SheetView,
@@ -1417,6 +1462,7 @@ impl WorksheetXml {
                             cur_cell_formula_type = None;
                             cur_cell_formula_ref = None;
                             cur_cell_shared_index = None;
+                            cur_cell_dynamic_array = None;
 
                             for attr in e.attributes().flatten() {
                                 let ln = attr.key.local_name();
@@ -1473,6 +1519,11 @@ impl WorksheetXml {
                                     b"t" => cur_cell_formula_type = Some(val.to_owned()),
                                     b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
                                     b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
+                                    b"cm" => {
+                                        if val == "1" {
+                                            cur_cell_dynamic_array = Some(true);
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -1652,6 +1703,15 @@ impl WorksheetXml {
                                 }
                             }
                         }
+                        (ParseState::SheetPr, b"tabColor") => {
+                            for attr in e.attributes().flatten() {
+                                if attr.key.local_name().as_ref() == b"rgb" {
+                                    tab_color = Some(
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    );
+                                }
+                            }
+                        }
                         (ParseState::Root, b"autoFilter") => {
                             let mut af_range = String::new();
                             for attr in e.attributes().flatten() {
@@ -1792,6 +1852,11 @@ impl WorksheetXml {
                                     b"t" => cur_cell_formula_type = Some(val.to_owned()),
                                     b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
                                     b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
+                                    b"cm" => {
+                                        if val == "1" {
+                                            cur_cell_dynamic_array = Some(true);
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -2062,6 +2127,9 @@ impl WorksheetXml {
                                 out.push_str(",\"sharedIndex\":");
                                 out.push_str(itoa_buf.format(si));
                             }
+                            if cur_cell_dynamic_array == Some(true) {
+                                out.push_str(",\"dynamicArray\":true");
+                            }
                             state = ParseState::InCell;
                         }
 
@@ -2100,6 +2168,9 @@ impl WorksheetXml {
                                     out.push_str(itoa_buf.format(si));
                                 }
                             }
+                            if cur_cell_dynamic_array.take() == Some(true) {
+                                out.push_str(",\"dynamicArray\":true");
+                            }
                             out.push('}');
                             state = ParseState::InRow;
                         }
@@ -2119,6 +2190,7 @@ impl WorksheetXml {
                         }
 
                         (ParseState::SheetData, b"sheetData") => state = ParseState::Root,
+                        (ParseState::SheetPr, b"sheetPr") => state = ParseState::Root,
                         (ParseState::SheetView, b"sheetView") => state = ParseState::SheetViews,
                         (ParseState::SheetViews, b"sheetViews") => state = ParseState::Root,
                         (ParseState::Cols, b"cols") => state = ParseState::Root,
@@ -2283,6 +2355,11 @@ impl WorksheetXml {
             out.push_str(&serde_json::to_string(comments)
                 .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
         }
+        if let Some(ref tc) = tab_color {
+            out.push_str(",\"tabColor\":\"");
+            json_escape_to(out, tc);
+            out.push('"');
+        }
 
         // Close the worksheet JSON object.
         out.push('}');
@@ -2317,6 +2394,19 @@ impl WorksheetXml {
         let mut ws = BytesStart::new("worksheet");
         ws.push_attribute(("xmlns", SPREADSHEET_NS));
         writer.write_event(Event::Start(ws)).map_err(map_err)?;
+
+        // <sheetPr> with <tabColor> — only if tab_color is set.
+        if let Some(ref color) = self.tab_color {
+            writer
+                .write_event(Event::Start(BytesStart::new("sheetPr")))
+                .map_err(map_err)?;
+            let mut tc = BytesStart::new("tabColor");
+            tc.push_attribute(("rgb", color.as_str()));
+            writer.write_event(Event::Empty(tc)).map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("sheetPr")))
+                .map_err(map_err)?;
+        }
 
         // <sheetViews> — only if frozen_pane is present.
         if let Some(ref pane) = self.frozen_pane {
@@ -2409,8 +2499,9 @@ impl WorksheetXml {
                     c_elem.push_attribute(("r", cell.reference.as_str()));
 
                     // Only write t attribute if not Number (the default).
+                    // Stub cells are not written to XML.
                     match cell.cell_type {
-                        CellType::Number => {}
+                        CellType::Number | CellType::Stub => {}
                         CellType::SharedString => c_elem.push_attribute(("t", "s")),
                         CellType::Boolean => c_elem.push_attribute(("t", "b")),
                         CellType::Error => c_elem.push_attribute(("t", "e")),
@@ -2443,6 +2534,9 @@ impl WorksheetXml {
                             if let Some(si) = cell.shared_index {
                                 f_elem.push_attribute(("si", ibuf.format(si)));
                             }
+                            if cell.dynamic_array == Some(true) {
+                                f_elem.push_attribute(("cm", "1"));
+                            }
                             writer
                                 .write_event(Event::Start(f_elem))
                                 .map_err(map_err)?;
@@ -2463,6 +2557,9 @@ impl WorksheetXml {
                             }
                             if let Some(si) = cell.shared_index {
                                 f_elem.push_attribute(("si", ibuf.format(si)));
+                            }
+                            if cell.dynamic_array == Some(true) {
+                                f_elem.push_attribute(("cm", "1"));
                             }
                             writer
                                 .write_event(Event::Empty(f_elem))
@@ -3102,6 +3199,7 @@ mod tests {
                             formula_ref: None,
                             shared_index: None,
                             inline_string: None,
+                            dynamic_array: None,
                         },
                         Cell {
                             reference: "B1".to_string(),
@@ -3113,6 +3211,7 @@ mod tests {
                             formula_ref: None,
                             shared_index: None,
                             inline_string: None,
+                            dynamic_array: None,
                         },
                         Cell {
                             reference: "C1".to_string(),
@@ -3124,6 +3223,7 @@ mod tests {
                             formula_ref: None,
                             shared_index: None,
                             inline_string: None,
+                            dynamic_array: None,
                         },
                     ],
                     height: Some(18.0),
@@ -3141,6 +3241,7 @@ mod tests {
                         formula_ref: None,
                         shared_index: None,
                         inline_string: None,
+                        dynamic_array: None,
                     }],
                     height: None,
                     hidden: true,
@@ -3162,6 +3263,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3230,6 +3332,7 @@ mod tests {
                     formula_ref: None,
                     shared_index: None,
                     inline_string: None,
+                    dynamic_array: None,
                 }],
                 height: None,
                 hidden: false,
@@ -3244,6 +3347,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3313,6 +3417,7 @@ mod tests {
                     formula_ref: None,
                     shared_index: None,
                     inline_string: None,
+                    dynamic_array: None,
                 }],
                 height: None,
                 hidden: false,
@@ -3327,6 +3432,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3351,6 +3457,7 @@ mod tests {
                     formula_ref: None,
                     shared_index: None,
                     inline_string: None,
+                    dynamic_array: None,
                 }],
                 height: None,
                 hidden: false,
@@ -3365,6 +3472,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3473,6 +3581,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3572,6 +3681,7 @@ mod tests {
                     formula_ref: None,
                     shared_index: None,
                     inline_string: None,
+                    dynamic_array: None,
                 }],
                 height: None,
                 hidden: false,
@@ -3613,6 +3723,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         // Write to XML.
@@ -3704,6 +3815,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3760,6 +3872,7 @@ mod tests {
             }),
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3826,6 +3939,7 @@ mod tests {
                 auto_filter: true,
             }),
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3904,6 +4018,7 @@ mod tests {
                     formula_ref: Some("A1:A3".to_string()),
                     shared_index: None,
                     inline_string: None,
+                    dynamic_array: None,
                 }],
                 height: None,
                 hidden: false,
@@ -3918,6 +4033,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3997,6 +4113,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4064,6 +4181,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4138,6 +4256,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4233,6 +4352,7 @@ mod tests {
             page_setup: None,
             sheet_protection: None,
             comments: Vec::new(),
+            tab_color: None,
         };
 
         let xml = ws.to_xml().unwrap();
