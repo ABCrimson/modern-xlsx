@@ -42,6 +42,25 @@ const BUILTIN_FORMATS: Record<number, string> = {
   49: '@',
 };
 
+/** Runtime-registered custom format codes. */
+const CUSTOM_FORMATS = new Map<number, string>();
+
+/**
+ * Register a custom number format code at runtime.
+ */
+export function loadFormat(formatCode: string, id: number): void {
+  CUSTOM_FORMATS.set(id, formatCode);
+}
+
+/**
+ * Bulk-register multiple format codes at runtime.
+ */
+export function loadFormatTable(table: Record<number, string>): void {
+  for (const [id, code] of Object.entries(table)) {
+    CUSTOM_FORMATS.set(Number(id), code);
+  }
+}
+
 /** Options for the {@link formatCell} function. */
 export interface FormatCellOptions {
   /** Date system for serial-to-date conversion. */
@@ -66,7 +85,7 @@ export function formatCell(
   // Excel always renders booleans as uppercase TRUE/FALSE.
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
 
-  const formatCode = typeof format === 'number' ? (BUILTIN_FORMATS[format] ?? 'General') : format;
+  const formatCode = typeof format === 'number' ? (BUILTIN_FORMATS[format] ?? CUSTOM_FORMATS.get(format) ?? 'General') : format;
 
   if (formatCode === 'General' || formatCode === '' || formatCode === '@') {
     return String(value);
@@ -83,6 +102,44 @@ export function getBuiltinFormat(id: number): string | undefined {
   return BUILTIN_FORMATS[id];
 }
 
+/** Result of rich cell formatting, including optional color metadata. */
+export interface FormatCellResult {
+  /** The formatted text string. */
+  text: string;
+  /** Color name from bracket directive (e.g., "Red", "Color3"). */
+  color?: string;
+}
+
+/**
+ * Format a cell value and return rich result with color metadata.
+ * Supports conditional sections like `[>100]#,##0;[<=100]0.00`
+ * and bracket color codes like `[Red]`, `[Color3]`.
+ */
+export function formatCellRich(
+  value: string | number | boolean | null,
+  format: string | number,
+  opts?: FormatCellOptions,
+): FormatCellResult {
+  if (value === null || value === undefined) return { text: '' };
+  if (typeof value === 'boolean') return { text: value ? 'TRUE' : 'FALSE' };
+
+  let formatCode: string;
+  if (typeof format === 'number') {
+    formatCode = BUILTIN_FORMATS[format] ?? CUSTOM_FORMATS.get(format) ?? 'General';
+  } else {
+    formatCode = format;
+  }
+
+  if (formatCode === 'General' || formatCode === '' || formatCode === '@') {
+    return { text: String(value) };
+  }
+
+  const numVal = typeof value === 'number' ? value : Number.parseFloat(String(value));
+  if (Number.isNaN(numVal)) return { text: String(value) };
+
+  return dispatchFormatRich(numVal, formatCode, opts?.dateSystem ?? 'date1900');
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
@@ -95,6 +152,89 @@ function dispatchFormat(numVal: number, code: string, system: DateSystem): strin
   }
   if (code.includes('?/') || code.includes('#/')) return formatFraction(numVal);
   return formatNumber(numVal, code);
+}
+
+// ---------------------------------------------------------------------------
+// Rich dispatch — conditional sections + color extraction
+// ---------------------------------------------------------------------------
+
+const COLOR_RE = /\[(Red|Blue|Green|Yellow|Magenta|Cyan|White|Black|Color\d{1,2})\]/i;
+const CONDITION_RE = /\[([<>=!]+)([\d.]+)\]/;
+
+function buildRichResult(text: string, color: string | undefined): FormatCellResult {
+  return color ? { text, color } : { text };
+}
+
+function dispatchFormatRich(numVal: number, code: string, system: DateSystem): FormatCellResult {
+  const { section, value } = resolveSectionConditional(code, numVal);
+
+  // Extract color
+  const colorMatch = section.match(COLOR_RE);
+  const color = colorMatch?.[1];
+
+  // Strip bracket directives (colors + conditions)
+  const cleaned = section
+    .replace(COLOR_RE, '')
+    .replace(CONDITION_RE, '')
+    .trim();
+
+  if (cleaned === '' || cleaned === 'General') {
+    return buildRichResult(String(value), color);
+  }
+
+  // If the section is purely quoted literals (e.g., "High"), extract directly
+  const withoutLiterals = cleaned.replace(/"[^"]*"/g, '').trim();
+  if (withoutLiterals === '') {
+    const literalText = cleaned.replace(/"([^"]*)"/g, '$1');
+    return buildRichResult(literalText, color);
+  }
+
+  const text = dispatchFormat(value, cleaned, system);
+  return buildRichResult(text, color);
+}
+
+function resolveSectionConditional(code: string, value: number): { section: string; value: number } {
+  const sections = splitSections(code);
+
+  // Check for explicit conditions [>100], [<=50], etc.
+  for (const section of sections) {
+    const condMatch = section.match(CONDITION_RE);
+    if (condMatch?.[1] && condMatch[2]) {
+      const op = condMatch[1];
+      const threshold = Number.parseFloat(condMatch[2]);
+      if (evaluateCondition(value, op, threshold)) {
+        return { section, value };
+      }
+    }
+  }
+
+  // If no explicit conditions matched, check if any section HAS conditions
+  const hasConditions = sections.some((s) => CONDITION_RE.test(s));
+  if (hasConditions) {
+    // All conditions failed — use last section as fallback or return empty
+    return { section: sections.at(-1) ?? 'General', value };
+  }
+
+  // Standard pos;neg;zero;text fallback
+  if (sections.length >= 3 && value === 0) {
+    return { section: sections[2] ?? sections[0] ?? 'General', value };
+  }
+  if (sections.length >= 2 && value < 0) {
+    return { section: sections[1] ?? sections[0] ?? 'General', value: Math.abs(value) };
+  }
+  return { section: sections[0] ?? 'General', value };
+}
+
+function evaluateCondition(value: number, op: string, threshold: number): boolean {
+  switch (op) {
+    case '>': return value > threshold;
+    case '<': return value < threshold;
+    case '>=': return value >= threshold;
+    case '<=': return value <= threshold;
+    case '=': return value === threshold;
+    case '<>': case '!=': return value !== threshold;
+    default: return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

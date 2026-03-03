@@ -43,8 +43,8 @@ export {
   serialToDate,
 } from './dates.js';
 // Formatting
-export type { FormatCellOptions } from './format-cell.js';
-export { formatCell, getBuiltinFormat } from './format-cell.js';
+export type { FormatCellOptions, FormatCellResult } from './format-cell.js';
+export { formatCell, formatCellRich, getBuiltinFormat, loadFormat, loadFormatTable } from './format-cell.js';
 // Builders
 export { RichTextBuilder } from './rich-text.js';
 export { StyleBuilder } from './style-builder.js';
