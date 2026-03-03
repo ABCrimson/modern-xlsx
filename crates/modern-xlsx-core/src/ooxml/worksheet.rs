@@ -600,6 +600,7 @@ impl WorksheetXml {
         let mut frozen_pane: Option<FrozenPane> = None;
         let mut split_pane = None::<SplitPane>;
         let mut pane_selections = Vec::<PaneSelection>::new();
+        let mut sheet_view = None::<SheetViewData>;
         let mut columns: Vec<ColumnInfo> = Vec::new();
         let mut data_validations: Vec<DataValidation> = Vec::new();
         let mut conditional_formatting: Vec<ConditionalFormatting> = Vec::new();
@@ -669,6 +670,32 @@ impl WorksheetXml {
                         }
                         (ParseState::SheetViews, b"sheetView") => {
                             state = ParseState::SheetView;
+                            let mut sv = SheetViewData::default();
+                            let mut has_non_default = false;
+                            for attr in e.attributes().flatten() {
+                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                match attr.key.local_name().as_ref() {
+                                    b"showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
+                                    b"showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
+                                    b"showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
+                                    b"rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
+                                    b"tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
+                                    b"showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
+                                    b"showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
+                                    b"showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
+                                    b"defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
+                                    b"zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
+                                    b"colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
+                                    b"view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
+                                    _ => {}
+                                }
+                            }
+                            if has_non_default {
+                                sheet_view = Some(sv);
+                            }
                         }
                         (ParseState::SheetView, b"selection") => {
                             // Handle <selection> as Start element (non-self-closing).
@@ -1105,6 +1132,35 @@ impl WorksheetXml {
                                 active_cell: sel_active,
                                 sqref: sel_sqref,
                             });
+                        }
+                        (ParseState::SheetViews, b"sheetView") => {
+                            // Self-closing <sheetView ... /> — parse attributes.
+                            let mut sv = SheetViewData::default();
+                            let mut has_non_default = false;
+                            for attr in e.attributes().flatten() {
+                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                match attr.key.local_name().as_ref() {
+                                    b"showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
+                                    b"showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
+                                    b"showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
+                                    b"rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
+                                    b"tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
+                                    b"showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
+                                    b"showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
+                                    b"showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
+                                    b"defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
+                                    b"zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
+                                    b"colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
+                                    b"view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
+                                    _ => {}
+                                }
+                            }
+                            if has_non_default {
+                                sheet_view = Some(sv);
+                            }
                         }
                         (ParseState::Cols, b"col") => {
                             columns.push(parse_col_element(e));
@@ -1677,7 +1733,7 @@ impl WorksheetXml {
             frozen_pane,
             split_pane,
             pane_selections,
-            sheet_view: None,
+            sheet_view,
             columns,
             data_validations,
             conditional_formatting,
@@ -1724,6 +1780,7 @@ impl WorksheetXml {
         let mut frozen_pane: Option<FrozenPane> = None;
         let mut split_pane = None::<SplitPane>;
         let mut pane_selections = Vec::<PaneSelection>::new();
+        let mut sheet_view = None::<SheetViewData>;
         let mut columns: Vec<ColumnInfo> = Vec::new();
         let mut data_validations: Vec<DataValidation> = Vec::new();
         let mut conditional_formatting: Vec<ConditionalFormatting> = Vec::new();
@@ -1781,7 +1838,35 @@ impl WorksheetXml {
 
                         // ---- Sheet views / pane (metadata) ----
                         (ParseState::Root, b"sheetViews") => state = ParseState::SheetViews,
-                        (ParseState::SheetViews, b"sheetView") => state = ParseState::SheetView,
+                        (ParseState::SheetViews, b"sheetView") => {
+                            state = ParseState::SheetView;
+                            let mut sv = SheetViewData::default();
+                            let mut has_non_default = false;
+                            for attr in e.attributes().flatten() {
+                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                match attr.key.local_name().as_ref() {
+                                    b"showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
+                                    b"showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
+                                    b"showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
+                                    b"rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
+                                    b"tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
+                                    b"showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
+                                    b"showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
+                                    b"showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
+                                    b"defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
+                                    b"zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
+                                    b"colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
+                                    b"view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
+                                    _ => {}
+                                }
+                            }
+                            if has_non_default {
+                                sheet_view = Some(sv);
+                            }
+                        }
                         (ParseState::SheetView, b"selection") => {
                             // Handle <selection> as Start element (non-self-closing).
                             let mut sel_pane = None::<String>;
@@ -2234,6 +2319,35 @@ impl WorksheetXml {
                                 active_cell: sel_active,
                                 sqref: sel_sqref,
                             });
+                        }
+                        (ParseState::SheetViews, b"sheetView") => {
+                            // Self-closing <sheetView ... /> — parse attributes.
+                            let mut sv = SheetViewData::default();
+                            let mut has_non_default = false;
+                            for attr in e.attributes().flatten() {
+                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                match attr.key.local_name().as_ref() {
+                                    b"showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
+                                    b"showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
+                                    b"showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
+                                    b"rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
+                                    b"tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
+                                    b"showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
+                                    b"showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
+                                    b"showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
+                                    b"defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
+                                    b"zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
+                                    b"zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
+                                    b"colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
+                                    b"view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
+                                    _ => {}
+                                }
+                            }
+                            if has_non_default {
+                                sheet_view = Some(sv);
+                            }
                         }
                         (ParseState::Cols, b"col") => columns.push(parse_col_element(e)),
                         (ParseState::MergeCells, b"mergeCell") => {
@@ -2862,6 +2976,11 @@ impl WorksheetXml {
             out.push_str(",\"paneSelections\":");
             out.push_str(&serde_json::to_string(&pane_selections)
                 .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
+        }
+        if let Some(ref sv) = sheet_view {
+            let sv_json = serde_json::to_string(sv).unwrap_or_default();
+            out.push_str(",\"sheetView\":");
+            out.push_str(&sv_json);
         }
         if !columns.is_empty() {
             out.push_str(",\"columns\":");
@@ -5540,5 +5659,100 @@ mod tests {
         let xml_str = std::str::from_utf8(&xml).unwrap();
         assert!(xml_str.contains(r#"state="split""#));
         assert!(!xml_str.contains(r#"state="frozen""#));
+    }
+
+    #[test]
+    fn test_parse_sheet_view_hide_gridlines_zoom() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView showGridLines="0" zoomScale="150" workbookViewId="0"/>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        let sv = ws.sheet_view.as_ref().unwrap();
+        assert!(!sv.show_grid_lines);
+        assert_eq!(sv.zoom_scale, Some(150));
+    }
+
+    #[test]
+    fn test_parse_sheet_view_rtl() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView rightToLeft="1" showRowColHeaders="0" workbookViewId="0"/>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        let sv = ws.sheet_view.as_ref().unwrap();
+        assert!(sv.right_to_left);
+        assert!(!sv.show_row_col_headers);
+    }
+
+    #[test]
+    fn test_parse_sheet_view_page_break_preview() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView view="pageBreakPreview" zoomScaleNormal="100" zoomScale="60" workbookViewId="0"/>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        let sv = ws.sheet_view.as_ref().unwrap();
+        assert_eq!(sv.view.as_deref(), Some("pageBreakPreview"));
+        assert_eq!(sv.zoom_scale, Some(60));
+        assert_eq!(sv.zoom_scale_normal, Some(100));
+    }
+
+    #[test]
+    fn test_parse_sheet_view_page_layout() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView view="pageLayout" showRuler="0" showWhiteSpace="0" zoomScalePageLayoutView="75" workbookViewId="0"/>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        let sv = ws.sheet_view.as_ref().unwrap();
+        assert_eq!(sv.view.as_deref(), Some("pageLayout"));
+        assert!(!sv.show_ruler);
+        assert!(!sv.show_white_space);
+        assert_eq!(sv.zoom_scale_page_layout_view, Some(75));
+    }
+
+    #[test]
+    fn test_parse_sheet_view_defaults_only() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView workbookViewId="0"/>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        // All defaults -> sheet_view should be None (no non-default attributes found)
+        assert!(ws.sheet_view.is_none());
+    }
+
+    #[test]
+    fn test_parse_sheet_view_with_frozen_pane() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView showGridLines="0" zoomScale="120" workbookViewId="0">
+      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+    </sheetView>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        let sv = ws.sheet_view.as_ref().unwrap();
+        assert!(!sv.show_grid_lines);
+        assert_eq!(sv.zoom_scale, Some(120));
+        assert!(ws.frozen_pane.is_some());
     }
 }
