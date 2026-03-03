@@ -225,6 +225,7 @@ impl StreamingWriter {
                     sheet_protection: None,
                     comments: Vec::new(),
                     tab_color: None,
+                    tables: Vec::new(),
                 },
             })
             .collect();
@@ -297,6 +298,7 @@ mod tests {
                     sheet_protection: None,
                     comments: Vec::new(),
                     tab_color: None,
+                    tables: Vec::new(),
                 },
             }],
             date_system: DateSystem::Date1900,
@@ -341,6 +343,7 @@ mod tests {
                     sheet_protection: None,
                     comments: Vec::new(),
                     tab_color: None,
+                    tables: Vec::new(),
                 },
             }],
             date_system: DateSystem::Date1900,

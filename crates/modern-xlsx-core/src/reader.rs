@@ -543,6 +543,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -655,6 +656,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -739,6 +741,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -899,6 +902,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -1027,6 +1031,7 @@ mod tests {
                 sheet_protection: None,
                 comments: Vec::new(),
                 tab_color: None,
+                tables: Vec::new(),
             };
             let ws_xml = ws.to_xml().unwrap();
             entries.push(ZipEntry {
@@ -1124,6 +1129,7 @@ mod tests {
                         },
                     ],
                     tab_color: None,
+                    tables: Vec::new(),
                 },
             }],
             date_system: DateSystem::Date1900,
@@ -1206,6 +1212,7 @@ mod tests {
                         sheet_protection: None,
                         comments: Vec::new(),
                         tab_color: None,
+                        tables: Vec::new(),
                     },
                 },
                 SheetData {
@@ -1230,6 +1237,7 @@ mod tests {
                             },
                         ],
                         tab_color: None,
+                        tables: Vec::new(),
                     },
                 },
             ],

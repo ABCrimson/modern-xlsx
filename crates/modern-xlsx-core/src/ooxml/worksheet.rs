@@ -94,6 +94,8 @@ pub struct WorksheetXml {
     pub comments: Vec<super::comments::Comment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tables: Vec<super::tables::TableDefinition>,
 }
 
 /// A single row in the worksheet.
@@ -1331,6 +1333,7 @@ impl WorksheetXml {
             sheet_protection,
             comments: Vec::new(),
             tab_color,
+            tables: Vec::new(),
         })
     }
 
@@ -3265,6 +3268,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3349,6 +3353,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3434,6 +3439,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3474,6 +3480,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3583,6 +3590,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3725,6 +3733,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         // Write to XML.
@@ -3817,6 +3826,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3874,6 +3884,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3941,6 +3952,7 @@ mod tests {
             }),
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4035,6 +4047,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4115,6 +4128,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4183,6 +4197,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4258,6 +4273,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4354,6 +4370,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: vec![],
         };
 
         let xml = ws.to_xml().unwrap();

@@ -1132,6 +1132,7 @@ mod tests {
             sheet_protection: None,
             comments: Vec::new(),
             tab_color: None,
+            tables: Vec::new(),
         }
     }
 
