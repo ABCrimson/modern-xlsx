@@ -308,6 +308,8 @@ mod tests {
                     comments: Vec::new(),
                     tab_color: None,
                     tables: Vec::new(),
+                    header_footer: None,
+                    outline_properties: None,
                 },
             }],
             date_system: DateSystem::Date1900,
@@ -342,6 +344,8 @@ mod tests {
                     comments: Vec::new(),
                     tab_color: None,
                     tables: Vec::new(),
+                    header_footer: None,
+                    outline_properties: None,
                 },
             }],
             date_system: DateSystem::Date1900,
@@ -410,6 +414,8 @@ mod tests {
                         comments: Vec::new(),
                         tab_color: None,
                         tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
                     },
                 },
                 SheetData {
@@ -429,6 +435,8 @@ mod tests {
                         comments: Vec::new(),
                         tab_color: None,
                         tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
                     },
                 },
             ],
@@ -484,6 +492,8 @@ mod tests {
             ],
             height: None,
             hidden: false,
+            outline_level: None,
+            collapsed: false,
         }];
 
         let wb = minimal_workbook("Sheet1", rows);
@@ -542,6 +552,8 @@ mod tests {
             ],
             height: None,
             hidden: false,
+            outline_level: None,
+            collapsed: false,
         }];
 
         let wb = minimal_workbook("Sheet1", rows);
@@ -589,6 +601,8 @@ mod tests {
             ],
             height: None,
             hidden: false,
+            outline_level: None,
+            collapsed: false,
         }];
 
         let wb = minimal_workbook("Sheet1", rows);
@@ -650,6 +664,8 @@ mod tests {
                 ],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             },
             Row {
                 index: 2,
@@ -693,6 +709,8 @@ mod tests {
                 ],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             },
         ];
 
@@ -752,6 +770,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             },
             Row {
                 index: 2,
@@ -769,6 +789,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             },
             Row {
                 index: 3,
@@ -786,6 +808,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             },
         ];
 
@@ -831,6 +855,8 @@ mod tests {
                         comments: Vec::new(),
                         tab_color: None,
                         tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
                     },
                 },
                 SheetData {
@@ -850,6 +876,8 @@ mod tests {
                         comments: Vec::new(),
                         tab_color: None,
                         tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
                     },
                 },
             ],
@@ -913,6 +941,8 @@ mod tests {
                 ],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             }],
             merge_cells: Vec::new(),
             auto_filter: None,
@@ -926,6 +956,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: Vec::new(),
+            header_footer: None,
+            outline_properties: None,
         };
 
         let mut sst = SharedStringTableBuilder::new();
@@ -984,6 +1016,8 @@ mod tests {
                         comments: Vec::new(),
                         tab_color: None,
                         tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
                     },
                 },
                 SheetData {
@@ -1003,6 +1037,8 @@ mod tests {
                         comments: Vec::new(),
                         tab_color: None,
                         tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
                     },
                 },
             ],
@@ -1086,6 +1122,8 @@ mod tests {
                 ],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             },
         ];
 
@@ -1144,6 +1182,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             },
             Row {
                 index: 2,
@@ -1161,6 +1201,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             },
             Row {
                 index: 3,
@@ -1178,6 +1220,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             },
         ];
 
@@ -1234,6 +1278,8 @@ mod tests {
             }],
             height: None,
             hidden: false,
+            outline_level: None,
+            collapsed: false,
         }];
 
         let wb = minimal_workbook("FormulaStr", rows);

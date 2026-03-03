@@ -67,6 +67,7 @@ export interface RowData {
   height: number | null;
   hidden: boolean;
   outlineLevel?: number | null;
+  collapsed?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,7 @@ export interface ColumnInfo {
   hidden: boolean;
   customWidth: boolean;
   outlineLevel?: number | null;
+  collapsed?: boolean;
 }
 
 export interface AutoFilterData {
@@ -197,6 +199,68 @@ export interface ConditionalFormattingData {
 }
 
 // ---------------------------------------------------------------------------
+// Table definitions (Excel ListObjects)
+// ---------------------------------------------------------------------------
+
+export interface TableColumnData {
+  id: number;
+  name: string;
+  totalsRowFunction?: string | null;
+  totalsRowLabel?: string | null;
+  calculatedColumnFormula?: string | null;
+  headerRowDxfId?: number | null;
+  dataDxfId?: number | null;
+  totalsRowDxfId?: number | null;
+}
+
+export interface TableStyleInfoData {
+  name?: string | null;
+  showFirstColumn: boolean;
+  showLastColumn: boolean;
+  showRowStripes: boolean;
+  showColumnStripes: boolean;
+}
+
+export interface TableDefinitionData {
+  id: number;
+  name?: string | null;
+  displayName: string;
+  ref: string;
+  headerRowCount: number;
+  totalsRowCount: number;
+  totalsRowShown: boolean;
+  columns: TableColumnData[];
+  styleInfo?: TableStyleInfoData | null;
+  autoFilterRef?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Headers & Footers
+// ---------------------------------------------------------------------------
+
+export interface HeaderFooterData {
+  oddHeader?: string | null;
+  oddFooter?: string | null;
+  evenHeader?: string | null;
+  evenFooter?: string | null;
+  firstHeader?: string | null;
+  firstFooter?: string | null;
+  differentOddEven?: boolean;
+  differentFirst?: boolean;
+  scaleWithDoc?: boolean;
+  alignWithMargins?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Outline (Grouping) Properties
+// ---------------------------------------------------------------------------
+
+export interface OutlinePropertiesData {
+  summaryBelow?: boolean;
+  summaryRight?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // WorksheetData
 // ---------------------------------------------------------------------------
 
@@ -220,6 +284,9 @@ export interface WorksheetData {
   sheetProtection?: SheetProtectionData | null;
   comments?: CommentData[];
   tabColor?: string | null;
+  tables?: TableDefinitionData[];
+  headerFooter?: HeaderFooterData | null;
+  outlineProperties?: OutlinePropertiesData | null;
 }
 
 // ---------------------------------------------------------------------------

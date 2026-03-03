@@ -19,6 +19,8 @@ const CT_STYLES: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml";
 pub(crate) const CT_COMMENTS: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml";
+pub const CT_TABLE: &str =
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml";
 
 const TYPES_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-types";
 

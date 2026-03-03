@@ -16,6 +16,8 @@ const REL_STYLES: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
 pub(crate) const REL_COMMENTS: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
+pub const REL_TABLE: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table";
 
 const RELS_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
 

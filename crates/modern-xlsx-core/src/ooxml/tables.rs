@@ -1,6 +1,11 @@
 //! Excel Table (ListObject) definitions — `xl/tables/table{n}.xml`.
 
+use quick_xml::events::{BytesStart, Event};
+use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
+
+use super::push_entity;
+use crate::Result;
 
 fn default_header_row_count() -> u32 {
     1
@@ -92,6 +97,316 @@ pub struct TableStyleInfo {
     pub show_column_stripes: bool,
 }
 
+impl TableDefinition {
+    /// Parse a table definition from `xl/tables/table{n}.xml` bytes.
+    pub fn parse(data: &[u8]) -> Result<Self> {
+        let mut reader = Reader::from_reader(data);
+        reader.config_mut().trim_text(true);
+        let mut buf = Vec::with_capacity(512);
+
+        let mut id: u32 = 0;
+        let mut name: Option<String> = None;
+        let mut display_name = String::new();
+        let mut ref_range = String::new();
+        let mut header_row_count: u32 = 1;
+        let mut totals_row_count: u32 = 0;
+        let mut totals_row_shown: bool = true;
+        let mut columns: Vec<TableColumn> = Vec::new();
+        let mut style_info: Option<TableStyleInfo> = None;
+        let mut auto_filter_ref: Option<String> = None;
+
+        // Current column being parsed.
+        let mut current_col: Option<TableColumn> = None;
+        let mut in_calc_formula = false;
+        let mut formula_buf = String::new();
+        let mut in_totals_formula = false;
+        let mut totals_formula_buf = String::new();
+
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) => {
+                    match e.local_name().as_ref() {
+                        b"table" => {
+                            Self::parse_table_attrs(
+                                e,
+                                &mut id,
+                                &mut name,
+                                &mut display_name,
+                                &mut ref_range,
+                                &mut header_row_count,
+                                &mut totals_row_count,
+                                &mut totals_row_shown,
+                            );
+                        }
+                        b"autoFilter" => {
+                            for attr in e.attributes().flatten() {
+                                if attr.key.as_ref() == b"ref" {
+                                    auto_filter_ref = Some(
+                                        std::str::from_utf8(&attr.value)
+                                            .unwrap_or_default()
+                                            .to_owned(),
+                                    );
+                                }
+                            }
+                        }
+                        b"tableColumn" => {
+                            current_col = Some(Self::parse_column_attrs(e));
+                        }
+                        b"calculatedColumnFormula" => {
+                            in_calc_formula = true;
+                            formula_buf.clear();
+                        }
+                        b"totalsRowFormula" => {
+                            in_totals_formula = true;
+                            totals_formula_buf.clear();
+                        }
+                        b"tableStyleInfo" => {
+                            style_info = Some(Self::parse_style_info(e));
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Event::Empty(ref e)) => {
+                    match e.local_name().as_ref() {
+                        b"table" => {
+                            Self::parse_table_attrs(
+                                e,
+                                &mut id,
+                                &mut name,
+                                &mut display_name,
+                                &mut ref_range,
+                                &mut header_row_count,
+                                &mut totals_row_count,
+                                &mut totals_row_shown,
+                            );
+                        }
+                        b"autoFilter" => {
+                            for attr in e.attributes().flatten() {
+                                if attr.key.as_ref() == b"ref" {
+                                    auto_filter_ref = Some(
+                                        std::str::from_utf8(&attr.value)
+                                            .unwrap_or_default()
+                                            .to_owned(),
+                                    );
+                                }
+                            }
+                        }
+                        b"tableColumn" => {
+                            columns.push(Self::parse_column_attrs(e));
+                        }
+                        b"tableStyleInfo" => {
+                            style_info = Some(Self::parse_style_info(e));
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Event::End(ref e)) => {
+                    match e.local_name().as_ref() {
+                        b"tableColumn" => {
+                            if let Some(mut col) = current_col.take() {
+                                if !formula_buf.is_empty() {
+                                    col.calculated_column_formula =
+                                        Some(std::mem::take(&mut formula_buf));
+                                }
+                                columns.push(col);
+                            }
+                        }
+                        b"calculatedColumnFormula" => {
+                            in_calc_formula = false;
+                        }
+                        b"totalsRowFormula" => {
+                            in_totals_formula = false;
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Event::Text(ref e)) => {
+                    if in_calc_formula {
+                        formula_buf
+                            .push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                    } else if in_totals_formula {
+                        totals_formula_buf
+                            .push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                    }
+                }
+                Ok(Event::GeneralRef(ref e)) => {
+                    if in_calc_formula {
+                        push_entity(&mut formula_buf, e.as_ref());
+                    } else if in_totals_formula {
+                        push_entity(&mut totals_formula_buf, e.as_ref());
+                    }
+                }
+                Ok(Event::Eof) => break,
+                Err(err) => {
+                    return Err(crate::ModernXlsxError::XmlParse(format!(
+                        "table parse error: {err}"
+                    )));
+                }
+                _ => {}
+            }
+            buf.clear();
+        }
+
+        Ok(TableDefinition {
+            id,
+            name,
+            display_name,
+            ref_range,
+            header_row_count,
+            totals_row_count,
+            totals_row_shown,
+            columns,
+            style_info,
+            auto_filter_ref,
+        })
+    }
+
+    fn parse_table_attrs(
+        e: &BytesStart<'_>,
+        id: &mut u32,
+        name: &mut Option<String>,
+        display_name: &mut String,
+        ref_range: &mut String,
+        header_row_count: &mut u32,
+        totals_row_count: &mut u32,
+        totals_row_shown: &mut bool,
+    ) {
+        for attr in e.attributes().flatten() {
+            match attr.key.as_ref() {
+                b"id" => {
+                    *id = std::str::from_utf8(&attr.value)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
+                }
+                b"name" => {
+                    *name = Some(
+                        std::str::from_utf8(&attr.value)
+                            .unwrap_or_default()
+                            .to_owned(),
+                    );
+                }
+                b"displayName" => {
+                    *display_name = std::str::from_utf8(&attr.value)
+                        .unwrap_or_default()
+                        .to_owned();
+                }
+                b"ref" => {
+                    *ref_range = std::str::from_utf8(&attr.value)
+                        .unwrap_or_default()
+                        .to_owned();
+                }
+                b"headerRowCount" => {
+                    *header_row_count = std::str::from_utf8(&attr.value)
+                        .unwrap_or("1")
+                        .parse()
+                        .unwrap_or(1);
+                }
+                b"totalsRowCount" => {
+                    *totals_row_count = std::str::from_utf8(&attr.value)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
+                }
+                b"totalsRowShown" => {
+                    *totals_row_shown =
+                        std::str::from_utf8(&attr.value).unwrap_or("1") != "0";
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn parse_column_attrs(e: &BytesStart<'_>) -> TableColumn {
+        let mut col = TableColumn::default();
+        for attr in e.attributes().flatten() {
+            match attr.key.as_ref() {
+                b"id" => {
+                    col.id = std::str::from_utf8(&attr.value)
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
+                }
+                b"name" => {
+                    col.name = std::str::from_utf8(&attr.value)
+                        .unwrap_or_default()
+                        .to_owned();
+                }
+                b"totalsRowFunction" => {
+                    col.totals_row_function = Some(
+                        std::str::from_utf8(&attr.value)
+                            .unwrap_or_default()
+                            .to_owned(),
+                    );
+                }
+                b"totalsRowLabel" => {
+                    col.totals_row_label = Some(
+                        std::str::from_utf8(&attr.value)
+                            .unwrap_or_default()
+                            .to_owned(),
+                    );
+                }
+                b"headerRowDxfId" => {
+                    col.header_row_dxf_id = std::str::from_utf8(&attr.value)
+                        .ok()
+                        .and_then(|v| v.parse().ok());
+                }
+                b"dataDxfId" => {
+                    col.data_dxf_id = std::str::from_utf8(&attr.value)
+                        .ok()
+                        .and_then(|v| v.parse().ok());
+                }
+                b"totalsRowDxfId" => {
+                    col.totals_row_dxf_id = std::str::from_utf8(&attr.value)
+                        .ok()
+                        .and_then(|v| v.parse().ok());
+                }
+                _ => {}
+            }
+        }
+        col
+    }
+
+    fn parse_style_info(e: &BytesStart<'_>) -> TableStyleInfo {
+        let mut si = TableStyleInfo {
+            name: None,
+            show_first_column: false,
+            show_last_column: false,
+            show_row_stripes: true,
+            show_column_stripes: false,
+        };
+        for attr in e.attributes().flatten() {
+            match attr.key.as_ref() {
+                b"name" => {
+                    si.name = Some(
+                        std::str::from_utf8(&attr.value)
+                            .unwrap_or_default()
+                            .to_owned(),
+                    );
+                }
+                b"showFirstColumn" => {
+                    si.show_first_column =
+                        std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+                }
+                b"showLastColumn" => {
+                    si.show_last_column =
+                        std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+                }
+                b"showRowStripes" => {
+                    si.show_row_stripes =
+                        std::str::from_utf8(&attr.value).unwrap_or("1") != "0";
+                }
+                b"showColumnStripes" => {
+                    si.show_column_stripes =
+                        std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+                }
+                _ => {}
+            }
+        }
+        si
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +483,68 @@ mod tests {
         assert!(!si.show_last_column);
         assert!(!si.show_column_stripes);
         assert!(si.name.is_none());
+    }
+
+    #[test]
+    fn test_parse_basic_table() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+       id="1" name="Table1" displayName="Table1"
+       ref="A1:C4" totalsRowShown="0">
+  <autoFilter ref="A1:C4"/>
+  <tableColumns count="3">
+    <tableColumn id="1" name="Name"/>
+    <tableColumn id="2" name="Age"/>
+    <tableColumn id="3" name="City"/>
+  </tableColumns>
+  <tableStyleInfo name="TableStyleMedium2"
+    showFirstColumn="0" showLastColumn="0"
+    showRowStripes="1" showColumnStripes="0"/>
+</table>"#;
+        let table = TableDefinition::parse(xml).unwrap();
+        assert_eq!(table.id, 1);
+        assert_eq!(table.name.as_deref(), Some("Table1"));
+        assert_eq!(table.display_name, "Table1");
+        assert_eq!(table.ref_range, "A1:C4");
+        assert!(!table.totals_row_shown);
+        assert_eq!(table.columns.len(), 3);
+        assert_eq!(table.columns[0].name, "Name");
+        assert_eq!(table.columns[1].name, "Age");
+        assert_eq!(table.columns[2].name, "City");
+        assert_eq!(table.auto_filter_ref.as_deref(), Some("A1:C4"));
+        let si = table.style_info.as_ref().unwrap();
+        assert_eq!(si.name.as_deref(), Some("TableStyleMedium2"));
+        assert!(si.show_row_stripes);
+        assert!(!si.show_column_stripes);
+        assert!(!si.show_first_column);
+    }
+
+    #[test]
+    fn test_parse_table_with_totals_and_formulas() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+       id="2" displayName="Sales" ref="A1:D6" totalsRowCount="1">
+  <autoFilter ref="A1:D5"/>
+  <tableColumns count="4">
+    <tableColumn id="1" name="Product"/>
+    <tableColumn id="2" name="Qty" totalsRowFunction="sum"/>
+    <tableColumn id="3" name="Price" totalsRowFunction="average"/>
+    <tableColumn id="4" name="Total" totalsRowFunction="sum">
+      <calculatedColumnFormula>Sales[@Qty]*Sales[@Price]</calculatedColumnFormula>
+    </tableColumn>
+  </tableColumns>
+  <tableStyleInfo name="TableStyleMedium9" showRowStripes="1"/>
+</table>"#;
+        let table = TableDefinition::parse(xml).unwrap();
+        assert_eq!(table.id, 2);
+        assert_eq!(table.display_name, "Sales");
+        assert_eq!(table.totals_row_count, 1);
+        assert_eq!(table.columns.len(), 4);
+        assert_eq!(table.columns[1].totals_row_function.as_deref(), Some("sum"));
+        assert_eq!(table.columns[2].totals_row_function.as_deref(), Some("average"));
+        assert_eq!(
+            table.columns[3].calculated_column_formula.as_deref(),
+            Some("Sales[@Qty]*Sales[@Price]")
+        );
     }
 }

@@ -1133,6 +1133,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: Vec::new(),
+            header_footer: None,
+            outline_properties: None,
         }
     }
 
@@ -1225,6 +1227,8 @@ mod tests {
             }],
             height: None,
             hidden: false,
+            outline_level: None,
+            collapsed: false,
         });
         let report = validate_workbook(&wb);
         assert!(!report.is_valid);
@@ -1272,6 +1276,8 @@ mod tests {
             }],
             height: None,
             hidden: false,
+            outline_level: None,
+            collapsed: false,
         });
         let report = validate_workbook(&wb);
         assert!(!report.is_valid);
@@ -1341,6 +1347,8 @@ mod tests {
             }],
             height: None,
             hidden: false,
+            outline_level: None,
+            collapsed: false,
         });
         let repairs = repair_workbook(&mut wb);
         assert!(repairs > 0);
@@ -1389,9 +1397,9 @@ mod tests {
     fn test_repair_row_ordering() {
         let mut wb = minimal_workbook();
         wb.sheets[0].worksheet.rows = vec![
-            Row { index: 5, cells: Vec::new(), height: None, hidden: false },
-            Row { index: 2, cells: Vec::new(), height: None, hidden: false },
-            Row { index: 8, cells: Vec::new(), height: None, hidden: false },
+            Row { index: 5, cells: Vec::new(), height: None, hidden: false, outline_level: None, collapsed: false },
+            Row { index: 2, cells: Vec::new(), height: None, hidden: false, outline_level: None, collapsed: false },
+            Row { index: 8, cells: Vec::new(), height: None, hidden: false, outline_level: None, collapsed: false },
         ];
         let repairs = repair_workbook(&mut wb);
         assert!(repairs > 0);

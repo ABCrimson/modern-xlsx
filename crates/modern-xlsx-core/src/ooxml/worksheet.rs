@@ -12,6 +12,14 @@ fn is_false(v: &bool) -> bool {
     !v
 }
 
+fn default_true_hf() -> bool {
+    true
+}
+
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
 /// Public wrapper for JSON escaping, used by `reader::read_xlsx_json`.
 pub fn json_escape_to_pub(out: &mut String, s: &str) {
     json_escape_to(out, s);
@@ -65,6 +73,59 @@ fn write_f64_json(out: &mut String, v: f64) {
     }
 }
 
+/// Header/footer configuration from `<headerFooter>`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderFooter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub odd_header: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub odd_footer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub even_header: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub even_footer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_header: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_footer: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub different_odd_even: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub different_first: bool,
+    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    pub scale_with_doc: bool,
+    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    pub align_with_margins: bool,
+}
+
+impl Default for HeaderFooter {
+    fn default() -> Self {
+        Self {
+            odd_header: None,
+            odd_footer: None,
+            even_header: None,
+            even_footer: None,
+            first_header: None,
+            first_footer: None,
+            different_odd_even: false,
+            different_first: false,
+            scale_with_doc: true,
+            align_with_margins: true,
+        }
+    }
+}
+
+/// Outline (grouping) properties from `<sheetPr><outlinePr>`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineProperties {
+    #[serde(default = "default_true_hf")]
+    pub summary_below: bool,
+    #[serde(default = "default_true_hf")]
+    pub summary_right: bool,
+}
+
 /// Parsed representation of a worksheet XML file (`xl/worksheets/sheet*.xml`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +157,10 @@ pub struct WorksheetXml {
     pub tab_color: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tables: Vec<super::tables::TableDefinition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_footer: Option<HeaderFooter>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline_properties: Option<OutlineProperties>,
 }
 
 /// A single row in the worksheet.
@@ -109,6 +174,10 @@ pub struct Row {
     pub height: Option<f64>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline_level: Option<u8>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub collapsed: bool,
 }
 
 /// A single cell in a row.
@@ -182,6 +251,10 @@ pub struct ColumnInfo {
     pub width: f64,
     pub hidden: bool,
     pub custom_width: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline_level: Option<u8>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub collapsed: bool,
 }
 
 /// A data validation rule applied to a range of cells.
@@ -381,6 +454,8 @@ enum ParseState {
     InColorScale,
     InDataBar,
     InIconSet,
+    HeaderFooter,
+    HeaderFooterChild(u8), // 0=oddHeader, 1=oddFooter, 2=evenHeader, 3=evenFooter, 4=firstHeader, 5=firstFooter
 }
 
 impl WorksheetXml {
@@ -412,6 +487,9 @@ impl WorksheetXml {
         let mut page_setup: Option<PageSetup> = None;
         let mut sheet_protection: Option<SheetProtection> = None;
         let mut tab_color: Option<String> = None;
+        let mut header_footer: Option<HeaderFooter> = None;
+        let mut hf_text_buf = String::new();
+        let mut outline_properties: Option<OutlineProperties> = None;
 
         let mut state = ParseState::Root;
 
@@ -419,6 +497,8 @@ impl WorksheetXml {
         let mut cur_row_index: u32 = 0;
         let mut cur_row_height: Option<f64> = None;
         let mut cur_row_hidden = false;
+        let mut cur_row_outline_level: Option<u8> = None;
+        let mut cur_row_collapsed = false;
         let mut cur_row_cells: Vec<Cell> = Vec::with_capacity(16);
 
         // Current cell being built.
@@ -481,6 +561,8 @@ impl WorksheetXml {
                             cur_row_index = 0;
                             cur_row_height = None;
                             cur_row_hidden = false;
+                            cur_row_outline_level = None;
+                            cur_row_collapsed = false;
                             cur_row_cells.clear();
 
                             for attr in e.attributes().flatten() {
@@ -497,6 +579,15 @@ impl WorksheetXml {
                                     b"hidden" => {
                                         let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         cur_row_hidden = val == "1" || val.eq_ignore_ascii_case("true");
+                                    }
+                                    b"outlineLevel" => {
+                                        cur_row_outline_level = std::str::from_utf8(&attr.value)
+                                            .ok()
+                                            .and_then(|v| v.parse::<u8>().ok())
+                                            .filter(|&v| v > 0);
+                                    }
+                                    b"collapsed" => {
+                                        cur_row_collapsed = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
                                     }
                                     _ => {}
                                 }
@@ -727,6 +818,26 @@ impl WorksheetXml {
                         (ParseState::InFilterColumn, b"filters") => {
                             state = ParseState::InFilters;
                         }
+                        (ParseState::Root, b"headerFooter") => {
+                            let mut hf = HeaderFooter::default();
+                            for attr in e.attributes().flatten() {
+                                match attr.key.as_ref() {
+                                    b"differentOddEven" => hf.different_odd_even = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
+                                    b"differentFirst" => hf.different_first = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
+                                    b"scaleWithDoc" => hf.scale_with_doc = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+                                    b"alignWithMargins" => hf.align_with_margins = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+                                    _ => {}
+                                }
+                            }
+                            header_footer = Some(hf);
+                            state = ParseState::HeaderFooter;
+                        }
+                        (ParseState::HeaderFooter, b"oddHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(0); }
+                        (ParseState::HeaderFooter, b"oddFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(1); }
+                        (ParseState::HeaderFooter, b"evenHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(2); }
+                        (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(3); }
+                        (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(4); }
+                        (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(5); }
                         _ => {}
                     }
                 }
@@ -750,6 +861,17 @@ impl WorksheetXml {
                                     );
                                 }
                             }
+                        }
+                        (ParseState::SheetPr, b"outlinePr") => {
+                            let mut op = OutlineProperties { summary_below: true, summary_right: true };
+                            for attr in e.attributes().flatten() {
+                                match attr.key.as_ref() {
+                                    b"summaryBelow" => op.summary_below = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+                                    b"summaryRight" => op.summary_right = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+                                    _ => {}
+                                }
+                            }
+                            outline_properties = Some(op);
                         }
                         (ParseState::Root, b"autoFilter") => {
                             let mut af_range = String::new();
@@ -857,6 +979,8 @@ impl WorksheetXml {
                             let mut row_index: u32 = 0;
                             let mut row_height: Option<f64> = None;
                             let mut row_hidden = false;
+                            let mut row_ol: Option<u8> = None;
+                            let mut row_coll = false;
 
                             for attr in e.attributes().flatten() {
                                 let ln = attr.key.local_name();
@@ -873,6 +997,15 @@ impl WorksheetXml {
                                         let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         row_hidden = val == "1" || val.eq_ignore_ascii_case("true");
                                     }
+                                    b"outlineLevel" => {
+                                        row_ol = std::str::from_utf8(&attr.value)
+                                            .ok()
+                                            .and_then(|v| v.parse::<u8>().ok())
+                                            .filter(|&v| v > 0);
+                                    }
+                                    b"collapsed" => {
+                                        row_coll = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+                                    }
                                     _ => {}
                                 }
                             }
@@ -881,6 +1014,8 @@ impl WorksheetXml {
                                 cells: Vec::new(),
                                 height: row_height,
                                 hidden: row_hidden,
+                                outline_level: row_ol,
+                                collapsed: row_coll,
                             });
                         }
                         (ParseState::InCell, b"v") => {
@@ -1127,6 +1262,9 @@ impl WorksheetXml {
                         | ParseState::InCfRuleFormula => {
                             text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
                         }
+                        ParseState::HeaderFooterChild(_) => {
+                            hf_text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                        }
                         _ => {}
                     }
                 }
@@ -1139,6 +1277,9 @@ impl WorksheetXml {
                         | ParseState::InDVFormula2
                         | ParseState::InCfRuleFormula => {
                             push_entity(&mut text_buf, e.as_ref());
+                        }
+                        ParseState::HeaderFooterChild(_) => {
+                            push_entity(&mut hf_text_buf, e.as_ref());
                         }
                         _ => {}
                     }
@@ -1197,6 +1338,8 @@ impl WorksheetXml {
                                 cells: std::mem::take(&mut cur_row_cells),
                                 height: cur_row_height.take(),
                                 hidden: cur_row_hidden,
+                                outline_level: cur_row_outline_level.take(),
+                                collapsed: cur_row_collapsed,
                             });
                             state = ParseState::SheetData;
                         }
@@ -1305,6 +1448,24 @@ impl WorksheetXml {
                             }
                             state = ParseState::InCfRule;
                         }
+                        (ParseState::HeaderFooterChild(idx), _) => {
+                            if let Some(ref mut hf) = header_footer {
+                                let text = if hf_text_buf.is_empty() { None } else { Some(std::mem::take(&mut hf_text_buf)) };
+                                match idx {
+                                    0 => hf.odd_header = text,
+                                    1 => hf.odd_footer = text,
+                                    2 => hf.even_header = text,
+                                    3 => hf.even_footer = text,
+                                    4 => hf.first_header = text,
+                                    5 => hf.first_footer = text,
+                                    _ => {}
+                                }
+                            }
+                            state = ParseState::HeaderFooter;
+                        }
+                        (ParseState::HeaderFooter, b"headerFooter") => {
+                            state = ParseState::Root;
+                        }
                         _ => {}
                     }
                 }
@@ -1334,6 +1495,8 @@ impl WorksheetXml {
             comments: Vec::new(),
             tab_color,
             tables: Vec::new(),
+            header_footer,
+            outline_properties,
         })
     }
 
@@ -1352,6 +1515,7 @@ impl WorksheetXml {
         data: &[u8],
         sst: Option<&super::shared_strings::SharedStringTable>,
         comments: &[super::comments::Comment],
+        tables: &[super::tables::TableDefinition],
         out: &mut String,
     ) -> Result<()> {
         let mut reader = Reader::from_reader(data);
@@ -1373,6 +1537,9 @@ impl WorksheetXml {
         let mut page_setup: Option<PageSetup> = None;
         let mut sheet_protection: Option<SheetProtection> = None;
         let mut tab_color: Option<String> = None;
+        let mut header_footer: Option<HeaderFooter> = None;
+        let mut hf_text_buf = String::new();
+        let mut outline_properties: Option<OutlineProperties> = None;
 
         // Row/cell streaming state (reused each row/cell, no accumulation).
         let mut state = ParseState::Root;
@@ -1380,6 +1547,8 @@ impl WorksheetXml {
         let mut first_cell = true;
         let mut cur_row_height: Option<f64> = None;
         let mut cur_row_hidden = false;
+        let mut cur_row_outline_level: Option<u8> = None;
+        let mut cur_row_collapsed = false;
 
         // Cell attribute storage (reused each cell via clear, keeps allocation).
         let mut cur_cell_ref = String::with_capacity(10);
@@ -1428,6 +1597,8 @@ impl WorksheetXml {
                             state = ParseState::InRow;
                             cur_row_height = None;
                             cur_row_hidden = false;
+                            cur_row_outline_level = None;
+                            cur_row_collapsed = false;
 
                             let mut row_index: u32 = 0;
                             for attr in e.attributes().flatten() {
@@ -1444,6 +1615,15 @@ impl WorksheetXml {
                                     b"hidden" => {
                                         let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         cur_row_hidden = val == "1" || val.eq_ignore_ascii_case("true");
+                                    }
+                                    b"outlineLevel" => {
+                                        cur_row_outline_level = std::str::from_utf8(&attr.value)
+                                            .ok()
+                                            .and_then(|v| v.parse::<u8>().ok())
+                                            .filter(|&v| v > 0);
+                                    }
+                                    b"collapsed" => {
+                                        cur_row_collapsed = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
                                     }
                                     _ => {}
                                 }
@@ -1691,6 +1871,27 @@ impl WorksheetXml {
                         }
                         (ParseState::InFilterColumn, b"filters") => state = ParseState::InFilters,
 
+                        (ParseState::Root, b"headerFooter") => {
+                            let mut hf = HeaderFooter::default();
+                            for attr in e.attributes().flatten() {
+                                match attr.key.as_ref() {
+                                    b"differentOddEven" => hf.different_odd_even = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
+                                    b"differentFirst" => hf.different_first = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
+                                    b"scaleWithDoc" => hf.scale_with_doc = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+                                    b"alignWithMargins" => hf.align_with_margins = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+                                    _ => {}
+                                }
+                            }
+                            header_footer = Some(hf);
+                            state = ParseState::HeaderFooter;
+                        }
+                        (ParseState::HeaderFooter, b"oddHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(0); }
+                        (ParseState::HeaderFooter, b"oddFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(1); }
+                        (ParseState::HeaderFooter, b"evenHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(2); }
+                        (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(3); }
+                        (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(4); }
+                        (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); state = ParseState::HeaderFooterChild(5); }
+
                         _ => {}
                     }
                 }
@@ -1715,6 +1916,17 @@ impl WorksheetXml {
                                     );
                                 }
                             }
+                        }
+                        (ParseState::SheetPr, b"outlinePr") => {
+                            let mut op = OutlineProperties { summary_below: true, summary_right: true };
+                            for attr in e.attributes().flatten() {
+                                match attr.key.as_ref() {
+                                    b"summaryBelow" => op.summary_below = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+                                    b"summaryRight" => op.summary_right = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+                                    _ => {}
+                                }
+                            }
+                            outline_properties = Some(op);
                         }
                         (ParseState::Root, b"autoFilter") => {
                             let mut af_range = String::new();
@@ -1815,6 +2027,8 @@ impl WorksheetXml {
                             let mut row_index: u32 = 0;
                             let mut row_height: Option<f64> = None;
                             let mut row_hidden = false;
+                            let mut row_ol: Option<u8> = None;
+                            let mut row_coll = false;
                             for attr in e.attributes().flatten() {
                                 let ln = attr.key.local_name();
                                 match ln.as_ref() {
@@ -1830,6 +2044,15 @@ impl WorksheetXml {
                                         let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                         row_hidden = val == "1" || val.eq_ignore_ascii_case("true");
                                     }
+                                    b"outlineLevel" => {
+                                        row_ol = std::str::from_utf8(&attr.value)
+                                            .ok()
+                                            .and_then(|v| v.parse::<u8>().ok())
+                                            .filter(|&v| v > 0);
+                                    }
+                                    b"collapsed" => {
+                                        row_coll = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+                                    }
                                     _ => {}
                                 }
                             }
@@ -1844,6 +2067,13 @@ impl WorksheetXml {
                             }
                             if row_hidden {
                                 out.push_str(",\"hidden\":true");
+                            }
+                            if let Some(level) = row_ol {
+                                out.push_str(",\"outlineLevel\":");
+                                out.push_str(itoa_buf.format(level));
+                            }
+                            if row_coll {
+                                out.push_str(",\"collapsed\":true");
                             }
                             out.push('}');
                         }
@@ -2071,6 +2301,9 @@ impl WorksheetXml {
                         | ParseState::InCfRuleFormula => {
                             text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
                         }
+                        ParseState::HeaderFooterChild(_) => {
+                            hf_text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                        }
                         _ => {}
                     }
                 }
@@ -2083,6 +2316,9 @@ impl WorksheetXml {
                         | ParseState::InDVFormula2
                         | ParseState::InCfRuleFormula => {
                             push_entity(&mut text_buf, e.as_ref());
+                        }
+                        ParseState::HeaderFooterChild(_) => {
+                            push_entity(&mut hf_text_buf, e.as_ref());
                         }
                         _ => {}
                     }
@@ -2189,6 +2425,13 @@ impl WorksheetXml {
                             if cur_row_hidden {
                                 out.push_str(",\"hidden\":true");
                             }
+                            if let Some(level) = cur_row_outline_level {
+                                out.push_str(",\"outlineLevel\":");
+                                out.push_str(itoa_buf.format(level));
+                            }
+                            if cur_row_collapsed {
+                                out.push_str(",\"collapsed\":true");
+                            }
                             out.push('}');
                             state = ParseState::SheetData;
                         }
@@ -2284,6 +2527,24 @@ impl WorksheetXml {
                             }
                             state = ParseState::InCfRule;
                         }
+                        (ParseState::HeaderFooterChild(idx), _) => {
+                            if let Some(ref mut hf) = header_footer {
+                                let text = if hf_text_buf.is_empty() { None } else { Some(std::mem::take(&mut hf_text_buf)) };
+                                match idx {
+                                    0 => hf.odd_header = text,
+                                    1 => hf.odd_footer = text,
+                                    2 => hf.even_header = text,
+                                    3 => hf.even_footer = text,
+                                    4 => hf.first_header = text,
+                                    5 => hf.first_footer = text,
+                                    _ => {}
+                                }
+                            }
+                            state = ParseState::HeaderFooter;
+                        }
+                        (ParseState::HeaderFooter, b"headerFooter") => {
+                            state = ParseState::Root;
+                        }
 
                         _ => {}
                     }
@@ -2359,10 +2620,25 @@ impl WorksheetXml {
             out.push_str(&serde_json::to_string(comments)
                 .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
         }
+        if !tables.is_empty() {
+            out.push_str(",\"tables\":");
+            out.push_str(&serde_json::to_string(tables)
+                .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
+        }
         if let Some(ref tc) = tab_color {
             out.push_str(",\"tabColor\":\"");
             json_escape_to(out, tc);
             out.push('"');
+        }
+        if let Some(ref hf) = header_footer {
+            out.push_str(",\"headerFooter\":");
+            out.push_str(&serde_json::to_string(hf)
+                .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
+        }
+        if let Some(ref op) = outline_properties {
+            out.push_str(",\"outlineProperties\":");
+            out.push_str(&serde_json::to_string(op)
+                .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
         }
 
         // Close the worksheet JSON object.
@@ -2399,14 +2675,26 @@ impl WorksheetXml {
         ws.push_attribute(("xmlns", SPREADSHEET_NS));
         writer.write_event(Event::Start(ws)).map_err(map_err)?;
 
-        // <sheetPr> with <tabColor> — only if tab_color is set.
-        if let Some(ref color) = self.tab_color {
+        // <sheetPr> — write if tab_color or outline_properties.
+        if self.tab_color.is_some() || self.outline_properties.is_some() {
             writer
                 .write_event(Event::Start(BytesStart::new("sheetPr")))
                 .map_err(map_err)?;
-            let mut tc = BytesStart::new("tabColor");
-            tc.push_attribute(("rgb", color.as_str()));
-            writer.write_event(Event::Empty(tc)).map_err(map_err)?;
+            if let Some(ref color) = self.tab_color {
+                let mut tc = BytesStart::new("tabColor");
+                tc.push_attribute(("rgb", color.as_str()));
+                writer.write_event(Event::Empty(tc)).map_err(map_err)?;
+            }
+            if let Some(ref op) = self.outline_properties {
+                let mut elem = BytesStart::new("outlinePr");
+                if !op.summary_below {
+                    elem.push_attribute(("summaryBelow", "0"));
+                }
+                if !op.summary_right {
+                    elem.push_attribute(("summaryRight", "0"));
+                }
+                writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+            }
             writer
                 .write_event(Event::End(BytesEnd::new("sheetPr")))
                 .map_err(map_err)?;
@@ -3024,6 +3312,8 @@ fn parse_col_element(e: &BytesStart<'_>) -> ColumnInfo {
         width,
         hidden,
         custom_width,
+        outline_level: None,
+        collapsed: false,
     }
 }
 
@@ -3232,6 +3522,8 @@ mod tests {
                     ],
                     height: Some(18.0),
                     hidden: false,
+                    outline_level: None,
+                    collapsed: false,
                 },
                 Row {
                     index: 2,
@@ -3249,6 +3541,8 @@ mod tests {
                     }],
                     height: None,
                     hidden: true,
+                    outline_level: None,
+                    collapsed: false,
                 },
             ],
             merge_cells: vec!["A1:C1".to_string()],
@@ -3260,6 +3554,8 @@ mod tests {
                 width: 15.0,
                 hidden: false,
                 custom_width: true,
+                outline_level: None,
+                collapsed: false,
             }],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -3269,6 +3565,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3341,6 +3639,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             }],
             merge_cells: Vec::new(),
             auto_filter: None,
@@ -3354,6 +3654,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3427,6 +3729,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             }],
             merge_cells: Vec::new(),
             auto_filter: None,
@@ -3440,6 +3744,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3468,6 +3774,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             }],
             merge_cells: Vec::new(),
             auto_filter: None,
@@ -3481,6 +3789,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3591,6 +3901,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3694,6 +4006,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             }],
             merge_cells: Vec::new(),
             auto_filter: None,
@@ -3734,6 +4048,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         // Write to XML.
@@ -3827,6 +4143,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3885,6 +4203,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -3953,6 +4273,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4035,6 +4357,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             }],
             merge_cells: vec![],
             auto_filter: None,
@@ -4048,6 +4372,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4129,6 +4455,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4198,6 +4526,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4274,6 +4604,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4371,6 +4703,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: vec![],
+            header_footer: None,
+            outline_properties: None,
         };
 
         let xml = ws.to_xml().unwrap();

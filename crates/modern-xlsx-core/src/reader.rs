@@ -14,9 +14,10 @@ use crate::ooxml::{
     calc_chain,
     comments,
     doc_props,
-    relationships::{Relationships, REL_COMMENTS},
+    relationships::{Relationships, REL_COMMENTS, REL_TABLE},
     shared_strings::SharedStringTable,
     styles::Styles,
+    tables::TableDefinition,
     theme,
     workbook::WorkbookXml,
     worksheet::WorksheetXml,
@@ -183,6 +184,35 @@ fn resolve_comments(
     Ok(sheet_comments)
 }
 
+/// Resolve table definitions for each sheet from worksheet .rels files.
+fn resolve_tables(
+    ctx: &mut ReaderContext,
+) -> Result<Vec<Vec<TableDefinition>>> {
+    let mut sheet_tables = vec![Vec::new(); ctx.sheet_targets.len()];
+
+    for (i, (_name, sheet_path)) in ctx.sheet_targets.iter().enumerate() {
+        let rels_path = derive_rels_path(sheet_path);
+
+        if let Some(rels_data) = ctx.entries.get(&rels_path) {
+            let ws_rels = Relationships::parse(rels_data)?;
+
+            for rel in ws_rels.find_by_type(REL_TABLE) {
+                let table_path = resolve_rel_target(sheet_path, &rel.target);
+
+                if let Some(table_data) = ctx.entries.get(&table_path) {
+                    debug!("parsing table from: {}", table_path);
+                    sheet_tables[i].push(TableDefinition::parse(table_data)?);
+                    ctx.known_dynamic.insert(table_path);
+                } else {
+                    warn!("table file not found: {}", table_path);
+                }
+            }
+        }
+    }
+
+    Ok(sheet_tables)
+}
+
 /// Collect all ZIP entries that were not parsed into preserved_entries.
 ///
 /// Takes ownership of entries via `drain()` to avoid cloning large byte
@@ -235,6 +265,7 @@ pub fn read_xlsx(data: &[u8]) -> Result<WorkbookData> {
 pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result<WorkbookData> {
     let mut ctx = parse_common(data, limits)?;
     let sheet_comments = resolve_comments(&mut ctx)?;
+    let sheet_tables = resolve_tables(&mut ctx)?;
 
     // Parse each worksheet XML.
     // When the "parallel" feature is enabled, sheets are parsed concurrently.
@@ -244,6 +275,13 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
     for (i, comments) in sheet_comments.into_iter().enumerate() {
         if !comments.is_empty() && i < sheets.len() {
             sheets[i].worksheet.comments = comments;
+        }
+    }
+
+    // Attach tables to their respective worksheets.
+    for (i, tables) in sheet_tables.into_iter().enumerate() {
+        if !tables.is_empty() && i < sheets.len() {
+            sheets[i].worksheet.tables = tables;
         }
     }
 
@@ -284,6 +322,7 @@ pub fn read_xlsx_json(data: &[u8]) -> Result<String> {
 pub fn read_xlsx_json_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result<String> {
     let mut ctx = parse_common(data, limits)?;
     let sheet_comments = resolve_comments(&mut ctx)?;
+    let sheet_tables = resolve_tables(&mut ctx)?;
 
     // --- Build JSON output ---
     // Estimate ~80 bytes per cell × 10 cells/row × number of rows.
@@ -304,7 +343,7 @@ pub fn read_xlsx_json_with_options(data: &[u8], limits: &ZipSecurityLimits) -> R
         let ws_data = ctx.entries.get(path).ok_or_else(|| {
             ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
         })?;
-        WorksheetXml::parse_to_json(ws_data, Some(&ctx.sst), &sheet_comments[i], &mut out)?;
+        WorksheetXml::parse_to_json(ws_data, Some(&ctx.sst), &sheet_comments[i], &sheet_tables[i], &mut out)?;
 
         out.push('}');
     }
@@ -531,6 +570,8 @@ mod tests {
                 ],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             }],
             merge_cells: Vec::new(),
             auto_filter: None,
@@ -544,6 +585,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: Vec::new(),
+            header_footer: None,
+            outline_properties: None,
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -644,6 +687,8 @@ mod tests {
                 }],
                 height: None,
                 hidden: false,
+                outline_level: None,
+                collapsed: false,
             }],
             merge_cells: Vec::new(),
             auto_filter: None,
@@ -657,6 +702,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: Vec::new(),
+            header_footer: None,
+            outline_properties: None,
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -742,6 +789,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: Vec::new(),
+            header_footer: None,
+            outline_properties: None,
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -903,6 +952,8 @@ mod tests {
             comments: Vec::new(),
             tab_color: None,
             tables: Vec::new(),
+            header_footer: None,
+            outline_properties: None,
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -1019,6 +1070,8 @@ mod tests {
                     }],
                     height: None,
                     hidden: false,
+                    outline_level: None,
+                    collapsed: false,
                 }],
                 merge_cells: Vec::new(),
                 auto_filter: None,
@@ -1032,6 +1085,8 @@ mod tests {
                 comments: Vec::new(),
                 tab_color: None,
                 tables: Vec::new(),
+                header_footer: None,
+                outline_properties: None,
             };
             let ws_xml = ws.to_xml().unwrap();
             entries.push(ZipEntry {
@@ -1106,6 +1161,8 @@ mod tests {
                         ],
                         height: None,
                         hidden: false,
+                        outline_level: None,
+                        collapsed: false,
                     }],
                     merge_cells: Vec::new(),
                     auto_filter: None,
@@ -1130,6 +1187,8 @@ mod tests {
                     ],
                     tab_color: None,
                     tables: Vec::new(),
+                    header_footer: None,
+                    outline_properties: None,
                 },
             }],
             date_system: DateSystem::Date1900,
@@ -1213,6 +1272,8 @@ mod tests {
                         comments: Vec::new(),
                         tab_color: None,
                         tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
                     },
                 },
                 SheetData {
@@ -1238,6 +1299,8 @@ mod tests {
                         ],
                         tab_color: None,
                         tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
                     },
                 },
             ],
