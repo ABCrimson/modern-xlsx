@@ -21,10 +21,12 @@ import type {
   OutlinePropertiesData,
   PageMarginsData,
   PageSetupData,
+  PaneSelectionData,
   RepairResult,
   RowData,
   SheetData,
   SheetProtectionData,
+  SplitPaneData,
   StylesData,
   TableDefinitionData,
   ThemeColorsData,
@@ -627,6 +629,36 @@ export class Worksheet {
   /** Freezes rows and/or columns at the given split position, or clears the freeze with `null`. */
   set frozenPane(pane: FrozenPane | null) {
     this.data.worksheet.frozenPane = pane;
+    if (pane) {
+      this.data.worksheet.splitPane = null;
+    }
+  }
+
+  // --- Split pane ---
+
+  /** Returns the split pane configuration, or `null` if no split pane is active. */
+  get splitPane(): SplitPaneData | null {
+    return this.data.worksheet.splitPane ?? null;
+  }
+
+  /** Sets a split pane. Setting a split pane clears any frozen pane. Pass `null` to clear. */
+  set splitPane(pane: SplitPaneData | null) {
+    this.data.worksheet.splitPane = pane;
+    if (pane) {
+      this.data.worksheet.frozenPane = null;
+    }
+  }
+
+  // --- Pane selections ---
+
+  /** Returns per-pane selection state, or empty array. */
+  get paneSelections(): PaneSelectionData[] {
+    return this.data.worksheet.paneSelections ?? [];
+  }
+
+  /** Sets per-pane selection state. */
+  set paneSelections(selections: PaneSelectionData[]) {
+    this.data.worksheet.paneSelections = selections;
   }
 
   // --- Tab color ---

@@ -79,6 +79,26 @@ export interface FrozenPane {
   cols: number;
 }
 
+export interface SplitPaneData {
+  /** Horizontal split position in twips (ySplit). */
+  horizontal?: number | null;
+  /** Vertical split position in twips (xSplit). */
+  vertical?: number | null;
+  /** Cell reference for top-left cell in bottom-right pane. */
+  topLeftCell?: string | null;
+  /** Active pane: `"topLeft"` | `"topRight"` | `"bottomLeft"` | `"bottomRight"`. */
+  activePane?: string | null;
+}
+
+export interface PaneSelectionData {
+  /** Which pane this selection belongs to. */
+  pane?: string | null;
+  /** Active cell reference, e.g. `"A1"`. */
+  activeCell?: string | null;
+  /** Selected range, e.g. `"A1:C5"`. */
+  sqref?: string | null;
+}
+
 export interface ColumnInfo {
   min: number;
   max: number;
@@ -276,6 +296,8 @@ export interface WorksheetData {
   mergeCells: string[];
   autoFilter: AutoFilterData | null;
   frozenPane: FrozenPane | null;
+  splitPane?: SplitPaneData | null;
+  paneSelections?: PaneSelectionData[];
   columns: ColumnInfo[];
   dataValidations?: DataValidationData[];
   conditionalFormatting?: ConditionalFormattingData[];
