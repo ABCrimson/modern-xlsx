@@ -2753,6 +2753,14 @@ impl WorksheetXml {
                 if col.hidden {
                     elem.push_attribute(("hidden", "1"));
                 }
+                if let Some(level) = col.outline_level {
+                    if level > 0 {
+                        elem.push_attribute(("outlineLevel", ibuf.format(level)));
+                    }
+                }
+                if col.collapsed {
+                    elem.push_attribute(("collapsed", "1"));
+                }
                 writer.write_event(Event::Empty(elem)).map_err(map_err)?;
             }
 
@@ -2775,6 +2783,14 @@ impl WorksheetXml {
             }
             if row.hidden {
                 row_elem.push_attribute(("hidden", "1"));
+            }
+            if let Some(level) = row.outline_level {
+                if level > 0 {
+                    row_elem.push_attribute(("outlineLevel", ibuf.format(level)));
+                }
+            }
+            if row.collapsed {
+                row_elem.push_attribute(("collapsed", "1"));
             }
 
             if row.cells.is_empty() {
@@ -3262,6 +3278,41 @@ impl WorksheetXml {
             writer.write_event(Event::Empty(elem)).map_err(map_err)?;
         }
 
+        // <headerFooter> — only if present.
+        if let Some(ref hf) = self.header_footer {
+            let mut elem = BytesStart::new("headerFooter");
+            if hf.different_odd_even {
+                elem.push_attribute(("differentOddEven", "1"));
+            }
+            if hf.different_first {
+                elem.push_attribute(("differentFirst", "1"));
+            }
+            if !hf.scale_with_doc {
+                elem.push_attribute(("scaleWithDoc", "0"));
+            }
+            if !hf.align_with_margins {
+                elem.push_attribute(("alignWithMargins", "0"));
+            }
+            writer.write_event(Event::Start(elem)).map_err(map_err)?;
+
+            for (tag, val) in [
+                ("oddHeader", &hf.odd_header),
+                ("oddFooter", &hf.odd_footer),
+                ("evenHeader", &hf.even_header),
+                ("evenFooter", &hf.even_footer),
+                ("firstHeader", &hf.first_header),
+                ("firstFooter", &hf.first_footer),
+            ] {
+                if let Some(text) = val {
+                    writer.write_event(Event::Start(BytesStart::new(tag))).map_err(map_err)?;
+                    writer.write_event(Event::Text(BytesText::new(text))).map_err(map_err)?;
+                    writer.write_event(Event::End(BytesEnd::new(tag))).map_err(map_err)?;
+                }
+            }
+
+            writer.write_event(Event::End(BytesEnd::new("headerFooter"))).map_err(map_err)?;
+        }
+
         // </worksheet>
         writer
             .write_event(Event::End(BytesEnd::new("worksheet")))
@@ -3278,6 +3329,8 @@ fn parse_col_element(e: &BytesStart<'_>) -> ColumnInfo {
     let mut width: f64 = 8.43;
     let mut hidden = false;
     let mut custom_width = false;
+    let mut outline_level: Option<u8> = None;
+    let mut collapsed = false;
 
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
@@ -3302,6 +3355,15 @@ fn parse_col_element(e: &BytesStart<'_>) -> ColumnInfo {
                 let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                 custom_width = val == "1" || val.eq_ignore_ascii_case("true");
             }
+            b"outlineLevel" => {
+                outline_level = std::str::from_utf8(&attr.value)
+                    .ok()
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .filter(|&v| v > 0);
+            }
+            b"collapsed" => {
+                collapsed = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+            }
             _ => {}
         }
     }
@@ -3312,8 +3374,8 @@ fn parse_col_element(e: &BytesStart<'_>) -> ColumnInfo {
         width,
         hidden,
         custom_width,
-        outline_level: None,
-        collapsed: false,
+        outline_level,
+        collapsed,
     }
 }
 
