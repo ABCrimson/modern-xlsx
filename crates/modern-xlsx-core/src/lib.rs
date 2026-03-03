@@ -74,6 +74,9 @@ pub struct WorkbookData {
 pub struct SheetData {
     /// The user-visible sheet name.
     pub name: String,
+    /// Sheet visibility: `"hidden"` or `"veryHidden"`. Omitted (`None`) means visible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
     /// The parsed worksheet content (rows, cells, merges, etc.).
     pub worksheet: WorksheetXml,
 }

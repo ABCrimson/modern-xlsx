@@ -10,6 +10,7 @@ fn build_simple_workbook() -> WorkbookData {
     WorkbookData {
         sheets: vec![SheetData {
             name: "Numbers".into(),
+            state: None,
             worksheet: WorksheetXml {
                 rows: vec![Row {
                     index: 1,
@@ -118,6 +119,7 @@ fn golden_multi_sheet_roundtrip() {
         sheets: vec![
             SheetData {
                 name: "Sheet1".into(),
+                state: None,
                 worksheet: WorksheetXml {
                     rows: vec![Row {
                         index: 1,
@@ -160,6 +162,7 @@ fn golden_multi_sheet_roundtrip() {
             },
             SheetData {
                 name: "Sheet2".into(),
+                state: None,
                 worksheet: WorksheetXml {
                     rows: vec![],
                     merge_cells: vec![],

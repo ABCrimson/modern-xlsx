@@ -19,11 +19,27 @@ use crate::ooxml::{
     styles::Styles,
     tables::TableDefinition,
     theme,
-    workbook::WorkbookXml,
+    workbook::{SheetState, WorkbookXml},
     worksheet::WorksheetXml,
 };
 use crate::zip::reader::{read_zip_entries, ZipSecurityLimits};
 use crate::{ModernXlsxError, Result, SheetData, WorkbookData};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Convert a [`SheetState`] to the JSON-bridge string representation.
+///
+/// `Visible` maps to `None` (omitted via `skip_serializing_if`),
+/// while `Hidden` and `VeryHidden` map to their camelCase strings.
+fn sheet_state_to_str(state: SheetState) -> Option<String> {
+    match state {
+        SheetState::Visible => None,
+        SheetState::Hidden => Some("hidden".into()),
+        SheetState::VeryHidden => Some("veryHidden".into()),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Shared reader context
@@ -51,8 +67,8 @@ struct ReaderContext {
     doc_properties: Option<crate::ooxml::doc_props::DocProperties>,
     theme_colors: Option<crate::ooxml::theme::ThemeColors>,
     calc_chain: Vec<crate::ooxml::calc_chain::CalcChainEntry>,
-    /// (sheet_name, zip_path) pairs in workbook order.
-    sheet_targets: Vec<(String, String)>,
+    /// (sheet_name, zip_path, visibility_state) triples in workbook order.
+    sheet_targets: Vec<(String, String, SheetState)>,
     /// Paths of parsed entries (used to compute preserved_entries).
     known_dynamic: HashSet<String>,
 }
@@ -119,7 +135,7 @@ fn parse_common(data: &[u8], limits: &ZipSecurityLimits) -> Result<ReaderContext
     // NOTE: xl/theme/theme1.xml is NOT added to known_paths — we still
     // preserve the full theme XML verbatim so it survives roundtrip.
     let mut known_dynamic: HashSet<String> = HashSet::new();
-    let mut sheet_targets: Vec<(String, String)> = Vec::new();
+    let mut sheet_targets: Vec<(String, String, SheetState)> = Vec::new();
 
     for sheet_info in &workbook_xml.sheets {
         let rel = wb_rels.get_by_id(&sheet_info.r_id).ok_or_else(|| {
@@ -139,7 +155,7 @@ fn parse_common(data: &[u8], limits: &ZipSecurityLimits) -> Result<ReaderContext
         };
 
         known_dynamic.insert(sheet_path.clone());
-        sheet_targets.push((sheet_info.name.clone(), sheet_path));
+        sheet_targets.push((sheet_info.name.clone(), sheet_path, sheet_info.state));
     }
 
     Ok(ReaderContext {
@@ -161,7 +177,7 @@ fn resolve_comments(
 ) -> Result<Vec<Vec<comments::Comment>>> {
     let mut sheet_comments = vec![Vec::new(); ctx.sheet_targets.len()];
 
-    for (i, (_name, sheet_path)) in ctx.sheet_targets.iter().enumerate() {
+    for (i, (_name, sheet_path, _state)) in ctx.sheet_targets.iter().enumerate() {
         let rels_path = derive_rels_path(sheet_path);
 
         if let Some(rels_data) = ctx.entries.get(&rels_path) {
@@ -190,7 +206,7 @@ fn resolve_tables(
 ) -> Result<Vec<Vec<TableDefinition>>> {
     let mut sheet_tables = vec![Vec::new(); ctx.sheet_targets.len()];
 
-    for (i, (_name, sheet_path)) in ctx.sheet_targets.iter().enumerate() {
+    for (i, (_name, sheet_path, _state)) in ctx.sheet_targets.iter().enumerate() {
         let rels_path = derive_rels_path(sheet_path);
 
         if let Some(rels_data) = ctx.entries.get(&rels_path) {
@@ -335,11 +351,20 @@ pub fn read_xlsx_json_with_options(data: &[u8], limits: &ZipSecurityLimits) -> R
 
     out.push_str("{\"sheets\":[");
 
-    for (i, (name, path)) in ctx.sheet_targets.iter().enumerate() {
+    for (i, (name, path, state)) in ctx.sheet_targets.iter().enumerate() {
         if i > 0 { out.push(','); }
         out.push_str("{\"name\":\"");
         crate::ooxml::worksheet::json_escape_to_pub(&mut out, name);
-        out.push_str("\",\"worksheet\":");
+        out.push('"');
+
+        // Emit state only for non-visible sheets (skip_serializing_if equivalent).
+        match state {
+            SheetState::Hidden => out.push_str(",\"state\":\"hidden\""),
+            SheetState::VeryHidden => out.push_str(",\"state\":\"veryHidden\""),
+            SheetState::Visible => {}
+        }
+
+        out.push_str(",\"worksheet\":");
 
         let ws_data = ctx.entries.get(path).ok_or_else(|| {
             ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
@@ -424,12 +449,12 @@ pub fn read_xlsx_json_with_options(data: &[u8], limits: &ZipSecurityLimits) -> R
 #[cfg(feature = "parallel")]
 fn parse_sheets(
     entries: &std::collections::HashMap<String, Vec<u8>>,
-    sheet_targets: &[(String, String)],
+    sheet_targets: &[(String, String, SheetState)],
     sst: &SharedStringTable,
 ) -> Result<Vec<SheetData>> {
     sheet_targets
         .par_iter()
-        .map(|(name, path)| {
+        .map(|(name, path, state)| {
             debug!("parsing worksheet (parallel): {}", name);
             let sheet_data = entries.get(path).ok_or_else(|| {
                 ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
@@ -437,25 +462,26 @@ fn parse_sheets(
             let worksheet = WorksheetXml::parse_with_sst(sheet_data, Some(sst))?;
             Ok(SheetData {
                 name: name.clone(),
+                state: sheet_state_to_str(*state),
                 worksheet,
             })
         })
         .collect()
 }
 
-/// Parse worksheet XML for each (name, path) pair sequentially.
+/// Parse worksheet XML for each (name, path, state) triple sequentially.
 ///
 /// The SST is passed through to resolve shared string indices inline
 /// during parsing, which is significantly faster than a post-parse pass.
 #[cfg(not(feature = "parallel"))]
 fn parse_sheets(
     entries: &std::collections::HashMap<String, Vec<u8>>,
-    sheet_targets: &[(String, String)],
+    sheet_targets: &[(String, String, SheetState)],
     sst: &SharedStringTable,
 ) -> Result<Vec<SheetData>> {
     sheet_targets
         .iter()
-        .map(|(name, path)| {
+        .map(|(name, path, state)| {
             debug!("parsing worksheet: {}", name);
             let sheet_data = entries.get(path).ok_or_else(|| {
                 ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
@@ -463,6 +489,7 @@ fn parse_sheets(
             let worksheet = WorksheetXml::parse_with_sst(sheet_data, Some(sst))?;
             Ok(SheetData {
                 name: name.clone(),
+                state: sheet_state_to_str(*state),
                 worksheet,
             })
         })
@@ -1156,6 +1183,7 @@ mod tests {
         let wb1 = WorkbookData {
             sheets: vec![SheetData {
                 name: "Sheet1".to_string(),
+                state: None,
                 worksheet: WorksheetXml {
                     dimension: Some("A1:B1".to_string()),
                     rows: vec![Row {
@@ -1288,6 +1316,7 @@ mod tests {
             sheets: vec![
                 SheetData {
                     name: "NoComments".to_string(),
+                    state: None,
                     worksheet: WorksheetXml {
                         dimension: None,
                         rows: Vec::new(),
@@ -1312,6 +1341,7 @@ mod tests {
                 },
                 SheetData {
                     name: "WithComments".to_string(),
+                    state: None,
                     worksheet: WorksheetXml {
                         dimension: None,
                         rows: Vec::new(),

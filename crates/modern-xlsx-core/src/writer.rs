@@ -80,7 +80,11 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 name: s.name.clone(),
                 sheet_id: (i + 1) as u32,
                 r_id: format!("rId{}", i + 1),
-                state: SheetState::Visible,
+                state: match s.state.as_deref() {
+                    Some("hidden") => SheetState::Hidden,
+                    Some("veryHidden") => SheetState::VeryHidden,
+                    _ => SheetState::Visible,
+                },
             })
             .collect(),
         date_system: workbook.date_system,
@@ -330,6 +334,7 @@ mod tests {
         WorkbookData {
             sheets: vec![SheetData {
                 name: name.to_string(),
+                state: None,
                 worksheet: WorksheetXml {
                     dimension: Some("A1".to_string()),
                     rows,
@@ -370,6 +375,7 @@ mod tests {
         let wb = WorkbookData {
             sheets: vec![SheetData {
                 name: "Sheet1".to_string(),
+                state: None,
                 worksheet: WorksheetXml {
                     dimension: None,
                     rows: Vec::new(),
@@ -445,6 +451,7 @@ mod tests {
             sheets: vec![
                 SheetData {
                     name: "First".to_string(),
+                    state: None,
                     worksheet: WorksheetXml {
                         dimension: None,
                         rows: Vec::new(),
@@ -469,6 +476,7 @@ mod tests {
                 },
                 SheetData {
                     name: "Second".to_string(),
+                    state: None,
                     worksheet: WorksheetXml {
                         dimension: None,
                         rows: Vec::new(),
@@ -893,6 +901,7 @@ mod tests {
             sheets: vec![
                 SheetData {
                     name: "Sales".to_string(),
+                    state: None,
                     worksheet: WorksheetXml {
                         dimension: None,
                         rows: Vec::new(),
@@ -917,6 +926,7 @@ mod tests {
                 },
                 SheetData {
                     name: "Inventory".to_string(),
+                    state: None,
                     worksheet: WorksheetXml {
                         dimension: None,
                         rows: Vec::new(),
@@ -1064,6 +1074,7 @@ mod tests {
             sheets: vec![
                 SheetData {
                     name: "S1".to_string(),
+                    state: None,
                     worksheet: WorksheetXml {
                         dimension: None,
                         rows: Vec::new(),
@@ -1088,6 +1099,7 @@ mod tests {
                 },
                 SheetData {
                     name: "S2".to_string(),
+                    state: None,
                     worksheet: WorksheetXml {
                         dimension: None,
                         rows: Vec::new(),
@@ -1476,6 +1488,7 @@ mod tests {
         let wb = WorkbookData {
             sheets: vec![SheetData {
                 name: "Sheet1".to_string(),
+                state: None,
                 worksheet: WorksheetXml {
                     dimension: Some("A1:B2".to_string()),
                     rows,
@@ -1591,6 +1604,7 @@ mod tests {
 
         let make_sheet = |name: &str, tables: Vec<TableDefinition>| SheetData {
             name: name.to_string(),
+            state: None,
             worksheet: WorksheetXml {
                 dimension: None,
                 rows: Vec::new(),
@@ -1664,5 +1678,193 @@ mod tests {
         let ws2 =
             std::str::from_utf8(zip_entries.get("xl/worksheets/sheet2.xml").unwrap()).unwrap();
         assert!(ws2.contains("count=\"1\""), "sheet2 tableParts count should be 1: {ws2}");
+    }
+
+    #[test]
+    fn test_sheet_state_hidden_roundtrip() {
+        let wb = WorkbookData {
+            sheets: vec![
+                SheetData {
+                    name: "Visible".into(),
+                    state: None,
+                    worksheet: WorksheetXml {
+                        dimension: None,
+                        rows: Vec::new(),
+                        merge_cells: Vec::new(),
+                        auto_filter: None,
+                        frozen_pane: None,
+                        split_pane: None,
+                        pane_selections: vec![],
+                        sheet_view: None,
+                        columns: Vec::new(),
+                        data_validations: Vec::new(),
+                        conditional_formatting: Vec::new(),
+                        hyperlinks: Vec::new(),
+                        page_setup: None,
+                        sheet_protection: None,
+                        comments: Vec::new(),
+                        tab_color: None,
+                        tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
+                    },
+                },
+                SheetData {
+                    name: "Hidden".into(),
+                    state: Some("hidden".into()),
+                    worksheet: WorksheetXml {
+                        dimension: None,
+                        rows: Vec::new(),
+                        merge_cells: Vec::new(),
+                        auto_filter: None,
+                        frozen_pane: None,
+                        split_pane: None,
+                        pane_selections: vec![],
+                        sheet_view: None,
+                        columns: Vec::new(),
+                        data_validations: Vec::new(),
+                        conditional_formatting: Vec::new(),
+                        hyperlinks: Vec::new(),
+                        page_setup: None,
+                        sheet_protection: None,
+                        comments: Vec::new(),
+                        tab_color: None,
+                        tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
+                    },
+                },
+                SheetData {
+                    name: "VeryHidden".into(),
+                    state: Some("veryHidden".into()),
+                    worksheet: WorksheetXml {
+                        dimension: None,
+                        rows: Vec::new(),
+                        merge_cells: Vec::new(),
+                        auto_filter: None,
+                        frozen_pane: None,
+                        split_pane: None,
+                        pane_selections: vec![],
+                        sheet_view: None,
+                        columns: Vec::new(),
+                        data_validations: Vec::new(),
+                        conditional_formatting: Vec::new(),
+                        hyperlinks: Vec::new(),
+                        page_setup: None,
+                        sheet_protection: None,
+                        comments: Vec::new(),
+                        tab_color: None,
+                        tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
+                    },
+                },
+            ],
+            date_system: DateSystem::Date1900,
+            styles: Styles::default_styles(),
+            defined_names: Vec::new(),
+            shared_strings: None,
+            doc_properties: None,
+            theme_colors: None,
+            calc_chain: Vec::new(),
+            workbook_views: Vec::new(),
+            protection: None,
+            preserved_entries: std::collections::BTreeMap::new(),
+        };
+
+        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
+        let wb2 = crate::reader::read_xlsx(&bytes).expect("read_xlsx should succeed");
+
+        assert_eq!(wb2.sheets.len(), 3);
+
+        // Visible sheet: state should be None (omitted).
+        assert!(wb2.sheets[0].state.is_none(), "visible sheet state should be None");
+        assert_eq!(wb2.sheets[0].name, "Visible");
+
+        // Hidden sheet: state should be Some("hidden").
+        assert_eq!(wb2.sheets[1].state.as_deref(), Some("hidden"));
+        assert_eq!(wb2.sheets[1].name, "Hidden");
+
+        // VeryHidden sheet: state should be Some("veryHidden").
+        assert_eq!(wb2.sheets[2].state.as_deref(), Some("veryHidden"));
+        assert_eq!(wb2.sheets[2].name, "VeryHidden");
+    }
+
+    #[test]
+    fn test_sheet_state_hidden_json_roundtrip() {
+        let wb = WorkbookData {
+            sheets: vec![
+                SheetData {
+                    name: "Visible".into(),
+                    state: None,
+                    worksheet: WorksheetXml {
+                        dimension: None,
+                        rows: Vec::new(),
+                        merge_cells: Vec::new(),
+                        auto_filter: None,
+                        frozen_pane: None,
+                        split_pane: None,
+                        pane_selections: vec![],
+                        sheet_view: None,
+                        columns: Vec::new(),
+                        data_validations: Vec::new(),
+                        conditional_formatting: Vec::new(),
+                        hyperlinks: Vec::new(),
+                        page_setup: None,
+                        sheet_protection: None,
+                        comments: Vec::new(),
+                        tab_color: None,
+                        tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
+                    },
+                },
+                SheetData {
+                    name: "Hidden".into(),
+                    state: Some("hidden".into()),
+                    worksheet: WorksheetXml {
+                        dimension: None,
+                        rows: Vec::new(),
+                        merge_cells: Vec::new(),
+                        auto_filter: None,
+                        frozen_pane: None,
+                        split_pane: None,
+                        pane_selections: vec![],
+                        sheet_view: None,
+                        columns: Vec::new(),
+                        data_validations: Vec::new(),
+                        conditional_formatting: Vec::new(),
+                        hyperlinks: Vec::new(),
+                        page_setup: None,
+                        sheet_protection: None,
+                        comments: Vec::new(),
+                        tab_color: None,
+                        tables: Vec::new(),
+                        header_footer: None,
+                        outline_properties: None,
+                    },
+                },
+            ],
+            date_system: DateSystem::Date1900,
+            styles: Styles::default_styles(),
+            defined_names: Vec::new(),
+            shared_strings: None,
+            doc_properties: None,
+            theme_colors: None,
+            calc_chain: Vec::new(),
+            workbook_views: Vec::new(),
+            protection: None,
+            preserved_entries: std::collections::BTreeMap::new(),
+        };
+
+        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
+
+        // Use the streaming JSON reader path.
+        let json = crate::reader::read_xlsx_json(&bytes).expect("read_xlsx_json should succeed");
+        let wb2: WorkbookData = serde_json::from_str(&json).expect("JSON parse should succeed");
+
+        assert_eq!(wb2.sheets.len(), 2);
+        assert!(wb2.sheets[0].state.is_none());
+        assert_eq!(wb2.sheets[1].state.as_deref(), Some("hidden"));
     }
 }

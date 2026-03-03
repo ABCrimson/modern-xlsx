@@ -1145,6 +1145,7 @@ mod tests {
         WorkbookData {
             sheets: vec![SheetData {
                 name: "Sheet1".into(),
+                state: None,
                 worksheet: empty_worksheet(),
             }],
             date_system: crate::dates::DateSystem::Date1900,
@@ -1203,6 +1204,7 @@ mod tests {
         let mut wb = minimal_workbook();
         wb.sheets.push(SheetData {
             name: "sheet1".into(), // case-insensitive duplicate
+            state: None,
             worksheet: empty_worksheet(),
         });
         let report = validate_workbook(&wb);

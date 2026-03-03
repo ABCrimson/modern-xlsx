@@ -211,6 +211,7 @@ impl StreamingWriter {
             .into_iter()
             .map(|s| SheetData {
                 name: s.name,
+                state: None,
                 worksheet: WorksheetXml {
                     rows: s.rows,
                     merge_cells: Vec::new(),
@@ -274,6 +275,7 @@ mod tests {
         let wb = crate::WorkbookData {
             sheets: vec![crate::SheetData {
                 name: "Test".into(),
+                state: None,
                 worksheet: crate::ooxml::worksheet::WorksheetXml {
                     rows: vec![Row {
                         index: 1,
@@ -343,6 +345,7 @@ mod tests {
         let wb = crate::WorkbookData {
             sheets: vec![crate::SheetData {
                 name: "Only".into(),
+                state: None,
                 worksheet: crate::ooxml::worksheet::WorksheetXml {
                     rows: vec![],
                     merge_cells: vec![],

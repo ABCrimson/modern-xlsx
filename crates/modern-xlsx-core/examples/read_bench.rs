@@ -97,6 +97,7 @@ fn main() {
     let wb = WorkbookData {
         sheets: vec![SheetData {
             name: "Data".to_string(),
+            state: None,
             worksheet: ws,
         }],
         date_system: modern_xlsx_core::dates::DateSystem::Date1900,
