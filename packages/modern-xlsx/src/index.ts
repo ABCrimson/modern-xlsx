@@ -119,6 +119,7 @@ export type {
   SheetToCsvOptions,
   SheetToHtmlOptions,
   SheetToJsonOptions,
+  SheetToTxtOptions,
 } from './utils.js';
 export {
   aoaToSheet,
@@ -126,8 +127,10 @@ export {
   sheetAddAoa,
   sheetAddJson,
   sheetToCsv,
+  sheetToFormulae,
   sheetToHtml,
   sheetToJson,
+  sheetToTxt,
 } from './utils.js';
 // WASM initialization
 export { ensureReady, initWasm, initWasmSync } from './wasm-loader.js';

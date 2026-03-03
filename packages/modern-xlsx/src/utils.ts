@@ -356,6 +356,50 @@ function csvQuote(value: string, sep: string, force: boolean): string {
 }
 
 // ---------------------------------------------------------------------------
+// sheetToTxt — tab-separated text output
+// ---------------------------------------------------------------------------
+
+/** Options for the {@link sheetToTxt} function. */
+export interface SheetToTxtOptions {
+  /** Maximum number of rows to include. */
+  sheetRows?: number;
+}
+
+/**
+ * Convert a Worksheet to a tab-separated text string.
+ */
+export function sheetToTxt(ws: Worksheet, opts?: SheetToTxtOptions): string {
+  return sheetToCsv(ws, { separator: '\t', ...(opts?.sheetRows !== undefined && { sheetRows: opts.sheetRows }) });
+}
+
+// ---------------------------------------------------------------------------
+// sheetToFormulae — extract all cell values and formulas
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract all cell values and formulas as an array of strings.
+ *
+ * Format: `"A1=100"` for values, `"A3='SUM(A1:A2)"` for formulas.
+ * String values are prefixed with `'` to distinguish from numbers.
+ */
+export function sheetToFormulae(ws: Worksheet): string[] {
+  const result: string[] = [];
+  for (const row of ws.rows) {
+    for (const cell of row.cells) {
+      if (cell.formula) {
+        result.push(`${cell.reference}='${cell.formula}`);
+      } else if (cell.value != null) {
+        const val = cell.cellType === 'number' || cell.cellType === 'boolean'
+          ? cell.value
+          : `'${cell.value}`;
+        result.push(`${cell.reference}=${val}`);
+      }
+    }
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // sheetToHtml
 // ---------------------------------------------------------------------------
 
