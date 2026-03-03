@@ -385,7 +385,7 @@ function matchRunToken(s: string, i: number): [number, TokenFormatter] | undefin
   if (!entries) return undefined;
   const run = countRun(s, i, ch);
   for (const [minLen, render] of entries) {
-    if (run >= minLen) return [Math.max(run, minLen), render];
+    if (run >= minLen) return [run, render];
   }
   return undefined;
 }

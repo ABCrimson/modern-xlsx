@@ -28,16 +28,10 @@ pub struct DateTimeComponents {
 }
 
 /// The epoch for the 1900 date system: Dec 31, 1899 (serial 0).
-const EPOCH_1900: NaiveDate = match NaiveDate::from_ymd_opt(1899, 12, 31) {
-    Some(d) => d,
-    None => panic!("invalid epoch date"),
-};
+const EPOCH_1900: NaiveDate = NaiveDate::from_ymd_opt(1899, 12, 31).unwrap();
 
 /// The epoch for the 1904 date system: Jan 1, 1904 (serial 0).
-const EPOCH_1904: NaiveDate = match NaiveDate::from_ymd_opt(1904, 1, 1) {
-    Some(d) => d,
-    None => panic!("invalid epoch date"),
-};
+const EPOCH_1904: NaiveDate = NaiveDate::from_ymd_opt(1904, 1, 1).unwrap();
 
 /// Extract hour, minute, second, millisecond from the fractional part of a serial number.
 fn fractional_to_time(frac: f64) -> (u32, u32, u32, u32) {

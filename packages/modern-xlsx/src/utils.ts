@@ -395,6 +395,8 @@ export function sheetToFormulae(ws: Worksheet): string[] {
         const val =
           cell.cellType === 'number' || cell.cellType === 'boolean' ? cell.value : `'${cell.value}`;
         result.push(`${cell.reference}=${val}`);
+      } else if (cell.inlineString) {
+        result.push(`${cell.reference}='${cell.inlineString}`);
       }
     }
   }

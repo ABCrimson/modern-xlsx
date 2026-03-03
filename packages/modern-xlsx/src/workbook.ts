@@ -87,7 +87,7 @@ export class Workbook {
   }
 
   /** Returns an array of all sheet names in order. */
-  get sheetNames(): string[] {
+  get sheetNames(): readonly string[] {
     return this.data.sheets.map((s) => s.name);
   }
 
@@ -815,7 +815,7 @@ export class Cell {
   get numberFormat(): string | null {
     if (!this.styles || this.data.styleIndex == null) return null;
     const xf = this.styles.cellXfs[this.data.styleIndex];
-    if (!xf?.numFmtId) return null;
+    if (!xf || xf.numFmtId === 0 || xf.numFmtId == null) return null;
 
     // Check builtin formats first (id 1–49)
     const builtin = getBuiltinFormat(xf.numFmtId);

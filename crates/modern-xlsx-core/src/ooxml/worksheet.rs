@@ -57,10 +57,11 @@ fn cell_type_json_str(ct: CellType) -> &'static str {
 fn write_f64_json(out: &mut String, v: f64) {
     use std::fmt::Write;
     // serde_json formats floats without trailing zeros for integers.
+    // Writing to String is infallible — the fmt::Write impl never returns Err.
     if v == v.floor() && v.abs() < 1e15 {
-        write!(out, "{}.0", v as i64).unwrap();
+        let _ = write!(out, "{}.0", v as i64);
     } else {
-        write!(out, "{}", v).unwrap();
+        let _ = write!(out, "{v}");
     }
 }
 
@@ -1166,8 +1167,8 @@ impl WorksheetXml {
                         }
                         (ParseState::InInlineStrT, b"t") => {
                             let text = std::mem::take(&mut text_buf);
-                            cur_cell_inline_string = Some(text.clone());
-                            cur_cell_value = Some(text);
+                            cur_cell_value = Some(text.clone());
+                            cur_cell_inline_string = Some(text);
                             state = ParseState::InInlineStr;
                         }
                         (ParseState::InInlineStr, b"is") => {
