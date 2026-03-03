@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  encodeCode128,
   encodeCode39,
+  encodeCode128,
   encodeDataMatrix,
   encodeEAN13,
   encodeGS1128,
@@ -157,9 +157,7 @@ describe('Drawing XML Generation', () => {
   });
 
   it('generates valid drawing rels', () => {
-    const xml = generateDrawingRels([
-      { rId: 'rId1', target: '../media/image1.png' },
-    ]);
+    const xml = generateDrawingRels([{ rId: 'rId1', target: '../media/image1.png' }]);
     expect(xml).toContain('Relationships');
     expect(xml).toContain('rId1');
     expect(xml).toContain('../media/image1.png');
@@ -188,9 +186,14 @@ describe('Workbook barcode integration', () => {
     const wb = new Workbook();
     const ws = wb.addSheet('Barcodes');
     ws.cell('A1').value = 'QR Code:';
-    wb.addBarcode('Barcodes', { fromCol: 1, fromRow: 0, toCol: 5, toRow: 4 }, 'https://example.com', {
-      type: 'qr',
-    });
+    wb.addBarcode(
+      'Barcodes',
+      { fromCol: 1, fromRow: 0, toCol: 5, toRow: 4 },
+      'https://example.com',
+      {
+        type: 'qr',
+      },
+    );
 
     const buffer = await wb.toBuffer();
     expect(buffer).toBeInstanceOf(Uint8Array);

@@ -321,6 +321,9 @@ describe('0.1.6 — Edge Cases', () => {
       const wb2 = await readBuffer(buffer);
       const ws2 = wb2.getSheet('Whitespace');
       expect(ws2?.cell('A1').value).toBe('line1\nline2');
+      // CRLF may be normalized to LF by the XML parser — accept either
+      const a2 = ws2?.cell('A2').value;
+      expect(a2 === 'line1\r\nline2' || a2 === 'line1\nline2').toBe(true);
       expect(ws2?.cell('A3').value).toBe('col1\tcol2');
     });
   });

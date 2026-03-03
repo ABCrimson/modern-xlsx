@@ -26,7 +26,7 @@ describe('OOXML Validation & Compliance', () => {
       (i) => i.category === 'styleIndex' && i.message.includes('999'),
     );
     expect(issue).toBeDefined();
-    expect(issue!.autoFixable).toBe(true);
+    expect(issue?.autoFixable).toBe(true);
   });
 
   it('detects overlapping merge regions', () => {
@@ -73,7 +73,7 @@ describe('OOXML Validation & Compliance', () => {
     const { workbook, report, repairCount } = wb.repair();
     expect(repairCount).toBeGreaterThan(0);
     expect(report.isValid).toBe(true);
-    expect(workbook.getSheet('Sheet1')!.cell('A1').styleIndex).toBe(0);
+    expect(workbook.getSheet('Sheet1')?.cell('A1').styleIndex).toBe(0);
   });
 
   it('repairs missing default styles', () => {

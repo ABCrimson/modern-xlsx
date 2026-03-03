@@ -229,13 +229,14 @@ function writeDataRow(
   headers: string[],
   record: Record<string, unknown>,
   rowIdx: number,
+  startCol = 0,
 ): void {
   for (let col = 0; col < headers.length; col++) {
     const key = headers[col];
     const val = key ? record[key] : undefined;
     if (val === undefined || val === null) continue;
 
-    const cell = ws.cell(`${columnToLetter(col)}${rowIdx}`);
+    const cell = ws.cell(`${columnToLetter(startCol + col)}${rowIdx}`);
     if (typeof val === 'number' || typeof val === 'string' || typeof val === 'boolean') {
       cell.value = val;
     } else {

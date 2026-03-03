@@ -70,6 +70,7 @@ export function initWasmSync(module: WebAssembly.Module | BufferSource): void {
   if (initialized) return;
   _initSync({ module });
   initialized = true;
+  initPromise = Promise.resolve(); // prevent concurrent initWasm from re-initializing
 }
 
 /**

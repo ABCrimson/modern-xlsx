@@ -27,7 +27,16 @@ export interface RenderOptions {
   textValue?: string;
 }
 
-export type BarcodeType = 'qr' | 'code128' | 'ean13' | 'upca' | 'code39' | 'pdf417' | 'datamatrix' | 'itf14' | 'gs1128';
+export type BarcodeType =
+  | 'qr'
+  | 'code128'
+  | 'ean13'
+  | 'upca'
+  | 'code39'
+  | 'pdf417'
+  | 'datamatrix'
+  | 'itf14'
+  | 'gs1128';
 
 export interface DrawBarcodeOptions extends RenderOptions {
   type: BarcodeType;
@@ -140,29 +149,71 @@ type QrV = [number, number, number, number, number, number];
 
 const QR_VI: Record<QrEcLevel, QrV[]> = {
   L: [
-    [0,0,0,0,0,0],[26,7,1,19,0,0],[44,10,1,34,0,0],[70,15,1,55,0,0],[100,20,1,80,0,0],
-    [134,26,1,108,0,0],[172,18,2,68,0,0],[196,20,2,78,0,0],[242,24,2,97,0,0],
-    [292,30,2,116,0,0],[346,18,2,68,2,69],
+    [0, 0, 0, 0, 0, 0],
+    [26, 7, 1, 19, 0, 0],
+    [44, 10, 1, 34, 0, 0],
+    [70, 15, 1, 55, 0, 0],
+    [100, 20, 1, 80, 0, 0],
+    [134, 26, 1, 108, 0, 0],
+    [172, 18, 2, 68, 0, 0],
+    [196, 20, 2, 78, 0, 0],
+    [242, 24, 2, 97, 0, 0],
+    [292, 30, 2, 116, 0, 0],
+    [346, 18, 2, 68, 2, 69],
   ],
   M: [
-    [0,0,0,0,0,0],[26,10,1,16,0,0],[44,16,1,28,0,0],[70,26,1,44,0,0],[100,18,2,32,0,0],
-    [134,24,2,43,0,0],[172,16,4,27,0,0],[196,18,4,31,0,0],[242,22,2,38,2,39],
-    [292,22,3,36,2,37],[346,26,4,43,1,44],
+    [0, 0, 0, 0, 0, 0],
+    [26, 10, 1, 16, 0, 0],
+    [44, 16, 1, 28, 0, 0],
+    [70, 26, 1, 44, 0, 0],
+    [100, 18, 2, 32, 0, 0],
+    [134, 24, 2, 43, 0, 0],
+    [172, 16, 4, 27, 0, 0],
+    [196, 18, 4, 31, 0, 0],
+    [242, 22, 2, 38, 2, 39],
+    [292, 22, 3, 36, 2, 37],
+    [346, 26, 4, 43, 1, 44],
   ],
   Q: [
-    [0,0,0,0,0,0],[26,13,1,13,0,0],[44,22,1,22,0,0],[70,18,2,17,0,0],[100,26,2,24,0,0],
-    [134,18,2,15,2,16],[172,24,2,19,2,20],[196,18,2,14,4,15],[242,22,4,18,2,19],
-    [292,20,4,16,4,17],[346,24,6,19,2,20],
+    [0, 0, 0, 0, 0, 0],
+    [26, 13, 1, 13, 0, 0],
+    [44, 22, 1, 22, 0, 0],
+    [70, 18, 2, 17, 0, 0],
+    [100, 26, 2, 24, 0, 0],
+    [134, 18, 2, 15, 2, 16],
+    [172, 24, 2, 19, 2, 20],
+    [196, 18, 2, 14, 4, 15],
+    [242, 22, 4, 18, 2, 19],
+    [292, 20, 4, 16, 4, 17],
+    [346, 24, 6, 19, 2, 20],
   ],
   H: [
-    [0,0,0,0,0,0],[26,17,1,9,0,0],[44,28,1,16,0,0],[70,22,2,13,0,0],[100,16,4,9,0,0],
-    [134,22,2,11,2,12],[172,28,4,15,0,0],[196,26,4,13,1,14],[242,26,4,14,2,15],
-    [292,24,4,12,4,13],[346,28,6,15,2,16],
+    [0, 0, 0, 0, 0, 0],
+    [26, 17, 1, 9, 0, 0],
+    [44, 28, 1, 16, 0, 0],
+    [70, 22, 2, 13, 0, 0],
+    [100, 16, 4, 9, 0, 0],
+    [134, 22, 2, 11, 2, 12],
+    [172, 28, 4, 15, 0, 0],
+    [196, 26, 4, 13, 1, 14],
+    [242, 26, 4, 14, 2, 15],
+    [292, 24, 4, 12, 4, 13],
+    [346, 28, 6, 15, 2, 16],
   ],
 };
 
 const QR_ALIGN: number[][] = [
-  [],[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],
+  [],
+  [],
+  [6, 18],
+  [6, 22],
+  [6, 26],
+  [6, 30],
+  [6, 34],
+  [6, 22, 38],
+  [6, 24, 42],
+  [6, 26, 46],
+  [6, 28, 50],
 ];
 
 const QR_FMT: Record<QrEcLevel, number[]> = (() => {
@@ -178,7 +229,7 @@ const QR_FMT: Record<QrEcLevel, number[]> = (() => {
       }
       let fmt = (data << 10) | bits;
       fmt ^= 0x5412;
-      r[lv]!.push(fmt);
+      r[lv]?.push(fmt);
     }
   }
   return r as Record<QrEcLevel, number[]>;
@@ -199,7 +250,10 @@ function qrCcBits(ver: number, mode: 'numeric' | 'alphanumeric' | 'byte'): numbe
   return mode === 'numeric' ? 12 : mode === 'alphanumeric' ? 11 : 16;
 }
 
-function qrEncData(data: string, mode: 'numeric' | 'alphanumeric' | 'byte'): { bits: number[]; charCnt: number } {
+function qrEncData(
+  data: string,
+  mode: 'numeric' | 'alphanumeric' | 'byte',
+): { bits: number[]; charCnt: number } {
   const bits: number[] = [];
   const push = (val: number, len: number) => {
     for (let i = len - 1; i >= 0; i--) bits.push((val >> i) & 1);
@@ -224,7 +278,11 @@ function qrEncData(data: string, mode: 'numeric' | 'alphanumeric' | 'byte'): { b
   return { bits, charCnt: data.length };
 }
 
-function qrSelVer(dataBits: number, mode: 'numeric' | 'alphanumeric' | 'byte', ec: QrEcLevel): number {
+function qrSelVer(
+  dataBits: number,
+  mode: 'numeric' | 'alphanumeric' | 'byte',
+  ec: QrEcLevel,
+): number {
   for (let v = 1; v <= 10; v++) {
     const info = at(QR_VI[ec], v);
     const cap = (info[2] * info[3] + info[4] * info[5]) * 8;
@@ -258,12 +316,15 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
   while (stream.length % 8 !== 0) stream.push(0);
   const pads = [0xec, 0x11];
   let pi = 0;
-  while (stream.length < totalCap) { pushBits(at(pads, pi), 8); pi = (pi + 1) % 2; }
+  while (stream.length < totalCap) {
+    pushBits(at(pads, pi), 8);
+    pi = (pi + 1) % 2;
+  }
 
   const cw = new Uint8Array(totalDCW);
   for (let i = 0; i < totalDCW; i++) {
     let byte = 0;
-    for (let b = 0; b < 8; b++) byte = (byte << 1) | (at(stream, i * 8 + b));
+    for (let b = 0; b < 8; b++) byte = (byte << 1) | at(stream, i * 8 + b);
     cw[i] = byte;
   }
 
@@ -285,10 +346,14 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
   const interleaved: number[] = [];
   const maxDL = Math.max(...blocks.map((b) => b.length));
   for (let i = 0; i < maxDL; i++) {
-    for (const bl of blocks) { if (i < bl.length) interleaved.push(bl[i]!); }
+    for (const bl of blocks) {
+      if (i < bl.length) interleaved.push(bl[i]!);
+    }
   }
   for (let i = 0; i < ecPB; i++) {
-    for (const ecb of ecBlocks) { if (i < ecb.length) interleaved.push(ecb[i]!); }
+    for (const ecb of ecBlocks) {
+      if (i < ecb.length) interleaved.push(ecb[i]!);
+    }
   }
 
   // Build grid: -1=unassigned, 0=white function, 1=black function
@@ -333,7 +398,11 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
       if (ar >= sz - 9 && ac <= 8) continue;
       for (let dr = -2; dr <= 2; dr++) {
         for (let dc = -2; dc <= 2; dc++) {
-          setMod(ar + dr, ac + dc, (Math.abs(dr) === 2 || Math.abs(dc) === 2 || (dr === 0 && dc === 0)) ? 1 : 0);
+          setMod(
+            ar + dr,
+            ac + dc,
+            Math.abs(dr) === 2 || Math.abs(dc) === 2 || (dr === 0 && dc === 0) ? 1 : 0,
+          );
         }
       }
     }
@@ -396,7 +465,10 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
   for (let r = sz - 8; r < sz; r++) {
     for (let c = 0; c < 9; c++) setCell(funcP, r, c, true);
   }
-  for (let i = 0; i < sz; i++) { setCell(funcP, 6, i, true); setCell(funcP, i, 6, true); }
+  for (let i = 0; i < sz; i++) {
+    setCell(funcP, 6, i, true);
+    setCell(funcP, i, 6, true);
+  }
   for (const ar of alignPos) {
     for (const ac of alignPos) {
       if (ar <= 8 && ac <= 8) continue;
@@ -417,8 +489,10 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
     }
   }
   for (let i = 0; i < 8; i++) {
-    setCell(funcP, 8, i, true); setCell(funcP, i, 8, true);
-    setCell(funcP, 8, sz - 1 - i, true); setCell(funcP, sz - 1 - i, 8, true);
+    setCell(funcP, 8, i, true);
+    setCell(funcP, i, 8, true);
+    setCell(funcP, 8, sz - 1 - i, true);
+    setCell(funcP, sz - 1 - i, 8, true);
   }
   setCell(funcP, 8, 8, true);
 
@@ -442,7 +516,10 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
       let run = 1;
       for (let c = 1; c < sz; c++) {
         if (at(g, r)[c] === at(g, r)[c - 1]) run++;
-        else { if (run >= 5) pen += run - 2; run = 1; }
+        else {
+          if (run >= 5) pen += run - 2;
+          run = 1;
+        }
       }
       if (run >= 5) pen += run - 2;
     }
@@ -450,7 +527,10 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
       let run = 1;
       for (let r = 1; r < sz; r++) {
         if (at(g, r)[c] === at(g, r - 1)[c]) run++;
-        else { if (run >= 5) pen += run - 2; run = 1; }
+        else {
+          if (run >= 5) pen += run - 2;
+          run = 1;
+        }
       }
       if (run >= 5) pen += run - 2;
     }
@@ -462,11 +542,12 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
       }
     }
     // Rule 3: finder-like
-    const p1 = [1,0,1,1,1,0,1,0,0,0,0];
-    const p2 = [0,0,0,0,1,0,1,1,1,0,1];
+    const p1 = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0];
+    const p2 = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1];
     for (let r = 0; r < sz; r++) {
       for (let c = 0; c <= sz - 11; c++) {
-        let m1 = true; let m2 = true;
+        let m1 = true;
+        let m2 = true;
         for (let k = 0; k < 11; k++) {
           if (at(g, r)[c + k] !== at(p1, k)) m1 = false;
           if (at(g, r)[c + k] !== at(p2, k)) m2 = false;
@@ -476,7 +557,8 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
     }
     for (let c = 0; c < sz; c++) {
       for (let r = 0; r <= sz - 11; r++) {
-        let m1 = true; let m2 = true;
+        let m1 = true;
+        let m2 = true;
         for (let k = 0; k < 11; k++) {
           if (at(g, r + k)[c] !== at(p1, k)) m1 = false;
           if (at(g, r + k)[c] !== at(p2, k)) m2 = false;
@@ -499,25 +581,47 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
     const masked: Int8Array[] = grid.map((row) => new Int8Array(row));
     for (let r = 0; r < sz; r++) {
       for (let c = 0; c < sz; c++) {
-        if (!getCell(funcP, r, c) && at(maskFns, mask)(r, c)) { const row = at(masked, r); row[c] = row[c]! ^ 1; }
+        if (!getCell(funcP, r, c) && at(maskFns, mask)(r, c)) {
+          const row = at(masked, r);
+          row[c] = row[c]! ^ 1;
+        }
       }
     }
     const p = evalPen(masked);
-    if (p < bestPen) { bestPen = p; bestMask = mask; }
+    if (p < bestPen) {
+      bestPen = p;
+      bestMask = mask;
+    }
   }
 
   // Apply best mask
   for (let r = 0; r < sz; r++) {
     for (let c = 0; c < sz; c++) {
-      if (!getCell(funcP, r, c) && at(maskFns, bestMask)(r, c)) { const row = at(grid, r); row[c] = row[c]! ^ 1; }
+      if (!getCell(funcP, r, c) && at(maskFns, bestMask)(r, c)) {
+        const row = at(grid, r);
+        row[c] = row[c]! ^ 1;
+      }
     }
   }
 
   // Write format info
   const fmtBits = at(QR_FMT[ec], bestMask);
   const fmtPos: [number, number][] = [
-    [8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],
-    [7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8],
+    [8, 0],
+    [8, 1],
+    [8, 2],
+    [8, 3],
+    [8, 4],
+    [8, 5],
+    [8, 7],
+    [8, 8],
+    [7, 8],
+    [5, 8],
+    [4, 8],
+    [3, 8],
+    [2, 8],
+    [1, 8],
+    [0, 8],
   ];
   for (let i = 0; i < 15; i++) {
     const [r, c] = at(fmtPos, i);
@@ -551,31 +655,115 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
 // ---------------------------------------------------------------------------
 
 const C128_W: number[][] = [
-  [2,1,2,2,2,2],[2,2,2,1,2,2],[2,2,2,2,2,1],[1,2,1,2,2,3],[1,2,1,3,2,2], // 0-4
-  [1,3,1,2,2,2],[1,2,2,2,1,3],[1,2,2,3,1,2],[1,3,2,2,1,2],[2,2,1,2,1,3], // 5-9
-  [2,2,1,3,1,2],[2,3,1,2,1,2],[1,1,2,2,3,2],[1,2,2,1,3,2],[1,2,2,2,3,1], // 10-14
-  [1,1,3,2,2,2],[1,2,3,1,2,2],[1,2,3,2,2,1],[2,2,3,2,1,1],[2,2,1,1,3,2], // 15-19
-  [2,2,1,2,3,1],[2,1,3,2,1,2],[2,2,3,1,1,2],[3,1,2,1,3,1],[3,1,1,2,2,2], // 20-24
-  [3,2,1,1,2,2],[3,2,1,2,2,1],[3,1,2,2,1,2],[3,2,2,1,1,2],[3,2,2,2,1,1], // 25-29
-  [2,1,2,1,2,3],[2,1,2,3,2,1],[2,3,2,1,2,1],[1,1,1,3,2,3],[1,3,1,1,2,3], // 30-34
-  [1,3,1,3,2,1],[1,1,2,3,1,3],[1,3,2,1,1,3],[1,3,2,3,1,1],[2,1,1,3,1,3], // 35-39
-  [2,3,1,1,1,3],[2,3,1,3,1,1],[1,1,2,1,3,3],[1,1,2,3,3,1],[1,3,2,1,3,1], // 40-44
-  [1,1,3,1,2,3],[1,1,3,3,2,1],[1,3,3,1,2,1],[3,1,3,1,2,1],[2,1,1,3,3,1], // 45-49
-  [2,3,1,1,3,1],[2,1,3,1,1,3],[2,1,3,3,1,1],[2,1,3,1,3,1],[3,1,1,1,2,3], // 50-54
-  [3,1,1,3,2,1],[3,3,1,1,2,1],[3,1,2,1,1,3],[3,1,2,3,1,1],[3,3,2,1,1,1], // 55-59
-  [3,1,4,1,1,1],[2,2,1,4,1,1],[4,3,1,1,1,1],[1,1,1,2,2,4],[1,1,1,4,2,2], // 60-64
-  [1,2,1,1,2,4],[1,2,1,4,2,1],[1,4,1,1,2,2],[1,4,1,2,2,1],[1,1,2,2,1,4], // 65-69
-  [1,1,2,4,1,2],[1,2,2,1,1,4],[1,2,2,4,1,1],[1,4,2,1,1,2],[1,4,2,2,1,1], // 70-74
-  [2,4,1,2,1,1],[2,2,1,1,1,4],[4,1,3,1,1,1],[2,4,1,1,1,2],[1,3,4,1,1,1], // 75-79
-  [1,1,1,2,4,2],[1,2,1,1,4,2],[1,2,1,2,4,1],[1,1,4,2,1,2],[1,2,4,1,1,2], // 80-84
-  [1,2,4,2,1,1],[4,1,1,2,1,2],[4,2,1,1,1,2],[4,2,1,2,1,1],[2,1,2,1,4,1], // 85-89
-  [2,1,4,1,2,1],[4,1,2,1,2,1],[1,1,1,1,4,3],[1,1,1,3,4,1],[1,3,1,1,4,1], // 90-94
-  [1,1,4,1,1,3],[1,1,4,3,1,1],[4,1,1,1,1,3],[4,1,1,3,1,1],[1,1,3,1,4,1], // 95-99
-  [1,1,4,1,3,1],[3,1,1,1,4,1],[4,1,1,1,3,1],[2,1,1,4,1,2],[2,1,1,2,1,4], // 100-104
-  [2,1,1,2,3,2], // 105: START C
+  [2, 1, 2, 2, 2, 2],
+  [2, 2, 2, 1, 2, 2],
+  [2, 2, 2, 2, 2, 1],
+  [1, 2, 1, 2, 2, 3],
+  [1, 2, 1, 3, 2, 2], // 0-4
+  [1, 3, 1, 2, 2, 2],
+  [1, 2, 2, 2, 1, 3],
+  [1, 2, 2, 3, 1, 2],
+  [1, 3, 2, 2, 1, 2],
+  [2, 2, 1, 2, 1, 3], // 5-9
+  [2, 2, 1, 3, 1, 2],
+  [2, 3, 1, 2, 1, 2],
+  [1, 1, 2, 2, 3, 2],
+  [1, 2, 2, 1, 3, 2],
+  [1, 2, 2, 2, 3, 1], // 10-14
+  [1, 1, 3, 2, 2, 2],
+  [1, 2, 3, 1, 2, 2],
+  [1, 2, 3, 2, 2, 1],
+  [2, 2, 3, 2, 1, 1],
+  [2, 2, 1, 1, 3, 2], // 15-19
+  [2, 2, 1, 2, 3, 1],
+  [2, 1, 3, 2, 1, 2],
+  [2, 2, 3, 1, 1, 2],
+  [3, 1, 2, 1, 3, 1],
+  [3, 1, 1, 2, 2, 2], // 20-24
+  [3, 2, 1, 1, 2, 2],
+  [3, 2, 1, 2, 2, 1],
+  [3, 1, 2, 2, 1, 2],
+  [3, 2, 2, 1, 1, 2],
+  [3, 2, 2, 2, 1, 1], // 25-29
+  [2, 1, 2, 1, 2, 3],
+  [2, 1, 2, 3, 2, 1],
+  [2, 3, 2, 1, 2, 1],
+  [1, 1, 1, 3, 2, 3],
+  [1, 3, 1, 1, 2, 3], // 30-34
+  [1, 3, 1, 3, 2, 1],
+  [1, 1, 2, 3, 1, 3],
+  [1, 3, 2, 1, 1, 3],
+  [1, 3, 2, 3, 1, 1],
+  [2, 1, 1, 3, 1, 3], // 35-39
+  [2, 3, 1, 1, 1, 3],
+  [2, 3, 1, 3, 1, 1],
+  [1, 1, 2, 1, 3, 3],
+  [1, 1, 2, 3, 3, 1],
+  [1, 3, 2, 1, 3, 1], // 40-44
+  [1, 1, 3, 1, 2, 3],
+  [1, 1, 3, 3, 2, 1],
+  [1, 3, 3, 1, 2, 1],
+  [3, 1, 3, 1, 2, 1],
+  [2, 1, 1, 3, 3, 1], // 45-49
+  [2, 3, 1, 1, 3, 1],
+  [2, 1, 3, 1, 1, 3],
+  [2, 1, 3, 3, 1, 1],
+  [2, 1, 3, 1, 3, 1],
+  [3, 1, 1, 1, 2, 3], // 50-54
+  [3, 1, 1, 3, 2, 1],
+  [3, 3, 1, 1, 2, 1],
+  [3, 1, 2, 1, 1, 3],
+  [3, 1, 2, 3, 1, 1],
+  [3, 3, 2, 1, 1, 1], // 55-59
+  [3, 1, 4, 1, 1, 1],
+  [2, 2, 1, 4, 1, 1],
+  [4, 3, 1, 1, 1, 1],
+  [1, 1, 1, 2, 2, 4],
+  [1, 1, 1, 4, 2, 2], // 60-64
+  [1, 2, 1, 1, 2, 4],
+  [1, 2, 1, 4, 2, 1],
+  [1, 4, 1, 1, 2, 2],
+  [1, 4, 1, 2, 2, 1],
+  [1, 1, 2, 2, 1, 4], // 65-69
+  [1, 1, 2, 4, 1, 2],
+  [1, 2, 2, 1, 1, 4],
+  [1, 2, 2, 4, 1, 1],
+  [1, 4, 2, 1, 1, 2],
+  [1, 4, 2, 2, 1, 1], // 70-74
+  [2, 4, 1, 2, 1, 1],
+  [2, 2, 1, 1, 1, 4],
+  [4, 1, 3, 1, 1, 1],
+  [2, 4, 1, 1, 1, 2],
+  [1, 3, 4, 1, 1, 1], // 75-79
+  [1, 1, 1, 2, 4, 2],
+  [1, 2, 1, 1, 4, 2],
+  [1, 2, 1, 2, 4, 1],
+  [1, 1, 4, 2, 1, 2],
+  [1, 2, 4, 1, 1, 2], // 80-84
+  [1, 2, 4, 2, 1, 1],
+  [4, 1, 1, 2, 1, 2],
+  [4, 2, 1, 1, 1, 2],
+  [4, 2, 1, 2, 1, 1],
+  [2, 1, 2, 1, 4, 1], // 85-89
+  [2, 1, 4, 1, 2, 1],
+  [4, 1, 2, 1, 2, 1],
+  [1, 1, 1, 1, 4, 3],
+  [1, 1, 1, 3, 4, 1],
+  [1, 3, 1, 1, 4, 1], // 90-94
+  [1, 1, 4, 1, 1, 3],
+  [1, 1, 4, 3, 1, 1],
+  [4, 1, 1, 1, 1, 3],
+  [4, 1, 1, 3, 1, 1],
+  [1, 1, 3, 1, 4, 1], // 95-99
+  [1, 1, 4, 1, 3, 1],
+  [3, 1, 1, 1, 4, 1],
+  [4, 1, 1, 1, 3, 1],
+  [2, 1, 1, 4, 1, 2],
+  [2, 1, 1, 2, 1, 4], // 100-104
+  [2, 1, 1, 2, 3, 2], // 105: START C
 ];
 
-const C128_STOP = [2,3,3,1,1,1,2];
+const C128_STOP = [2, 3, 3, 1, 1, 1, 2];
 
 function widths2mod(widths: number[]): boolean[] {
   const m: boolean[] = [];
@@ -609,7 +797,10 @@ export function encodeCode128(data: string): BarcodeMatrix {
     while (i < data.length) {
       let dRun = 0;
       let j = i;
-      while (j < data.length && data.charCodeAt(j) >= 48 && data.charCodeAt(j) <= 57) { dRun++; j++; }
+      while (j < data.length && data.charCodeAt(j) >= 48 && data.charCodeAt(j) <= 57) {
+        dRun++;
+        j++;
+      }
       if (dRun >= 4 && dRun % 2 === 0) {
         vals.push(99);
         chk += 99 * vals.length;
@@ -619,7 +810,10 @@ export function encodeCode128(data: string): BarcodeMatrix {
           chk += v * vals.length;
         }
         i += dRun;
-        if (i < data.length) { vals.push(100); chk += 100 * vals.length; }
+        if (i < data.length) {
+          vals.push(100);
+          chk += 100 * vals.length;
+        }
       } else {
         const ch = data.charCodeAt(i);
         if (ch < 32 || ch > 127) throw new Error(`Code 128: unsupported character code ${ch}`);
@@ -649,20 +843,41 @@ export function encodeCode128(data: string): BarcodeMatrix {
 // ---------------------------------------------------------------------------
 
 const EAN_L: number[][] = [
-  [0,0,0,1,1,0,1],[0,0,1,1,0,0,1],[0,0,1,0,0,1,1],[0,1,1,1,1,0,1],
-  [0,1,0,0,0,1,1],[0,1,1,0,0,0,1],[0,1,0,1,1,1,1],[0,1,1,1,0,1,1],
-  [0,1,1,0,1,1,1],[0,0,0,1,0,1,1],
+  [0, 0, 0, 1, 1, 0, 1],
+  [0, 0, 1, 1, 0, 0, 1],
+  [0, 0, 1, 0, 0, 1, 1],
+  [0, 1, 1, 1, 1, 0, 1],
+  [0, 1, 0, 0, 0, 1, 1],
+  [0, 1, 1, 0, 0, 0, 1],
+  [0, 1, 0, 1, 1, 1, 1],
+  [0, 1, 1, 1, 0, 1, 1],
+  [0, 1, 1, 0, 1, 1, 1],
+  [0, 0, 0, 1, 0, 1, 1],
 ];
 const EAN_G: number[][] = [
-  [0,1,0,0,1,1,1],[0,1,1,0,0,1,1],[0,0,1,1,0,1,1],[0,1,0,0,0,0,1],
-  [0,0,1,1,1,0,1],[0,1,1,1,0,0,1],[0,0,0,0,1,0,1],[0,0,1,0,0,0,1],
-  [0,0,0,1,0,0,1],[0,0,1,0,1,1,1],
+  [0, 1, 0, 0, 1, 1, 1],
+  [0, 1, 1, 0, 0, 1, 1],
+  [0, 0, 1, 1, 0, 1, 1],
+  [0, 1, 0, 0, 0, 0, 1],
+  [0, 0, 1, 1, 1, 0, 1],
+  [0, 1, 1, 1, 0, 0, 1],
+  [0, 0, 0, 0, 1, 0, 1],
+  [0, 0, 1, 0, 0, 0, 1],
+  [0, 0, 0, 1, 0, 0, 1],
+  [0, 0, 1, 0, 1, 1, 1],
 ];
 const EAN_R: number[][] = EAN_L.map((p) => p.map((b) => b ^ 1));
 const EAN_PAR: number[][] = [
-  [0,0,0,0,0,0],[0,0,1,0,1,1],[0,0,1,1,0,1],[0,0,1,1,1,0],
-  [0,1,0,0,1,1],[0,1,1,0,0,1],[0,1,1,1,0,0],[0,1,0,1,0,1],
-  [0,1,0,1,1,0],[0,1,1,0,1,0],
+  [0, 0, 0, 0, 0, 0],
+  [0, 0, 1, 0, 1, 1],
+  [0, 0, 1, 1, 0, 1],
+  [0, 0, 1, 1, 1, 0],
+  [0, 1, 0, 0, 1, 1],
+  [0, 1, 1, 0, 0, 1],
+  [0, 1, 1, 1, 0, 0],
+  [0, 1, 0, 1, 0, 1],
+  [0, 1, 0, 1, 1, 0],
+  [0, 1, 1, 0, 1, 0],
 ];
 
 function ean13Chk(d: number[]): number {
@@ -679,7 +894,8 @@ export function encodeEAN13(data: string): BarcodeMatrix {
   } else if (data.length === 13) {
     digits = [...data].map(Number);
     const exp = ean13Chk(digits.slice(0, 12));
-    if (at(digits, 12) !== exp) throw new Error(`EAN-13: invalid check digit (expected ${exp}, got ${at(digits, 12)})`);
+    if (at(digits, 12) !== exp)
+      throw new Error(`EAN-13: invalid check digit (expected ${exp}, got ${at(digits, 12)})`);
   } else {
     throw new Error('EAN-13: data must be 12 or 13 digits');
   }
@@ -700,7 +916,8 @@ export function encodeEAN13(data: string): BarcodeMatrix {
   const w = bars.length;
   const bh = 60;
   const modules = createGrid(bh, w, false);
-  for (let r = 0; r < bh; r++) for (let c = 0; c < w; c++) setCell(modules, r, c, at(bars, c) === 1);
+  for (let r = 0; r < bh; r++)
+    for (let c = 0; c < w; c++) setCell(modules, r, c, at(bars, c) === 1);
   return { width: w, height: bh, modules };
 }
 
@@ -720,21 +937,50 @@ export function encodeUPCA(data: string): BarcodeMatrix {
 
 const C39_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%*';
 const C39_PAT: number[][] = [
-  [1,0,1,0,0,1,1,0,1,1,0,1],[1,1,0,1,0,0,1,0,1,0,1,1],[1,0,1,1,0,0,1,0,1,0,1,1],
-  [1,1,0,1,1,0,0,1,0,1,0,1],[1,0,1,0,0,1,1,0,1,0,1,1],[1,1,0,1,0,0,1,1,0,1,0,1],
-  [1,0,1,1,0,0,1,1,0,1,0,1],[1,0,1,0,0,1,0,1,1,0,1,1],[1,1,0,1,0,0,1,0,1,1,0,1],
-  [1,0,1,1,0,0,1,0,1,1,0,1],[1,1,0,1,0,1,0,0,1,0,1,1],[1,0,1,1,0,1,0,0,1,0,1,1],
-  [1,1,0,1,1,0,1,0,0,1,0,1],[1,0,1,0,1,1,0,0,1,0,1,1],[1,1,0,1,0,1,1,0,0,1,0,1],
-  [1,0,1,1,0,1,1,0,0,1,0,1],[1,0,1,0,1,0,0,1,1,0,1,1],[1,1,0,1,0,1,0,0,1,1,0,1],
-  [1,0,1,1,0,1,0,0,1,1,0,1],[1,0,1,0,1,1,0,0,1,1,0,1],[1,1,0,1,0,1,0,1,0,0,1,1],
-  [1,0,1,1,0,1,0,1,0,0,1,1],[1,1,0,1,1,0,1,0,1,0,0,1],[1,0,1,0,1,1,0,1,0,0,1,1],
-  [1,1,0,1,0,1,1,0,1,0,0,1],[1,0,1,1,0,1,1,0,1,0,0,1],[1,0,1,0,1,0,1,1,0,0,1,1],
-  [1,1,0,1,0,1,0,1,1,0,0,1],[1,0,1,1,0,1,0,1,1,0,0,1],[1,0,1,0,1,1,0,1,1,0,0,1],
-  [1,1,0,0,1,0,1,0,1,0,1,1],[1,0,0,1,1,0,1,0,1,0,1,1],[1,1,0,0,1,1,0,1,0,1,0,1],
-  [1,0,0,1,0,1,1,0,1,0,1,1],[1,1,0,0,1,0,1,1,0,1,0,1],[1,0,0,1,1,0,1,1,0,1,0,1],
-  [1,0,0,1,0,1,0,1,1,0,1,1],[1,1,0,0,1,0,1,0,1,1,0,1],[1,0,0,1,0,1,0,1,0,1,1,1],
-  [1,0,0,1,0,0,1,0,0,1,0,1],[1,0,1,0,0,1,0,0,1,0,0,1],[1,0,0,1,0,1,0,0,1,0,0,1],
-  [1,0,0,1,0,0,1,0,1,0,0,1],[1,0,0,1,0,1,1,0,1,1,0,1],
+  [1, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1],
+  [1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1],
+  [1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1],
+  [1, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1],
+  [1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1],
+  [1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1],
+  [1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1],
+  [1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1],
+  [1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1],
+  [1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1],
+  [1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1],
+  [1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1],
+  [1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1],
+  [1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 1],
+  [1, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1],
+  [1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 1],
+  [1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 1],
+  [1, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1],
+  [1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1],
+  [1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1],
+  [1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1],
+  [1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 1],
+  [1, 1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1],
+  [1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1],
+  [1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1],
+  [1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 0, 1],
+  [1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1],
+  [1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1],
+  [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 0, 1],
+  [1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1],
+  [1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1],
+  [1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1],
+  [1, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 1],
+  [1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1],
+  [1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1],
+  [1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1],
+  [1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 1],
+  [1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1],
+  [1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1],
+  [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1],
+  [1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+  [1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1],
+  [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1],
+  [1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1],
 ];
 
 export function encodeCode39(data: string): BarcodeMatrix {
@@ -745,13 +991,16 @@ export function encodeCode39(data: string): BarcodeMatrix {
   }
   const starI = C39_CHARS.indexOf('*');
   const bars: number[] = [...at(C39_PAT, starI), 0];
-  for (const ch of u) { bars.push(...at(C39_PAT, C39_CHARS.indexOf(ch)), 0); }
+  for (const ch of u) {
+    bars.push(...at(C39_PAT, C39_CHARS.indexOf(ch)), 0);
+  }
   bars.push(...at(C39_PAT, starI));
 
   const w = bars.length;
   const bh = 60;
   const modules = createGrid(bh, w, false);
-  for (let r = 0; r < bh; r++) for (let c = 0; c < w; c++) setCell(modules, r, c, at(bars, c) === 1);
+  for (let r = 0; r < bh; r++)
+    for (let c = 0; c < w; c++) setCell(modules, r, c, at(bars, c) === 1);
   return { width: w, height: bh, modules };
 }
 
@@ -760,8 +1009,16 @@ export function encodeCode39(data: string): BarcodeMatrix {
 // ---------------------------------------------------------------------------
 
 const ITF_PAT: number[][] = [
-  [1,1,2,2,1],[2,1,1,1,2],[1,2,1,1,2],[2,2,1,1,1],[1,1,2,1,2],
-  [2,1,2,1,1],[1,2,2,1,1],[1,1,1,2,2],[2,1,1,2,1],[1,2,1,2,1],
+  [1, 1, 2, 2, 1],
+  [2, 1, 1, 1, 2],
+  [1, 2, 1, 1, 2],
+  [2, 2, 1, 1, 1],
+  [1, 1, 2, 1, 2],
+  [2, 1, 2, 1, 1],
+  [1, 2, 2, 1, 1],
+  [1, 1, 1, 2, 2],
+  [2, 1, 1, 2, 1],
+  [1, 2, 1, 2, 1],
 ];
 
 function itfChk(d: number[]): number {
@@ -778,7 +1035,8 @@ export function encodeITF14(data: string): BarcodeMatrix {
   } else if (data.length === 14) {
     digits = [...data].map(Number);
     const exp = itfChk(digits.slice(0, 13));
-    if (at(digits, 13) !== exp) throw new Error(`ITF-14: invalid check digit (expected ${exp}, got ${at(digits, 13)})`);
+    if (at(digits, 13) !== exp)
+      throw new Error(`ITF-14: invalid check digit (expected ${exp}, got ${at(digits, 13)})`);
   } else {
     throw new Error('ITF-14: data must be 13 or 14 digits');
   }
@@ -817,22 +1075,30 @@ export function encodeGS1128(data: string): BarcodeMatrix {
   let chk: number;
 
   if (allDig) {
-    vals.push(105); chk = 105;
-    vals.push(102); chk += 102;
+    vals.push(105);
+    chk = 105;
+    vals.push(102);
+    chk += 102;
     let pos = 2;
     for (let i = 0; i < stripped.length; i += 2) {
       const v = (stripped.charCodeAt(i) - 48) * 10 + (stripped.charCodeAt(i + 1) - 48);
-      vals.push(v); chk += v * pos; pos++;
+      vals.push(v);
+      chk += v * pos;
+      pos++;
     }
   } else {
-    vals.push(104); chk = 104;
-    vals.push(102); chk += 102;
+    vals.push(104);
+    chk = 104;
+    vals.push(102);
+    chk += 102;
     let pos = 2;
     for (let i = 0; i < stripped.length; i++) {
       const ch = stripped.charCodeAt(i);
       if (ch < 32 || ch > 127) throw new Error(`GS1-128: unsupported character code ${ch}`);
       const v = ch - 32;
-      vals.push(v); chk += v * pos; pos++;
+      vals.push(v);
+      chk += v * pos;
+      pos++;
     }
   }
   chk %= 103;
@@ -876,12 +1142,24 @@ function pdf417TextCompact(data: string): number[] {
   const vals: number[] = [];
   for (const ch of data) {
     const ui = PDF417_TEXT_UP.indexOf(ch);
-    if (ui >= 0) { vals.push(ui); continue; }
+    if (ui >= 0) {
+      vals.push(ui);
+      continue;
+    }
     const li = PDF417_TEXT_UP.indexOf(ch.toUpperCase());
-    if (li >= 0) { vals.push(27); vals.push(li); continue; }
+    if (li >= 0) {
+      vals.push(27);
+      vals.push(li);
+      continue;
+    }
     const code = ch.charCodeAt(0);
-    if (code >= 48 && code <= 57) { vals.push(28); vals.push(code - 48); continue; }
-    vals.push(29); vals.push(Math.max(0, Math.min(29, code - 32)));
+    if (code >= 48 && code <= 57) {
+      vals.push(28);
+      vals.push(code - 48);
+      continue;
+    }
+    vals.push(29);
+    vals.push(Math.max(0, Math.min(29, code - 32)));
   }
   for (let i = 0; i < vals.length; i += 2) {
     const a = at(vals, i);
@@ -908,26 +1186,30 @@ function pdf417EC(dataCws: number[], ecLevel: number): number[] {
   for (const cw of dataCws) {
     const t = (cw + at(ec, numEc - 1)) % MOD;
     for (let j = numEc - 1; j > 0; j--) {
-      ec[j] = (at(ec, j - 1) + MOD - (t * at(g, j)) % MOD) % MOD;
+      ec[j] = (at(ec, j - 1) + MOD - ((t * at(g, j)) % MOD)) % MOD;
     }
-    ec[0] = (MOD - (t * at(g, 0)) % MOD) % MOD;
+    ec[0] = (MOD - ((t * at(g, 0)) % MOD)) % MOD;
   }
   return ec.map((v) => (MOD - v) % MOD).reverse();
 }
 
 function pdf417CwPat(cw: number, cluster: number): boolean[] {
-  const base = ((cw * 3 + cluster) % 929 + 929) % 929;
+  const base = (((cw * 3 + cluster) % 929) + 929) % 929;
   const w = [1, 1, 1, 1, 1, 1, 1, 1];
   const remaining = 9;
   let seed = base;
   for (let i = 0; i < remaining; i++) {
     const idx = seed % 8;
     seed = (seed * 7 + 13) % 929;
-    if (at(w, idx) < 6) { w[idx] = at(w, idx) + 1; }
-    else {
+    if (at(w, idx) < 6) {
+      w[idx] = at(w, idx) + 1;
+    } else {
       for (let j = 0; j < 8; j++) {
         const k = (idx + j) % 8;
-        if (at(w, k) < 6) { w[k] = at(w, k) + 1; break; }
+        if (at(w, k) < 6) {
+          w[k] = at(w, k) + 1;
+          break;
+        }
       }
     }
   }
@@ -939,7 +1221,10 @@ function pdf417CwPat(cw: number, cluster: number): boolean[] {
   return m;
 }
 
-export function encodePDF417(data: string, options?: { ecLevel?: number; columns?: number }): BarcodeMatrix {
+export function encodePDF417(
+  data: string,
+  options?: { ecLevel?: number; columns?: number },
+): BarcodeMatrix {
   const ecLevel = Math.min(8, Math.max(0, options?.ecLevel ?? 2));
   const columns = Math.min(30, Math.max(1, options?.columns ?? 4));
   const dataCws = pdf417TextCompact(data);
@@ -961,7 +1246,7 @@ export function encodePDF417(data: string, options?: { ecLevel?: number; columns
     const cluster = r % 3;
     const rowMods: boolean[] = [...startMods];
     let li: number;
-    if (cluster === 0) li = ((r / 3) | 0) * 30 + ((rows - 1) / 3 | 0);
+    if (cluster === 0) li = ((r / 3) | 0) * 30 + (((rows - 1) / 3) | 0);
     else if (cluster === 1) li = ((r / 3) | 0) * 30 + ecLevel * 3 + ((rows - 1) % 3);
     else li = ((r / 3) | 0) * 30 + (columns - 1);
     rowMods.push(...pdf417CwPat(li % 929, cluster));
@@ -972,7 +1257,7 @@ export function encodePDF417(data: string, options?: { ecLevel?: number; columns
     }
     let ri: number;
     if (cluster === 0) ri = ((r / 3) | 0) * 30 + (columns - 1);
-    else if (cluster === 1) ri = ((r / 3) | 0) * 30 + ((rows - 1) / 3 | 0);
+    else if (cluster === 1) ri = ((r / 3) | 0) * 30 + (((rows - 1) / 3) | 0);
     else ri = ((r / 3) | 0) * 30 + ecLevel * 3 + ((rows - 1) % 3);
     rowMods.push(...pdf417CwPat(ri % 929, cluster));
     rowMods.push(...stopMods);
@@ -997,9 +1282,20 @@ export function encodePDF417(data: string, options?: { ecLevel?: number; columns
 // ---------------------------------------------------------------------------
 
 const DM_SIZES: [number, number, number, number][] = [
-  [10,10,3,5],[12,12,5,7],[14,14,8,10],[16,16,12,12],[18,18,18,14],
-  [20,20,22,18],[22,22,30,20],[24,24,36,24],[26,26,44,28],[32,32,62,36],
-  [36,36,86,42],[40,40,114,48],[44,44,144,56],[48,48,174,68],
+  [10, 10, 3, 5],
+  [12, 12, 5, 7],
+  [14, 14, 8, 10],
+  [16, 16, 12, 12],
+  [18, 18, 18, 14],
+  [20, 20, 22, 18],
+  [22, 22, 30, 20],
+  [24, 24, 36, 24],
+  [26, 26, 44, 28],
+  [32, 32, 62, 36],
+  [36, 36, 86, 42],
+  [40, 40, 114, 48],
+  [44, 44, 144, 56],
+  [48, 48, 174, 68],
 ];
 
 function dmAsciiEnc(data: string): number[] {
@@ -1016,7 +1312,10 @@ function dmAsciiEnc(data: string): number[] {
       }
     }
     if (ch >= 0 && ch <= 127) cws.push(ch + 1);
-    else { cws.push(235); cws.push(ch - 127); }
+    else {
+      cws.push(235);
+      cws.push(ch - 127);
+    }
     i++;
   }
   return cws;
@@ -1123,48 +1422,48 @@ export function encodeDataMatrix(data: string): BarcodeMatrix {
 const FW = 5;
 const FH = 7;
 const FONT: Record<string, number[]> = {
-  '0': [0x0e,0x11,0x13,0x15,0x19,0x11,0x0e],
-  '1': [0x04,0x0c,0x04,0x04,0x04,0x04,0x0e],
-  '2': [0x0e,0x11,0x01,0x06,0x08,0x10,0x1f],
-  '3': [0x0e,0x11,0x01,0x06,0x01,0x11,0x0e],
-  '4': [0x02,0x06,0x0a,0x12,0x1f,0x02,0x02],
-  '5': [0x1f,0x10,0x1e,0x01,0x01,0x11,0x0e],
-  '6': [0x06,0x08,0x10,0x1e,0x11,0x11,0x0e],
-  '7': [0x1f,0x01,0x02,0x04,0x08,0x08,0x08],
-  '8': [0x0e,0x11,0x11,0x0e,0x11,0x11,0x0e],
-  '9': [0x0e,0x11,0x11,0x0f,0x01,0x02,0x0c],
-  'A': [0x0e,0x11,0x11,0x1f,0x11,0x11,0x11],
-  'B': [0x1e,0x11,0x11,0x1e,0x11,0x11,0x1e],
-  'C': [0x0e,0x11,0x10,0x10,0x10,0x11,0x0e],
-  'D': [0x1e,0x11,0x11,0x11,0x11,0x11,0x1e],
-  'E': [0x1f,0x10,0x10,0x1e,0x10,0x10,0x1f],
-  'F': [0x1f,0x10,0x10,0x1e,0x10,0x10,0x10],
-  'G': [0x0e,0x11,0x10,0x17,0x11,0x11,0x0f],
-  'H': [0x11,0x11,0x11,0x1f,0x11,0x11,0x11],
-  'I': [0x0e,0x04,0x04,0x04,0x04,0x04,0x0e],
-  'J': [0x07,0x02,0x02,0x02,0x02,0x12,0x0c],
-  'K': [0x11,0x12,0x14,0x18,0x14,0x12,0x11],
-  'L': [0x10,0x10,0x10,0x10,0x10,0x10,0x1f],
-  'M': [0x11,0x1b,0x15,0x15,0x11,0x11,0x11],
-  'N': [0x11,0x19,0x15,0x13,0x11,0x11,0x11],
-  'O': [0x0e,0x11,0x11,0x11,0x11,0x11,0x0e],
-  'P': [0x1e,0x11,0x11,0x1e,0x10,0x10,0x10],
-  'Q': [0x0e,0x11,0x11,0x11,0x15,0x12,0x0d],
-  'R': [0x1e,0x11,0x11,0x1e,0x14,0x12,0x11],
-  'S': [0x0e,0x11,0x10,0x0e,0x01,0x11,0x0e],
-  'T': [0x1f,0x04,0x04,0x04,0x04,0x04,0x04],
-  'U': [0x11,0x11,0x11,0x11,0x11,0x11,0x0e],
-  'V': [0x11,0x11,0x11,0x11,0x0a,0x0a,0x04],
-  'W': [0x11,0x11,0x11,0x15,0x15,0x1b,0x11],
-  'X': [0x11,0x11,0x0a,0x04,0x0a,0x11,0x11],
-  'Y': [0x11,0x11,0x0a,0x04,0x04,0x04,0x04],
-  'Z': [0x1f,0x01,0x02,0x04,0x08,0x10,0x1f],
-  ' ': [0x00,0x00,0x00,0x00,0x00,0x00,0x00],
-  '-': [0x00,0x00,0x00,0x1f,0x00,0x00,0x00],
-  '.': [0x00,0x00,0x00,0x00,0x00,0x00,0x04],
-  '(': [0x02,0x04,0x08,0x08,0x08,0x04,0x02],
-  ')': [0x08,0x04,0x02,0x02,0x02,0x04,0x08],
-  '/': [0x01,0x02,0x02,0x04,0x08,0x08,0x10],
+  '0': [0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e],
+  '1': [0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e],
+  '2': [0x0e, 0x11, 0x01, 0x06, 0x08, 0x10, 0x1f],
+  '3': [0x0e, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0e],
+  '4': [0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02],
+  '5': [0x1f, 0x10, 0x1e, 0x01, 0x01, 0x11, 0x0e],
+  '6': [0x06, 0x08, 0x10, 0x1e, 0x11, 0x11, 0x0e],
+  '7': [0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
+  '8': [0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e],
+  '9': [0x0e, 0x11, 0x11, 0x0f, 0x01, 0x02, 0x0c],
+  A: [0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11],
+  B: [0x1e, 0x11, 0x11, 0x1e, 0x11, 0x11, 0x1e],
+  C: [0x0e, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0e],
+  D: [0x1e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1e],
+  E: [0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x1f],
+  F: [0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x10],
+  G: [0x0e, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0f],
+  H: [0x11, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11],
+  I: [0x0e, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0e],
+  J: [0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0c],
+  K: [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11],
+  L: [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f],
+  M: [0x11, 0x1b, 0x15, 0x15, 0x11, 0x11, 0x11],
+  N: [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11],
+  O: [0x0e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e],
+  P: [0x1e, 0x11, 0x11, 0x1e, 0x10, 0x10, 0x10],
+  Q: [0x0e, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0d],
+  R: [0x1e, 0x11, 0x11, 0x1e, 0x14, 0x12, 0x11],
+  S: [0x0e, 0x11, 0x10, 0x0e, 0x01, 0x11, 0x0e],
+  T: [0x1f, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
+  U: [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e],
+  V: [0x11, 0x11, 0x11, 0x11, 0x0a, 0x0a, 0x04],
+  W: [0x11, 0x11, 0x11, 0x15, 0x15, 0x1b, 0x11],
+  X: [0x11, 0x11, 0x0a, 0x04, 0x0a, 0x11, 0x11],
+  Y: [0x11, 0x11, 0x0a, 0x04, 0x04, 0x04, 0x04],
+  Z: [0x1f, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1f],
+  ' ': [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+  '-': [0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00],
+  '.': [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04],
+  '(': [0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02],
+  ')': [0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08],
+  '/': [0x01, 0x02, 0x02, 0x04, 0x08, 0x08, 0x10],
 };
 
 function renderText(text: string): boolean[][] {
@@ -1173,11 +1472,12 @@ function renderText(text: string): boolean[][] {
   const tw = text.length * cw - 1;
   const grid = createGrid(FH, tw, false);
   for (let i = 0; i < text.length; i++) {
-    const d = FONT[text[i]!.toUpperCase()] ?? FONT[' ']!;
+    const ch = text[i]?.toUpperCase() ?? ' ';
+    const d = FONT[ch] ?? FONT[' ']!;
     const xo = i * cw;
     for (let r = 0; r < FH; r++) {
       for (let c = 0; c < FW; c++) {
-        if (xo + c < tw) setCell(grid, r, xo + c, ((at(d, r) >> (4 - c)) & 1) === 1);
+        if (xo + c < tw) setCell(grid, r, xo + c, ((at(d as number[], r) >> (4 - c)) & 1) === 1);
       }
     }
   }
@@ -1244,27 +1544,38 @@ function createPng(width: number, height: number, pixels: Uint8Array): Uint8Arra
   const defSz = 2 + nBlk * 5 + raw.length + 4;
   const def = new Uint8Array(defSz);
   let p = 0;
-  def[p++] = 0x78; def[p++] = 0x01;
+  def[p++] = 0x78;
+  def[p++] = 0x01;
   let rem = raw.length;
   let off = 0;
   while (rem > 0) {
     const bs = Math.min(rem, maxBlk);
     def[p++] = rem <= maxBlk ? 0x01 : 0x00;
-    def[p++] = bs & 0xff; def[p++] = (bs >> 8) & 0xff;
-    def[p++] = (~bs) & 0xff; def[p++] = ((~bs) >> 8) & 0xff;
+    def[p++] = bs & 0xff;
+    def[p++] = (bs >> 8) & 0xff;
+    def[p++] = ~bs & 0xff;
+    def[p++] = (~bs >> 8) & 0xff;
     def.set(raw.subarray(off, off + bs), p);
-    p += bs; off += bs; rem -= bs;
+    p += bs;
+    off += bs;
+    rem -= bs;
   }
   const ad = adler32(raw);
-  def[p++] = (ad >> 24) & 0xff; def[p++] = (ad >> 16) & 0xff;
-  def[p++] = (ad >> 8) & 0xff; def[p++] = ad & 0xff;
+  def[p++] = (ad >> 24) & 0xff;
+  def[p++] = (ad >> 16) & 0xff;
+  def[p++] = (ad >> 8) & 0xff;
+  def[p++] = ad & 0xff;
   const actDef = def.subarray(0, p);
 
   const ihdr = new Uint8Array(13);
   const ihdrV = new DataView(ihdr.buffer);
   ihdrV.setUint32(0, width, false);
   ihdrV.setUint32(4, height, false);
-  ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
 
   const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
   const ihdrC = pngChunk('IHDR', ihdr);
@@ -1273,9 +1584,12 @@ function createPng(width: number, height: number, pixels: Uint8Array): Uint8Arra
 
   const png = new Uint8Array(sig.length + ihdrC.length + idatC.length + iendC.length);
   let pp = 0;
-  png.set(sig, pp); pp += sig.length;
-  png.set(ihdrC, pp); pp += ihdrC.length;
-  png.set(idatC, pp); pp += idatC.length;
+  png.set(sig, pp);
+  pp += sig.length;
+  png.set(ihdrC, pp);
+  pp += ihdrC.length;
+  png.set(idatC, pp);
+  pp += idatC.length;
   png.set(iendC, pp);
   return png;
 }
@@ -1326,7 +1640,9 @@ export function renderBarcodePNG(matrix: BarcodeMatrix, options?: RenderOptions)
             const x = qzPx + c * modSz + dx;
             const y = qzPx + r * modSz + dy;
             const idx = (y * tw + x) * 3;
-            px[idx] = fgR; px[idx + 1] = fgG; px[idx + 2] = fgB;
+            px[idx] = fgR;
+            px[idx + 1] = fgG;
+            px[idx + 2] = fgB;
           }
         }
       }
@@ -1348,7 +1664,9 @@ export function renderBarcodePNG(matrix: BarcodeMatrix, options?: RenderOptions)
               const y = tyo + tr * scale + dy;
               if (x >= 0 && x < tw && y >= 0 && y < th) {
                 const idx = (y * tw + x) * 3;
-                px[idx] = fgR; px[idx + 1] = fgG; px[idx + 2] = fgB;
+                px[idx] = fgR;
+                px[idx + 1] = fgG;
+                px[idx + 2] = fgB;
               }
             }
           }
@@ -1410,10 +1728,10 @@ export function generateBarcode(value: string, options: DrawBarcodeOptions): Uin
     const tmw = matrix.width + 2 * qz;
     const tmh = matrix.height + 2 * qz;
     if (options.fitWidth && options.fitHeight) {
-      modSz = Math.max(1, Math.min(
-        Math.floor(options.fitWidth / tmw),
-        Math.floor(options.fitHeight / tmh),
-      ));
+      modSz = Math.max(
+        1,
+        Math.min(Math.floor(options.fitWidth / tmw), Math.floor(options.fitHeight / tmh)),
+      );
     } else if (options.fitWidth) {
       modSz = Math.max(1, Math.floor(options.fitWidth / tmw));
     } else if (options.fitHeight) {
@@ -1440,9 +1758,7 @@ const XDR_NS = 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDraw
 const A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
-export function generateDrawingXml(
-  anchors: { anchor: ImageAnchor; imageIndex: number }[],
-): string {
+export function generateDrawingXml(anchors: { anchor: ImageAnchor; imageIndex: number }[]): string {
   const p: string[] = [];
   p.push('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>');
   p.push(`<xdr:wsDr xmlns:xdr="${XDR_NS}" xmlns:a="${A_NS}" xmlns:r="${R_NS}">`);
@@ -1496,9 +1812,7 @@ export function generateDrawingXml(
   return p.join('\n');
 }
 
-export function generateDrawingRels(
-  imageIds: { rId: string; target: string }[],
-): string {
+export function generateDrawingRels(imageIds: { rId: string; target: string }[]): string {
   const RELS = 'http://schemas.openxmlformats.org/package/2006/relationships';
   const IMG = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image';
   const p: string[] = [];

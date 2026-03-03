@@ -158,13 +158,14 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             );
             let comments_xml = comments::write_comments(&sheet.worksheet.comments)?;
             let comments_path = format!("xl/comments{sheet_num}.xml");
+
+            // Add content type override before moving the path into the entry.
+            content_types.add_override(format!("/{comments_path}"), CT_COMMENTS);
+
             entries.push(ZipEntry {
-                name: comments_path.clone(),
+                name: comments_path,
                 data: comments_xml,
             });
-
-            // Add content type override for this comments file.
-            content_types.add_override(format!("/{comments_path}"), CT_COMMENTS);
 
             // Create (or merge into) the worksheet .rels file.
             // The comments target is relative to the worksheet directory:
@@ -257,11 +258,12 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         }
     }
 
-    // 7. Write [Content_Types].xml last (after all overrides).
-    entries.insert(0, ZipEntry {
+    // 7. Write [Content_Types].xml (must be first entry in the ZIP archive).
+    entries.push(ZipEntry {
         name: "[Content_Types].xml".to_string(),
         data: content_types.to_xml()?,
     });
+    entries.rotate_right(1);
 
     for entry in &entries {
         trace!("writing ZIP entry: {}", entry.name);

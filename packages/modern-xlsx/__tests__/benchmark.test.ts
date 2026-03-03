@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import XLSX from 'xlsx';
-import { aoaToSheet, readBuffer, sheetToCsv, sheetToJson, Workbook } from '../src/index.js';
+import {
+  aoaToSheet,
+  columnToLetter,
+  readBuffer,
+  sheetToCsv,
+  sheetToJson,
+  Workbook,
+} from '../src/index.js';
 
 function generateLargeData(rows: number, cols: number): unknown[][] {
   const data: unknown[][] = [];
@@ -43,7 +50,7 @@ function populateSheet(
 }
 
 function colLettersForCount(n: number): string[] {
-  return Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i));
+  return Array.from({ length: n }, (_, i) => columnToLetter(i));
 }
 
 /** Create an XLSX buffer using SheetJS (used as input for read benchmarks). */

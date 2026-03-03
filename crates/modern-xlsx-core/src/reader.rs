@@ -188,10 +188,9 @@ fn resolve_comments(
 /// Takes ownership of entries via `drain()` to avoid cloning large byte
 /// vectors (e.g. embedded images, charts).
 fn collect_preserved(ctx: &mut ReaderContext) -> BTreeMap<String, Vec<u8>> {
-    let known_static: HashSet<&str> = KNOWN_STATIC_PATHS.iter().copied().collect();
     let mut preserved = BTreeMap::new();
     for (path, data) in ctx.entries.drain() {
-        if !known_static.contains(path.as_str()) && !ctx.known_dynamic.contains(&path) {
+        if !KNOWN_STATIC_PATHS.contains(&path.as_str()) && !ctx.known_dynamic.contains(&path) {
             debug!("preserving unknown ZIP entry: {}", path);
             preserved.insert(path, data);
         }

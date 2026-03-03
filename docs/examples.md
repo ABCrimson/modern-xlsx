@@ -166,7 +166,7 @@ ws.addValidation('C2', {
   formula1: '1',
   formula2: '100',
   errorTitle: 'Invalid',
-  error: 'Enter a number between 1 and 100',
+  errorMessage: 'Enter a number between 1 and 100',
 });
 ```
 
@@ -242,20 +242,22 @@ wb.docProperties = {
 ```typescript
 import { RichTextBuilder } from 'modern-xlsx';
 
-const richText = new RichTextBuilder()
+const builder = new RichTextBuilder()
   .bold('Important: ')
   .text('This is normal text. ')
   .colored('Red text', 'FF0000')
-  .styled('Custom', { bold: true, italic: true, fontSize: 14, fontName: 'Arial' })
-  .build();
+  .styled('Custom', { bold: true, italic: true, fontSize: 14, fontName: 'Arial' });
+
+const runs = builder.build();       // RichTextRun[]
+const text = builder.plainText();   // concatenated plain text
 
 // Apply via raw data manipulation
 const data = wb.toJSON();
 if (!data.sharedStrings) {
   data.sharedStrings = { strings: [], richRuns: [] };
 }
-data.sharedStrings.strings.push(richText.plainText);
-data.sharedStrings.richRuns.push(richText.runs);
+data.sharedStrings.strings.push(text);
+data.sharedStrings.richRuns.push(runs);
 ```
 
 ---
@@ -350,10 +352,10 @@ ws.sheetProtection = {
 ```typescript
 import { columnToLetter, letterToColumn, decodeCellRef, encodeCellRef } from 'modern-xlsx';
 
-columnToLetter(1);   // 'A'
-columnToLetter(27);  // 'AA'
-letterToColumn('A'); // 1
-letterToColumn('AA'); // 27
+columnToLetter(0);   // 'A'
+columnToLetter(26);  // 'AA'
+letterToColumn('A'); // 0
+letterToColumn('AA'); // 26
 
 decodeCellRef('B3');  // { row: 2, col: 1 } (0-based)
 encodeCellRef(2, 1); // 'B3'
@@ -366,11 +368,14 @@ encodeCellRef(2, 1); // 'B3'
 ```typescript
 import { dateToSerial, serialToDate, isDateFormatCode } from 'modern-xlsx';
 
-// Convert date to Excel serial number
+// Convert date to Excel serial number (Temporal-like input)
 dateToSerial({ year: 2026, month: 3, day: 1 }); // 46113
 
-// Convert serial back to date components
-serialToDate(46113); // { year: 2026, month: 3, day: 1 }
+// Convert serial back to a JS Date (UTC)
+const d = serialToDate(46113);
+d.getUTCFullYear(); // 2026
+d.getUTCMonth();    // 2 (March, 0-based)
+d.getUTCDate();     // 1
 
 // Check if a format code is a date format
 isDateFormatCode('yyyy-mm-dd'); // true
