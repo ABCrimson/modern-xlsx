@@ -44,7 +44,13 @@ export {
 } from './dates.js';
 // Formatting
 export type { FormatCellOptions, FormatCellResult } from './format-cell.js';
-export { formatCell, formatCellRich, getBuiltinFormat, loadFormat, loadFormatTable } from './format-cell.js';
+export {
+  formatCell,
+  formatCellRich,
+  getBuiltinFormat,
+  loadFormat,
+  loadFormatTable,
+} from './format-cell.js';
 // Builders
 export { RichTextBuilder } from './rich-text.js';
 export { StyleBuilder } from './style-builder.js';
@@ -180,4 +186,4 @@ export async function readFile(path: string): Promise<_Workbook> {
   return readBuffer(new Uint8Array(buffer));
 }
 
-export const VERSION = '0.4.0' as const;
+export const VERSION = '0.5.0' as const;

@@ -34,6 +34,7 @@ import {
   sheetToHtml,
   sheetToJson,
   Workbook,
+  type Worksheet,
 } from '../src/index.js';
 
 // ---------------------------------------------------------------------------
@@ -1360,14 +1361,8 @@ describe('25. Performance Comparison', () => {
     return data;
   }
 
-  it('write 10K rows — modern-xlsx vs SheetJS', async () => {
-    const data = generateData(10_000, 10);
-    const cols = Array.from({ length: 10 }, (_, i) => columnToLetter(i));
-
-    // modern-xlsx (cell-by-cell)
-    const modernStart = performance.now();
-    const wb = new Workbook();
-    const ws = wb.addSheet('Data');
+  /** Populate a Worksheet with AoA data (cell-by-cell). */
+  function populateSheet(ws: Worksheet, data: unknown[][], cols: string[]): void {
     for (let r = 0; r < data.length; r++) {
       const row = data[r]!;
       for (let c = 0; c < row.length; c++) {
@@ -1380,6 +1375,17 @@ describe('25. Performance Comparison', () => {
         }
       }
     }
+  }
+
+  it('write 10K rows — modern-xlsx vs SheetJS', async () => {
+    const data = generateData(10_000, 10);
+    const cols = Array.from({ length: 10 }, (_, i) => columnToLetter(i));
+
+    // modern-xlsx (cell-by-cell)
+    const modernStart = performance.now();
+    const wb = new Workbook();
+    const ws = wb.addSheet('Data');
+    populateSheet(ws, data, cols);
     const buf = await wb.toBuffer();
     const modernTime = performance.now() - modernStart;
 
@@ -1449,18 +1455,7 @@ describe('25. Performance Comparison', () => {
     // Build modern-xlsx sheet
     const wb = new Workbook();
     const ws = wb.addSheet('Data');
-    for (let r = 0; r < data.length; r++) {
-      const row = data[r]!;
-      for (let c = 0; c < row.length; c++) {
-        const val = row[c];
-        if (val !== undefined && val !== null) {
-          const cell = ws.cell(`${cols[c]}${r + 1}`);
-          if (typeof val === 'number' || typeof val === 'string' || typeof val === 'boolean') {
-            cell.value = val;
-          }
-        }
-      }
-    }
+    populateSheet(ws, data, cols);
 
     // Build SheetJS sheet
     const xlsxWs = XLSX.utils.aoa_to_sheet(data);
@@ -1491,18 +1486,7 @@ describe('25. Performance Comparison', () => {
     // Build modern-xlsx sheet
     const wb = new Workbook();
     const ws = wb.addSheet('Data');
-    for (let r = 0; r < data.length; r++) {
-      const row = data[r]!;
-      for (let c = 0; c < row.length; c++) {
-        const val = row[c];
-        if (val !== undefined && val !== null) {
-          const cell = ws.cell(`${cols[c]}${r + 1}`);
-          if (typeof val === 'number' || typeof val === 'string' || typeof val === 'boolean') {
-            cell.value = val;
-          }
-        }
-      }
-    }
+    populateSheet(ws, data, cols);
 
     // Build SheetJS sheet
     const xlsxWs = XLSX.utils.aoa_to_sheet(data);
@@ -2032,7 +2016,12 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'Locale codes ([$-409])', modern: '🔧', sheetjs: '✅' },
       { feature: 'Conditional sections', modern: '✅', sheetjs: '✅' },
       { feature: 'Color codes ([Red], [Color3])', modern: '✅', sheetjs: '✅' },
-      { feature: 'Rich format result (text+color)', modern: '⭐', sheetjs: '❌', notes: 'formatCellRich()' },
+      {
+        feature: 'Rich format result (text+color)',
+        modern: '⭐',
+        sheetjs: '❌',
+        notes: 'formatCellRich()',
+      },
     ];
     printTable('NUMBER FORMATTING (SSF)', rows);
     expect(rows.length).toBe(13);

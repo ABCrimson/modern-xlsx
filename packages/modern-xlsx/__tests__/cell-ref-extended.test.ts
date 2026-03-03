@@ -27,28 +27,43 @@ describe('extended cell reference utilities', () => {
   describe('splitCellRef', () => {
     it('splits simple reference', () => {
       expect(splitCellRef('A1')).toEqual({
-        col: 'A', row: '1', absCol: false, absRow: false,
+        col: 'A',
+        row: '1',
+        absCol: false,
+        absRow: false,
       });
     });
 
     it('splits fully absolute reference', () => {
       expect(splitCellRef('$A$1')).toEqual({
-        col: 'A', row: '1', absCol: true, absRow: true,
+        col: 'A',
+        row: '1',
+        absCol: true,
+        absRow: true,
       });
     });
 
     it('splits mixed references', () => {
       expect(splitCellRef('$A1')).toEqual({
-        col: 'A', row: '1', absCol: true, absRow: false,
+        col: 'A',
+        row: '1',
+        absCol: true,
+        absRow: false,
       });
       expect(splitCellRef('A$1')).toEqual({
-        col: 'A', row: '1', absCol: false, absRow: true,
+        col: 'A',
+        row: '1',
+        absCol: false,
+        absRow: true,
       });
     });
 
     it('handles multi-letter columns', () => {
       expect(splitCellRef('$XFD$1048576')).toEqual({
-        col: 'XFD', row: '1048576', absCol: true, absRow: true,
+        col: 'XFD',
+        row: '1048576',
+        absCol: true,
+        absRow: true,
       });
     });
 

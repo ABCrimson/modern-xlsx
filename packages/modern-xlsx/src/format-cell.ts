@@ -85,7 +85,10 @@ export function formatCell(
   // Excel always renders booleans as uppercase TRUE/FALSE.
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
 
-  const formatCode = typeof format === 'number' ? (BUILTIN_FORMATS[format] ?? CUSTOM_FORMATS.get(format) ?? 'General') : format;
+  const formatCode =
+    typeof format === 'number'
+      ? (BUILTIN_FORMATS[format] ?? CUSTOM_FORMATS.get(format) ?? 'General')
+      : format;
 
   if (formatCode === 'General' || formatCode === '' || formatCode === '@') {
     return String(value);
@@ -173,10 +176,7 @@ function dispatchFormatRich(numVal: number, code: string, system: DateSystem): F
   const color = colorMatch?.[1];
 
   // Strip bracket directives (colors + conditions)
-  const cleaned = section
-    .replace(COLOR_RE, '')
-    .replace(CONDITION_RE, '')
-    .trim();
+  const cleaned = section.replace(COLOR_RE, '').replace(CONDITION_RE, '').trim();
 
   if (cleaned === '' || cleaned === 'General') {
     return buildRichResult(String(value), color);
@@ -193,25 +193,33 @@ function dispatchFormatRich(numVal: number, code: string, system: DateSystem): F
   return buildRichResult(text, color);
 }
 
-function resolveSectionConditional(code: string, value: number): { section: string; value: number } {
-  const sections = splitSections(code);
-
-  // Check for explicit conditions [>100], [<=50], etc.
+/** Try each section for an explicit condition match; return the first that passes. */
+function findConditionalSection(sections: string[], value: number): string | undefined {
   for (const section of sections) {
     const condMatch = section.match(CONDITION_RE);
     if (condMatch?.[1] && condMatch[2]) {
       const op = condMatch[1];
       const threshold = Number.parseFloat(condMatch[2]);
-      if (evaluateCondition(value, op, threshold)) {
-        return { section, value };
-      }
+      if (evaluateCondition(value, op, threshold)) return section;
     }
   }
+  return undefined;
+}
+
+/** Resolve a multi-section format code to the applicable section for `value`. */
+function resolveSectionConditional(
+  code: string,
+  value: number,
+): { section: string; value: number } {
+  const sections = splitSections(code);
+
+  // Check for explicit conditions [>100], [<=50], etc.
+  const matched = findConditionalSection(sections, value);
+  if (matched) return { section: matched, value };
 
   // If no explicit conditions matched, check if any section HAS conditions
   const hasConditions = sections.some((s) => CONDITION_RE.test(s));
   if (hasConditions) {
-    // All conditions failed — use last section as fallback or return empty
     return { section: sections.at(-1) ?? 'General', value };
   }
 
@@ -227,13 +235,21 @@ function resolveSectionConditional(code: string, value: number): { section: stri
 
 function evaluateCondition(value: number, op: string, threshold: number): boolean {
   switch (op) {
-    case '>': return value > threshold;
-    case '<': return value < threshold;
-    case '>=': return value >= threshold;
-    case '<=': return value <= threshold;
-    case '=': return value === threshold;
-    case '<>': case '!=': return value !== threshold;
-    default: return false;
+    case '>':
+      return value > threshold;
+    case '<':
+      return value < threshold;
+    case '>=':
+      return value >= threshold;
+    case '<=':
+      return value <= threshold;
+    case '=':
+      return value === threshold;
+    case '<>':
+    case '!=':
+      return value !== threshold;
+    default:
+      return false;
   }
 }
 

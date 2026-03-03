@@ -369,7 +369,10 @@ export interface SheetToTxtOptions {
  * Convert a Worksheet to a tab-separated text string.
  */
 export function sheetToTxt(ws: Worksheet, opts?: SheetToTxtOptions): string {
-  return sheetToCsv(ws, { separator: '\t', ...(opts?.sheetRows !== undefined && { sheetRows: opts.sheetRows }) });
+  return sheetToCsv(ws, {
+    separator: '\t',
+    ...(opts?.sheetRows !== undefined && { sheetRows: opts.sheetRows }),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -389,9 +392,8 @@ export function sheetToFormulae(ws: Worksheet): string[] {
       if (cell.formula) {
         result.push(`${cell.reference}='${cell.formula}`);
       } else if (cell.value != null) {
-        const val = cell.cellType === 'number' || cell.cellType === 'boolean'
-          ? cell.value
-          : `'${cell.value}`;
+        const val =
+          cell.cellType === 'number' || cell.cellType === 'boolean' ? cell.value : `'${cell.value}`;
         result.push(`${cell.reference}=${val}`);
       }
     }
