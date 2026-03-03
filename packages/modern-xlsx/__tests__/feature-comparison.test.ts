@@ -24,9 +24,9 @@ import {
   isDateFormatCode,
   jsonToSheet,
   letterToColumn,
+  RichTextBuilder,
   readBuffer,
   renderBarcodePNG,
-  RichTextBuilder,
   serialToDate,
   sheetAddAoa,
   sheetAddJson,
@@ -105,9 +105,9 @@ describe('1. File I/O', () => {
     const wb = XLSX.read(modernBuf, { type: 'buffer' });
     expect(wb.SheetNames).toContain('Sheet1');
 
-    const ws = wb.Sheets['Sheet1']!;
-    expect(ws['A1']?.v).toBe('Name');
-    expect(ws['B2']?.v).toBe(30);
+    const ws = wb.Sheets.Sheet1!;
+    expect(ws.A1?.v).toBe('Name');
+    expect(ws.B2?.v).toBe(30);
   });
 
   it('cross-read roundtrip: SheetJS -> modern-xlsx -> SheetJS', async () => {
@@ -118,8 +118,8 @@ describe('1. File I/O', () => {
     const rewritten = await wb.toBuffer();
     // SheetJS reads the re-written buffer
     const wb2 = XLSX.read(rewritten, { type: 'buffer' });
-    expect(wb2.Sheets['Sheet1']!['A2']?.v).toBe('Alice');
-    expect(wb2.Sheets['Sheet1']!['B2']?.v).toBe(30);
+    expect(wb2.Sheets.Sheet1?.A2?.v).toBe('Alice');
+    expect(wb2.Sheets.Sheet1?.B2?.v).toBe(30);
   });
 });
 
@@ -196,8 +196,8 @@ describe('3. Cell Operations', () => {
 
     // SheetJS
     const xlsxWs = XLSX.utils.aoa_to_sheet(data);
-    expect(xlsxWs['A1']?.t).toBe('s');
-    expect(xlsxWs['A1']?.v).toBe('hello');
+    expect(xlsxWs.A1?.t).toBe('s');
+    expect(xlsxWs.A1?.v).toBe('hello');
 
     // modern-xlsx
     const wb = new Workbook();
@@ -215,8 +215,8 @@ describe('3. Cell Operations', () => {
   it('both handle number cells', async () => {
     // SheetJS
     const xlsxWs = XLSX.utils.aoa_to_sheet([[42], [3.14], [-100]]);
-    expect(xlsxWs['A1']?.t).toBe('n');
-    expect(xlsxWs['A1']?.v).toBe(42);
+    expect(xlsxWs.A1?.t).toBe('n');
+    expect(xlsxWs.A1?.v).toBe(42);
 
     // modern-xlsx
     const wb = new Workbook();
@@ -236,8 +236,8 @@ describe('3. Cell Operations', () => {
   it('both handle boolean cells', async () => {
     // SheetJS
     const xlsxWs = XLSX.utils.aoa_to_sheet([[true], [false]]);
-    expect(xlsxWs['A1']?.t).toBe('b');
-    expect(xlsxWs['A1']?.v).toBe(true);
+    expect(xlsxWs.A1?.t).toBe('b');
+    expect(xlsxWs.A1?.v).toBe(true);
 
     // modern-xlsx
     const wb = new Workbook();
@@ -288,7 +288,7 @@ describe('3. Cell Operations', () => {
 
     // SheetJS
     const xlsxWs = XLSX.utils.aoa_to_sheet(unicodes.map((s) => [s]));
-    expect(xlsxWs['A1']?.v).toBe('🎉 celebration');
+    expect(xlsxWs.A1?.v).toBe('🎉 celebration');
 
     // modern-xlsx
     const wb = new Workbook();
@@ -310,8 +310,8 @@ describe('4. Formulas', () => {
   it('both write formulas that survive roundtrip', async () => {
     // SheetJS writes formula — verify it stores the formula in-memory
     const xlsxWs = XLSX.utils.aoa_to_sheet([[10], [20]]);
-    xlsxWs['A3'] = { t: 'n', f: 'SUM(A1:A2)' };
-    expect(xlsxWs['A3']?.f).toBe('SUM(A1:A2)');
+    xlsxWs.A3 = { t: 'n', f: 'SUM(A1:A2)' };
+    expect(xlsxWs.A3?.f).toBe('SUM(A1:A2)');
     const xlsxWb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(xlsxWb, xlsxWs, 'Sheet1');
 
@@ -332,7 +332,7 @@ describe('4. Formulas', () => {
 
     // SheetJS can read modern-xlsx formulas
     const xlsxWb3 = XLSX.read(buf, { type: 'buffer' });
-    expect(xlsxWb3.Sheets['Formulas']!['A3']?.f).toBe('SUM(A1:A2)');
+    expect(xlsxWb3.Sheets.Formulas?.A3?.f).toBe('SUM(A1:A2)');
   });
 
   it('modern-xlsx formula with cached value', async () => {
@@ -385,7 +385,7 @@ describe('5. Merge Cells', () => {
 
     // SheetJS can read modern-xlsx merges
     const xlsxWb2 = XLSX.read(buf, { type: 'buffer' });
-    const merges = xlsxWb2.Sheets['Merges']!['!merges'] ?? [];
+    const merges = xlsxWb2.Sheets.Merges?.['!merges'] ?? [];
     expect(merges.length).toBe(2);
   });
 
@@ -481,14 +481,17 @@ describe('7. Frozen Panes', () => {
 
     // SheetJS can read the freeze
     const xlsxWb = XLSX.read(buf, { type: 'buffer' });
-    const views = xlsxWb.Sheets['Frozen']!['!freeze'];
+    const _views = xlsxWb.Sheets.Frozen?.['!freeze'];
     // SheetJS stores freeze info differently, but the file is valid
     expect(xlsxWb.SheetNames).toContain('Frozen');
   });
 
   it('modern-xlsx reads SheetJS frozen pane', async () => {
     // SheetJS creates a file with frozen pane
-    const xlsxWs = XLSX.utils.aoa_to_sheet([['H1', 'H2'], ['A', 'B']]);
+    const xlsxWs = XLSX.utils.aoa_to_sheet([
+      ['H1', 'H2'],
+      ['A', 'B'],
+    ]);
     xlsxWs['!freeze'] = { xSplit: '1', ySplit: '1' };
     const xlsxWb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(xlsxWb, xlsxWs, 'Sheet1');
@@ -507,7 +510,11 @@ describe('7. Frozen Panes', () => {
 describe('8. Auto Filter', () => {
   it('both set auto filter ranges', async () => {
     // SheetJS
-    const xlsxWs = XLSX.utils.aoa_to_sheet([['Name', 'Score'], ['Alice', 95], ['Bob', 87]]);
+    const xlsxWs = XLSX.utils.aoa_to_sheet([
+      ['Name', 'Score'],
+      ['Alice', 95],
+      ['Bob', 87],
+    ]);
     xlsxWs['!autofilter'] = { ref: 'A1:B3' };
     const xlsxWb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(xlsxWb, xlsxWs, 'Sheet1');
@@ -532,7 +539,7 @@ describe('8. Auto Filter', () => {
 
     // SheetJS reads modern-xlsx autofilter
     const xlsxWb2 = XLSX.read(buf, { type: 'buffer' });
-    expect(xlsxWb2.Sheets['Filtered']!['!autofilter']?.ref).toBe('A1:B2');
+    expect(xlsxWb2.Sheets.Filtered?.['!autofilter']?.ref).toBe('A1:B2');
   });
 
   it('modern-xlsx autoFilter can be cleared', () => {
@@ -574,10 +581,10 @@ describe('9. Styling (modern-xlsx advantage)', () => {
     const wb2 = await readBuffer(buf);
     const xf = wb2.styles.cellXfs[headerStyle];
     expect(xf).toBeDefined();
-    expect(wb2.styles.fonts[xf!.fontId]?.bold).toBe(true);
-    expect(wb2.styles.fonts[xf!.fontId]?.size).toBe(14);
-    expect(xf!.alignment?.horizontal).toBe('center');
-    expect(xf!.alignment?.wrapText).toBe(true);
+    expect(wb2.styles.fonts[xf?.fontId]?.bold).toBe(true);
+    expect(wb2.styles.fonts[xf?.fontId]?.size).toBe(14);
+    expect(xf?.alignment?.horizontal).toBe('center');
+    expect(xf?.alignment?.wrapText).toBe(true);
 
     // SheetJS community edition CANNOT set styles (requires Pro)
     // This demonstrates modern-xlsx's key advantage
@@ -613,7 +620,7 @@ describe('9. Styling (modern-xlsx advantage)', () => {
     // SheetJS community edition stores cell data but NOT styles
     const ws = XLSX.utils.aoa_to_sheet([['Hello']]);
     // ws['A1'].s would be the style object, but it's not available in community
-    expect(ws['A1']?.s).toBeUndefined();
+    expect(ws.A1?.s).toBeUndefined();
   });
 });
 
@@ -1029,9 +1036,9 @@ describe('19. Sheet Conversion Utilities', () => {
 
       // SheetJS
       const xlsxWs = XLSX.utils.json_to_sheet(data);
-      expect(xlsxWs['A1']?.v).toBe('name');
-      expect(xlsxWs['A2']?.v).toBe('Alice');
-      expect(xlsxWs['B3']?.v).toBe(25);
+      expect(xlsxWs.A1?.v).toBe('name');
+      expect(xlsxWs.A2?.v).toBe('Alice');
+      expect(xlsxWs.B3?.v).toBe(25);
     });
 
     it('both convert sheet to JSON', () => {
@@ -1076,8 +1083,8 @@ describe('19. Sheet Conversion Utilities', () => {
 
       // SheetJS
       const xlsxWs = XLSX.utils.aoa_to_sheet(aoa);
-      expect(xlsxWs['A1']?.v).toBe('Name');
-      expect(xlsxWs['B2']?.v).toBe(30);
+      expect(xlsxWs.A1?.v).toBe('Name');
+      expect(xlsxWs.B2?.v).toBe(30);
     });
 
     it('modern-xlsx aoaToSheet with origin offset', () => {
@@ -1090,20 +1097,29 @@ describe('19. Sheet Conversion Utilities', () => {
   describe('19c. Sheet to CSV', () => {
     it('both convert sheet to CSV', () => {
       // modern-xlsx
-      const modernWs = aoaToSheet([['A', 'B'], [1, 2]]);
+      const modernWs = aoaToSheet([
+        ['A', 'B'],
+        [1, 2],
+      ]);
       const modernCsv = sheetToCsv(modernWs);
       expect(modernCsv).toContain('A,B');
       expect(modernCsv).toContain('1,2');
 
       // SheetJS
-      const xlsxWs = XLSX.utils.aoa_to_sheet([['A', 'B'], [1, 2]]);
+      const xlsxWs = XLSX.utils.aoa_to_sheet([
+        ['A', 'B'],
+        [1, 2],
+      ]);
       const xlsxCsv = XLSX.utils.sheet_to_csv(xlsxWs);
       expect(xlsxCsv).toContain('A,B');
       expect(xlsxCsv).toContain('1,2');
     });
 
     it('modern-xlsx sheetToCsv with custom separator', () => {
-      const ws = aoaToSheet([['A', 'B'], [1, 2]]);
+      const ws = aoaToSheet([
+        ['A', 'B'],
+        [1, 2],
+      ]);
       const tsv = sheetToCsv(ws, { separator: '\t' });
       expect(tsv).toContain('A\tB');
     });
@@ -1117,7 +1133,10 @@ describe('19. Sheet Conversion Utilities', () => {
 
   describe('19d. Sheet to HTML (modern-xlsx only)', () => {
     it('modern-xlsx converts sheet to HTML table', () => {
-      const ws = aoaToSheet([['Name', 'Score'], ['Alice', 95]]);
+      const ws = aoaToSheet([
+        ['Name', 'Score'],
+        ['Alice', 95],
+      ]);
       const html = sheetToHtml(ws);
       expect(html).toContain('<table>');
       expect(html).toContain('<td>Name</td>');
@@ -1125,7 +1144,10 @@ describe('19. Sheet Conversion Utilities', () => {
     });
 
     it('modern-xlsx sheetToHtml with header option', () => {
-      const ws = aoaToSheet([['Name', 'Score'], ['Alice', 95]]);
+      const ws = aoaToSheet([
+        ['Name', 'Score'],
+        ['Alice', 95],
+      ]);
       const html = sheetToHtml(ws, { header: true });
       expect(html).toContain('<thead>');
       expect(html).toContain('<th>Name</th>');
@@ -1213,7 +1235,7 @@ describe('22. Barcode & QR Code (modern-xlsx exclusive)', () => {
     expect(matrix.width).toBeGreaterThan(0);
     expect(matrix.height).toBeGreaterThan(0);
     expect(matrix.modules.length).toBe(matrix.height);
-    expect(matrix.modules[0]!.length).toBe(matrix.width);
+    expect(matrix.modules[0]?.length).toBe(matrix.width);
   });
 
   it('renderBarcodePNG produces valid PNG bytes', () => {
@@ -1231,12 +1253,10 @@ describe('22. Barcode & QR Code (modern-xlsx exclusive)', () => {
   it('addBarcode embeds QR code as image in XLSX', async () => {
     const wb = new Workbook();
     wb.addSheet('QR');
-    wb.addBarcode(
-      'QR',
-      { fromCol: 0, fromRow: 0, toCol: 4, toRow: 4 },
-      'https://example.com',
-      { type: 'qr', ecLevel: 'M' },
-    );
+    wb.addBarcode('QR', { fromCol: 0, fromRow: 0, toCol: 4, toRow: 4 }, 'https://example.com', {
+      type: 'qr',
+      ecLevel: 'M',
+    });
 
     const buf = await wb.toBuffer();
     expect(buf.length).toBeGreaterThan(0);
@@ -1370,7 +1390,9 @@ describe('25. Performance Comparison', () => {
 
     console.log('[Feature Comparison — Write 10K rows x 10 cols]');
     console.log(`  modern-xlsx: ${modernTime.toFixed(1)}ms (${(buf.length / 1024).toFixed(0)}KB)`);
-    console.log(`  SheetJS:     ${xlsxTime.toFixed(1)}ms (${(xlsxBuf.length / 1024).toFixed(0)}KB)`);
+    console.log(
+      `  SheetJS:     ${xlsxTime.toFixed(1)}ms (${(xlsxBuf.length / 1024).toFixed(0)}KB)`,
+    );
     console.log(`  Ratio:       ${(xlsxTime / modernTime).toFixed(2)}x`);
 
     expect(buf.length).toBeGreaterThan(0);
@@ -1497,7 +1519,9 @@ describe('25. Performance Comparison', () => {
 
     console.log('[Feature Comparison — sheetToCsv 10K rows x 10 cols]');
     console.log(`  modern-xlsx: ${modernTime.toFixed(1)}ms (${(csv.length / 1024).toFixed(0)}KB)`);
-    console.log(`  SheetJS:     ${xlsxTime.toFixed(1)}ms (${(xlsxCsv.length / 1024).toFixed(0)}KB)`);
+    console.log(
+      `  SheetJS:     ${xlsxTime.toFixed(1)}ms (${(xlsxCsv.length / 1024).toFixed(0)}KB)`,
+    );
     console.log(`  Ratio:       ${(xlsxTime / modernTime).toFixed(2)}x`);
 
     expect(csv.length).toBeGreaterThan(0);
@@ -1527,16 +1551,28 @@ describe('26. Exhaustive Feature Matrix', () => {
     console.log(`  ${'─'.repeat(40)} ${'─'.repeat(11)} ${'─'.repeat(9)} ${'─'.repeat(30)}`);
     for (const r of rows) {
       const notes = r.notes ?? '';
-      console.log(`  ${r.feature.padEnd(40)} ${r.modern.padEnd(11)} ${r.sheetjs.padEnd(9)} ${notes}`);
+      console.log(
+        `  ${r.feature.padEnd(40)} ${r.modern.padEnd(11)} ${r.sheetjs.padEnd(9)} ${notes}`,
+      );
     }
   }
 
   it('1. Read Format Support (20 formats)', () => {
     const rows: FeatureRow[] = [
       { feature: 'XLSX (Office Open XML)', modern: '✅', sheetjs: '✅' },
-      { feature: 'XLSM (Macro-enabled)', modern: '❌', sheetjs: '✅', notes: 'Data only, no macros' },
+      {
+        feature: 'XLSM (Macro-enabled)',
+        modern: '❌',
+        sheetjs: '✅',
+        notes: 'Data only, no macros',
+      },
       { feature: 'XLSB (Binary)', modern: '❌', sheetjs: '✅' },
-      { feature: 'XLS (BIFF8/5/4/3/2)', modern: '❌', sheetjs: '✅', notes: 'Legacy Excel 97-2003' },
+      {
+        feature: 'XLS (BIFF8/5/4/3/2)',
+        modern: '❌',
+        sheetjs: '✅',
+        notes: 'Legacy Excel 97-2003',
+      },
       { feature: 'XLML (SpreadsheetML 2003)', modern: '❌', sheetjs: '✅' },
       { feature: 'ODS (OpenDocument)', modern: '❌', sheetjs: '✅' },
       { feature: 'FODS (Flat ODS)', modern: '❌', sheetjs: '✅' },
@@ -1587,17 +1623,32 @@ describe('26. Exhaustive Feature Matrix', () => {
     const rows: FeatureRow[] = [
       { feature: 'Read from Uint8Array/Buffer', modern: '✅', sheetjs: '✅' },
       { feature: 'Read from file path', modern: '✅', sheetjs: '✅' },
-      { feature: 'Read from file (sync)', modern: '❌', sheetjs: '✅', notes: 'modern-xlsx: async-only' },
+      {
+        feature: 'Read from file (sync)',
+        modern: '❌',
+        sheetjs: '✅',
+        notes: 'modern-xlsx: async-only',
+      },
       { feature: 'Write to Uint8Array/Buffer', modern: '✅', sheetjs: '✅' },
       { feature: 'Write to file', modern: '✅', sheetjs: '✅' },
       { feature: 'Write to file (sync)', modern: '❌', sheetjs: '✅' },
       { feature: 'Write to file (async)', modern: '✅', sheetjs: '✅' },
-      { feature: 'Write to Blob (browser)', modern: '⭐', sheetjs: '✅', notes: 'modern-xlsx: native WASM Blob' },
+      {
+        feature: 'Write to Blob (browser)',
+        modern: '⭐',
+        sheetjs: '✅',
+        notes: 'modern-xlsx: native WASM Blob',
+      },
       { feature: 'Parse CFB containers', modern: '❌', sheetjs: '✅' },
       { feature: 'Parse ZIP directly', modern: '❌', sheetjs: '✅' },
       { feature: 'Set custom FS module', modern: '❌', sheetjs: '✅' },
       { feature: 'Set codepage tables', modern: '❌', sheetjs: '✅' },
-      { feature: 'WASM initialization', modern: '⭐', sheetjs: '❌', notes: 'Zero-copy acceleration' },
+      {
+        feature: 'WASM initialization',
+        modern: '⭐',
+        sheetjs: '❌',
+        notes: 'Zero-copy acceleration',
+      },
       { feature: 'WASM sync init', modern: '✅', sheetjs: '❌' },
     ];
     printTable('I/O OPERATIONS', rows);
@@ -1608,15 +1659,30 @@ describe('26. Exhaustive Feature Matrix', () => {
     const rows: FeatureRow[] = [
       { feature: 'Create new workbook', modern: '✅', sheetjs: '✅' },
       { feature: 'Get sheet names', modern: '✅', sheetjs: '✅' },
-      { feature: 'Get sheet count', modern: '✅', sheetjs: '🔧', notes: 'SheetJS: .SheetNames.length' },
+      {
+        feature: 'Get sheet count',
+        modern: '✅',
+        sheetjs: '🔧',
+        notes: 'SheetJS: .SheetNames.length',
+      },
       { feature: 'Get sheet by name', modern: '✅', sheetjs: '✅' },
       { feature: 'Get sheet by index', modern: '✅', sheetjs: '🔧' },
       { feature: 'Add sheet', modern: '✅', sheetjs: '✅' },
       { feature: 'Remove sheet', modern: '✅', sheetjs: '❌', notes: 'SheetJS: manual splice' },
       { feature: 'Sheet visibility', modern: '❌', sheetjs: '✅' },
       { feature: 'Date system (1900/1904)', modern: '✅', sheetjs: '✅' },
-      { feature: 'Workbook views', modern: '⭐', sheetjs: '🔧', notes: 'modern-xlsx: typed interface' },
-      { feature: 'Document properties', modern: '⭐', sheetjs: '🔧', notes: 'modern-xlsx: typed interface' },
+      {
+        feature: 'Workbook views',
+        modern: '⭐',
+        sheetjs: '🔧',
+        notes: 'modern-xlsx: typed interface',
+      },
+      {
+        feature: 'Document properties',
+        modern: '⭐',
+        sheetjs: '🔧',
+        notes: 'modern-xlsx: typed interface',
+      },
       { feature: 'Serialize to JSON', modern: '✅', sheetjs: '❌' },
       { feature: 'Validate workbook', modern: '⭐', sheetjs: '❌' },
       { feature: 'Repair workbook', modern: '⭐', sheetjs: '❌' },
@@ -1628,16 +1694,21 @@ describe('26. Exhaustive Feature Matrix', () => {
   it('5. Worksheet Operations (11 features)', () => {
     const rows: FeatureRow[] = [
       { feature: 'Create new sheet', modern: '✅', sheetjs: '✅' },
-      { feature: 'Sheet name property', modern: '✅', sheetjs: '❌', notes: 'SheetJS: via SheetNames[]' },
+      {
+        feature: 'Sheet name property',
+        modern: '✅',
+        sheetjs: '❌',
+        notes: 'SheetJS: via SheetNames[]',
+      },
       { feature: 'Access typed rows', modern: '⭐', sheetjs: '❌', notes: 'Typed RowData[]' },
       { feature: 'Access columns', modern: '✅', sheetjs: '✅' },
       { feature: 'Set column width', modern: '✅', sheetjs: '🔧' },
       { feature: 'Set row height', modern: '✅', sheetjs: '🔧' },
       { feature: 'Hide row', modern: '✅', sheetjs: '🔧' },
       { feature: 'Hide column', modern: '🔧', sheetjs: '🔧' },
-      { feature: 'Sheet used range (!ref)', modern: '❌', sheetjs: '✅' },
+      { feature: 'Sheet used range (!ref)', modern: '✅', sheetjs: '✅' },
       { feature: 'Outline / grouping', modern: '❌', sheetjs: '🔧' },
-      { feature: 'Sheet tab color', modern: '❌', sheetjs: '🔧' },
+      { feature: 'Sheet tab color', modern: '✅', sheetjs: '🔧' },
     ];
     printTable('WORKSHEET OPERATIONS', rows);
     expect(rows.length).toBe(11);
@@ -1651,16 +1722,36 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'Number values', modern: '✅', sheetjs: '✅' },
       { feature: 'Boolean values', modern: '✅', sheetjs: '✅' },
       { feature: 'Error values', modern: '✅', sheetjs: '✅' },
-      { feature: 'Date values (native type)', modern: '❌', sheetjs: '✅', notes: 'SheetJS: type "d"' },
-      { feature: 'Stub/empty cells (type "z")', modern: '❌', sheetjs: '✅' },
+      {
+        feature: 'Date values (native type)',
+        modern: '✅',
+        sheetjs: '✅',
+        notes: 'cell.dateValue getter',
+      },
+      { feature: 'Stub/empty cells (type "z")', modern: '✅', sheetjs: '✅' },
       { feature: 'Inline strings', modern: '✅', sheetjs: '❌' },
       { feature: 'Formula strings (type)', modern: '✅', sheetjs: '❌' },
-      { feature: 'Cell type field', modern: '⭐', sheetjs: '✅', notes: 'modern-xlsx: semantic types' },
-      { feature: 'Cell reference field', modern: '✅', sheetjs: '❌', notes: 'Implicit from key in SheetJS' },
+      {
+        feature: 'Cell type field',
+        modern: '⭐',
+        sheetjs: '✅',
+        notes: 'modern-xlsx: semantic types',
+      },
+      {
+        feature: 'Cell reference field',
+        modern: '✅',
+        sheetjs: '❌',
+        notes: 'Implicit from key in SheetJS',
+      },
       { feature: 'Style index', modern: '⭐', sheetjs: '🔒', notes: 'SheetJS: Pro only (.s)' },
       { feature: 'Formatted text', modern: '✅', sheetjs: '✅' },
       { feature: 'Rich text (in cell)', modern: '🔧', sheetjs: '✅', notes: 'SheetJS: HTML in .r' },
-      { feature: 'Number format override', modern: '🔧', sheetjs: '✅', notes: 'SheetJS: per-cell .z' },
+      {
+        feature: 'Number format override',
+        modern: '✅',
+        sheetjs: '✅',
+        notes: 'cell.numberFormat getter',
+      },
     ];
     printTable('CELL OPERATIONS', rows);
     expect(rows.length).toBe(16);
@@ -1671,9 +1762,9 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'Simple formulas', modern: '✅', sheetjs: '✅' },
       { feature: 'Array formulas', modern: '✅', sheetjs: '✅' },
       { feature: 'Shared formulas', modern: '✅', sheetjs: '❌' },
-      { feature: 'Dynamic array (SPILL)', modern: '❌', sheetjs: '✅', notes: 'SheetJS: .D flag' },
+      { feature: 'Dynamic array (SPILL)', modern: '✅', sheetjs: '✅', notes: 'cm="1" attribute' },
       { feature: 'Formula reference (range)', modern: '✅', sheetjs: '✅' },
-      { feature: 'Sheet to formulae', modern: '❌', sheetjs: '✅' },
+      { feature: 'Sheet to formulae', modern: '✅', sheetjs: '✅' },
       { feature: 'Calc chain', modern: '⭐', sheetjs: '🔧', notes: 'modern-xlsx: typed array' },
     ];
     printTable('FORMULAS', rows);
@@ -1692,7 +1783,12 @@ describe('26. Exhaustive Feature Matrix', () => {
 
   it('9. Styling (30 features)', () => {
     const rows: FeatureRow[] = [
-      { feature: 'Style system', modern: '⭐', sheetjs: '🔒', notes: 'modern-xlsx FREE; SheetJS PAID' },
+      {
+        feature: 'Style system',
+        modern: '⭐',
+        sheetjs: '🔒',
+        notes: 'modern-xlsx FREE; SheetJS PAID',
+      },
       { feature: 'Style builder (fluent API)', modern: '⭐', sheetjs: '❌' },
       { feature: 'Font (name, size, bold, italic)', modern: '⭐', sheetjs: '🔒' },
       { feature: 'Font color', modern: '⭐', sheetjs: '🔒' },
@@ -1712,7 +1808,12 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'Alignment (indent)', modern: '⭐', sheetjs: '🔒' },
       { feature: 'Alignment (shrink to fit)', modern: '⭐', sheetjs: '🔒' },
       { feature: 'Cell protection (locked/hidden)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Number format (custom)', modern: '⭐', sheetjs: '✅', notes: 'SheetJS: per-cell .z' },
+      {
+        feature: 'Number format (custom)',
+        modern: '⭐',
+        sheetjs: '✅',
+        notes: 'SheetJS: per-cell .z',
+      },
       { feature: 'Number format (built-in table)', modern: '⭐', sheetjs: '✅' },
       { feature: 'DXF styles (differential)', modern: '⭐', sheetjs: '❌' },
       { feature: 'Cell styles (named)', modern: '⭐', sheetjs: '❌' },
@@ -1758,7 +1859,12 @@ describe('26. Exhaustive Feature Matrix', () => {
 
   it('12. Conditional Formatting (7 features)', () => {
     const rows: FeatureRow[] = [
-      { feature: 'Conditional format rules', modern: '⭐', sheetjs: '🔒', notes: 'modern-xlsx FREE' },
+      {
+        feature: 'Conditional format rules',
+        modern: '⭐',
+        sheetjs: '🔒',
+        notes: 'modern-xlsx FREE',
+      },
       { feature: 'Color scales (2/3 color)', modern: '⭐', sheetjs: '🔒' },
       { feature: 'Data bars', modern: '⭐', sheetjs: '🔒' },
       { feature: 'Icon sets', modern: '⭐', sheetjs: '🔒' },
@@ -1777,7 +1883,12 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'Link display text', modern: '✅', sheetjs: '🔧' },
       { feature: 'Link tooltip', modern: '✅', sheetjs: '❌' },
       { feature: 'Remove hyperlink', modern: '✅', sheetjs: '❌' },
-      { feature: 'Get all hyperlinks', modern: '✅', sheetjs: '🔧', notes: 'SheetJS: cell .l property' },
+      {
+        feature: 'Get all hyperlinks',
+        modern: '✅',
+        sheetjs: '🔧',
+        notes: 'SheetJS: cell .l property',
+      },
     ];
     printTable('HYPERLINKS', rows);
     expect(rows.length).toBe(6);
@@ -1797,7 +1908,12 @@ describe('26. Exhaustive Feature Matrix', () => {
 
   it('15. Named Ranges (5 features)', () => {
     const rows: FeatureRow[] = [
-      { feature: 'Get all named ranges', modern: '⭐', sheetjs: '🔧', notes: 'modern-xlsx: typed array' },
+      {
+        feature: 'Get all named ranges',
+        modern: '⭐',
+        sheetjs: '🔧',
+        notes: 'modern-xlsx: typed array',
+      },
       { feature: 'Add named range', modern: '✅', sheetjs: '❌' },
       { feature: 'Get named range by name', modern: '✅', sheetjs: '❌' },
       { feature: 'Remove named range', modern: '✅', sheetjs: '❌' },
@@ -1845,7 +1961,7 @@ describe('26. Exhaustive Feature Matrix', () => {
     expect(rows.length).toBe(15);
   });
 
-  it('18. Document Properties (12 features)', () => {
+  it('18. Document Properties (15 features)', () => {
     const rows: FeatureRow[] = [
       { feature: 'Title', modern: '✅', sheetjs: '✅' },
       { feature: 'Creator / Author', modern: '✅', sheetjs: '✅' },
@@ -1855,13 +1971,16 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'Keywords', modern: '✅', sheetjs: '✅' },
       { feature: 'Category', modern: '✅', sheetjs: '✅' },
       { feature: 'Last modified by', modern: '✅', sheetjs: '✅' },
-      { feature: 'Application name', modern: '❌', sheetjs: '✅' },
-      { feature: 'App version', modern: '❌', sheetjs: '✅' },
-      { feature: 'Company', modern: '❌', sheetjs: '✅' },
-      { feature: 'Manager', modern: '❌', sheetjs: '✅' },
+      { feature: 'Application name', modern: '✅', sheetjs: '✅' },
+      { feature: 'App version', modern: '✅', sheetjs: '✅' },
+      { feature: 'Company', modern: '✅', sheetjs: '✅' },
+      { feature: 'Manager', modern: '✅', sheetjs: '✅' },
+      { feature: 'Hyperlink base', modern: '✅', sheetjs: '❌' },
+      { feature: 'Revision', modern: '✅', sheetjs: '❌' },
+      { feature: 'Content status', modern: '✅', sheetjs: '❌' },
     ];
     printTable('DOCUMENT PROPERTIES', rows);
-    expect(rows.length).toBe(12);
+    expect(rows.length).toBe(15);
   });
 
   it('19. Cell Reference Utilities (9 features)', () => {
@@ -1872,9 +1991,9 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'Encode cell ref', modern: '✅', sheetjs: '✅' },
       { feature: 'Decode range', modern: '✅', sheetjs: '✅' },
       { feature: 'Encode range', modern: '✅', sheetjs: '✅' },
-      { feature: 'Encode row', modern: '❌', sheetjs: '✅' },
-      { feature: 'Decode row', modern: '❌', sheetjs: '✅' },
-      { feature: 'Split cell ref ($A$1)', modern: '❌', sheetjs: '✅' },
+      { feature: 'Encode row', modern: '✅', sheetjs: '✅' },
+      { feature: 'Decode row', modern: '✅', sheetjs: '✅' },
+      { feature: 'Split cell ref ($A$1)', modern: '✅', sheetjs: '✅' },
     ];
     printTable('CELL REFERENCE UTILITIES', rows);
     expect(rows.length).toBe(9);
@@ -1882,7 +2001,12 @@ describe('26. Exhaustive Feature Matrix', () => {
 
   it('20. Date Utilities (7 features)', () => {
     const rows: FeatureRow[] = [
-      { feature: 'Date → serial number', modern: '⭐', sheetjs: '❌', notes: 'Temporal-like input' },
+      {
+        feature: 'Date → serial number',
+        modern: '⭐',
+        sheetjs: '❌',
+        notes: 'Temporal-like input',
+      },
       { feature: 'Serial → Date', modern: '⭐', sheetjs: '❌' },
       { feature: 'Is date format code', modern: '⭐', sheetjs: '✅' },
       { feature: 'Is date format ID', modern: '⭐', sheetjs: '🔧' },
@@ -1894,22 +2018,24 @@ describe('26. Exhaustive Feature Matrix', () => {
     expect(rows.length).toBe(7);
   });
 
-  it('21. Number Formatting / SSF (11 features)', () => {
+  it('21. Number Formatting / SSF (13 features)', () => {
     const rows: FeatureRow[] = [
       { feature: 'Format cell value', modern: '✅', sheetjs: '✅' },
       { feature: 'Built-in format table', modern: '✅', sheetjs: '✅' },
-      { feature: 'Load custom format', modern: '❌', sheetjs: '✅' },
-      { feature: 'Load format table (bulk)', modern: '❌', sheetjs: '✅' },
+      { feature: 'Load custom format', modern: '✅', sheetjs: '✅' },
+      { feature: 'Load format table (bulk)', modern: '✅', sheetjs: '✅' },
       { feature: 'General format', modern: '✅', sheetjs: '✅' },
       { feature: 'Number/percentage/scientific', modern: '✅', sheetjs: '✅' },
       { feature: 'Fraction formats', modern: '✅', sheetjs: '✅' },
       { feature: 'Date/time formats', modern: '✅', sheetjs: '✅' },
       { feature: 'Multi-section formats', modern: '✅', sheetjs: '✅' },
       { feature: 'Locale codes ([$-409])', modern: '🔧', sheetjs: '✅' },
-      { feature: 'Conditional sections', modern: '🔧', sheetjs: '✅' },
+      { feature: 'Conditional sections', modern: '✅', sheetjs: '✅' },
+      { feature: 'Color codes ([Red], [Color3])', modern: '✅', sheetjs: '✅' },
+      { feature: 'Rich format result (text+color)', modern: '⭐', sheetjs: '❌', notes: 'formatCellRich()' },
     ];
     printTable('NUMBER FORMATTING (SSF)', rows);
-    expect(rows.length).toBe(11);
+    expect(rows.length).toBe(13);
   });
 
   it('22. Sheet Conversion Utilities (16 features)', () => {
@@ -1919,8 +2045,8 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'Sheet → JSON', modern: '✅', sheetjs: '✅' },
       { feature: 'Sheet → CSV', modern: '✅', sheetjs: '✅' },
       { feature: 'Sheet → HTML', modern: '✅', sheetjs: '✅' },
-      { feature: 'Sheet → TXT', modern: '❌', sheetjs: '✅' },
-      { feature: 'Sheet → formulae', modern: '❌', sheetjs: '✅' },
+      { feature: 'Sheet → TXT', modern: '✅', sheetjs: '✅' },
+      { feature: 'Sheet → formulae', modern: '✅', sheetjs: '✅' },
       { feature: 'Sheet → row objects (alias)', modern: '❌', sheetjs: '✅' },
       { feature: 'Add AoA to existing sheet', modern: '✅', sheetjs: '✅' },
       { feature: 'Add JSON to existing sheet', modern: '✅', sheetjs: '✅' },
@@ -1943,7 +2069,12 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'Stream to XLML', modern: '❌', sheetjs: '✅' },
       { feature: 'Set Readable impl', modern: '❌', sheetjs: '✅' },
       { feature: 'WASM streaming reader', modern: '⭐', sheetjs: '❌', notes: 'Rust SAX parser' },
-      { feature: 'Parallel sheet parsing', modern: '⭐', sheetjs: '❌', notes: 'rayon feature flag' },
+      {
+        feature: 'Parallel sheet parsing',
+        modern: '⭐',
+        sheetjs: '❌',
+        notes: 'rayon feature flag',
+      },
     ];
     printTable('STREAMING', rows);
     expect(rows.length).toBe(7);
@@ -1968,9 +2099,19 @@ describe('26. Exhaustive Feature Matrix', () => {
 
   it('25. Images & Charts (7 features)', () => {
     const rows: FeatureRow[] = [
-      { feature: 'Add image (PNG/JPEG/GIF)', modern: '⭐', sheetjs: '🔒', notes: 'modern-xlsx FREE' },
+      {
+        feature: 'Add image (PNG/JPEG/GIF)',
+        modern: '⭐',
+        sheetjs: '🔒',
+        notes: 'modern-xlsx FREE',
+      },
       { feature: 'Image anchor (cell range)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Charts (read/preserve)', modern: '🔧', sheetjs: '🔒', notes: 'Passthrough roundtrip' },
+      {
+        feature: 'Charts (read/preserve)',
+        modern: '🔧',
+        sheetjs: '🔒',
+        notes: 'Passthrough roundtrip',
+      },
       { feature: 'Charts (create)', modern: '❌', sheetjs: '🔒' },
       { feature: 'Drawings (roundtrip)', modern: '✅', sheetjs: '🔒' },
       { feature: 'Tables (read)', modern: '❌', sheetjs: '🔒' },
@@ -2022,7 +2163,12 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'SST write', modern: '✅', sheetjs: '✅' },
       { feature: 'Rich text runs in SST', modern: '✅', sheetjs: '✅' },
       { feature: 'SST deduplication', modern: '✅', sheetjs: '✅' },
-      { feature: 'SST index auto-resolution', modern: '⭐', sheetjs: '✅', notes: 'Transparent in readBuffer' },
+      {
+        feature: 'SST index auto-resolution',
+        modern: '⭐',
+        sheetjs: '✅',
+        notes: 'Transparent in readBuffer',
+      },
     ];
     printTable('SHARED STRINGS (SST)', rows);
     expect(rows.length).toBe(5);
@@ -2043,7 +2189,12 @@ describe('26. Exhaustive Feature Matrix', () => {
 
   it('30. Web Worker Support (4 features)', () => {
     const rows: FeatureRow[] = [
-      { feature: 'Dedicated worker API', modern: '⭐', sheetjs: '❌', notes: 'UNIQUE to modern-xlsx' },
+      {
+        feature: 'Dedicated worker API',
+        modern: '⭐',
+        sheetjs: '❌',
+        notes: 'UNIQUE to modern-xlsx',
+      },
       { feature: 'Worker options', modern: '⭐', sheetjs: '❌' },
       { feature: 'Off-main-thread processing', modern: '⭐', sheetjs: '❌' },
       { feature: 'Transferable buffers', modern: '⭐', sheetjs: '❌' },
@@ -2064,9 +2215,19 @@ describe('26. Exhaustive Feature Matrix', () => {
       { feature: 'sheetToJson (10K rows)', modern: '⭐', sheetjs: '✅', notes: '~2x faster' },
       { feature: 'sheetToCsv (10K rows)', modern: '⭐', sheetjs: '✅', notes: '~2.4x faster' },
       { feature: 'Tree-shakeable (ESM)', modern: '✅', sheetjs: '🔧' },
-      { feature: 'Zero runtime deps', modern: '⭐', sheetjs: '❌', notes: 'SheetJS bundles CFB, SSF' },
+      {
+        feature: 'Zero runtime deps',
+        modern: '⭐',
+        sheetjs: '❌',
+        notes: 'SheetJS bundles CFB, SSF',
+      },
       { feature: 'TypeScript types', modern: '⭐', sheetjs: '🔧', notes: '109+ exported types' },
-      { feature: 'Bundle size (minified)', modern: '🔧', sheetjs: '✅', notes: '~300KB WASM vs ~200KB JS' },
+      {
+        feature: 'Bundle size (minified)',
+        modern: '🔧',
+        sheetjs: '✅',
+        notes: '~300KB WASM vs ~200KB JS',
+      },
       { feature: 'Async-first', modern: '✅', sheetjs: '❌' },
       { feature: 'Sync API', modern: '❌', sheetjs: '✅' },
       { feature: 'Browser support', modern: '✅', sheetjs: '✅' },
@@ -2098,9 +2259,9 @@ describe('26. Exhaustive Feature Matrix', () => {
       { category: 'Write format support', modern: 1, sheetjs: 20, winner: 'SheetJS' },
       { category: 'I/O operations', modern: 8, sheetjs: 10, winner: 'SheetJS' },
       { category: 'Workbook operations', modern: 13, sheetjs: 8, winner: 'modern-xlsx' },
-      { category: 'Worksheet operations', modern: 7, sheetjs: 7, winner: 'Tie' },
-      { category: 'Cell operations', modern: 12, sheetjs: 12, winner: 'Tie' },
-      { category: 'Formulas', modern: 5, sheetjs: 5, winner: 'Tie' },
+      { category: 'Worksheet operations', modern: 9, sheetjs: 7, winner: 'modern-xlsx' },
+      { category: 'Cell operations', modern: 15, sheetjs: 12, winner: 'modern-xlsx' },
+      { category: 'Formulas', modern: 7, sheetjs: 5, winner: 'modern-xlsx' },
       { category: 'Merge cells', modern: 3, sheetjs: 2, winner: 'modern-xlsx' },
       { category: 'Styling (free)', modern: 27, sheetjs: 2, winner: 'modern-xlsx' },
       { category: 'Frozen panes & auto filter', modern: 6, sheetjs: 5, winner: 'modern-xlsx' },
@@ -2111,11 +2272,11 @@ describe('26. Exhaustive Feature Matrix', () => {
       { category: 'Named ranges', modern: 5, sheetjs: 1, winner: 'modern-xlsx' },
       { category: 'Page setup & print', modern: 6, sheetjs: 2, winner: 'modern-xlsx' },
       { category: 'Sheet protection', modern: 14, sheetjs: 2, winner: 'modern-xlsx' },
-      { category: 'Document properties', modern: 8, sheetjs: 12, winner: 'SheetJS' },
-      { category: 'Cell reference utilities', modern: 6, sheetjs: 9, winner: 'SheetJS' },
+      { category: 'Document properties', modern: 15, sheetjs: 12, winner: 'modern-xlsx' },
+      { category: 'Cell reference utilities', modern: 9, sheetjs: 9, winner: 'Tie' },
       { category: 'Date utilities', modern: 5, sheetjs: 3, winner: 'modern-xlsx' },
-      { category: 'Number formatting (SSF)', modern: 8, sheetjs: 10, winner: 'SheetJS' },
-      { category: 'Sheet conversion utilities', modern: 11, sheetjs: 14, winner: 'SheetJS' },
+      { category: 'Number formatting (SSF)', modern: 13, sheetjs: 11, winner: 'modern-xlsx' },
+      { category: 'Sheet conversion utilities', modern: 13, sheetjs: 14, winner: 'SheetJS' },
       { category: 'Streaming', modern: 2, sheetjs: 5, winner: 'SheetJS' },
       { category: 'Rich text', modern: 9, sheetjs: 2, winner: 'modern-xlsx' },
       { category: 'Images & charts', modern: 3, sheetjs: 0, winner: 'modern-xlsx' },
@@ -2140,7 +2301,12 @@ describe('26. Exhaustive Feature Matrix', () => {
     console.log(`  ${'Category'.padEnd(35)} modern-xlsx  SheetJS   Winner`);
     console.log(`  ${'─'.repeat(35)} ${'─'.repeat(11)} ${'─'.repeat(9)} ${'─'.repeat(15)}`);
     for (const s of scorecard) {
-      const w = s.winner === 'modern-xlsx' ? '⭐ modern-xlsx' : s.winner === 'SheetJS' ? '  SheetJS' : '  Tie';
+      const w =
+        s.winner === 'modern-xlsx'
+          ? '⭐ modern-xlsx'
+          : s.winner === 'SheetJS'
+            ? '  SheetJS'
+            : '  Tie';
       console.log(
         `  ${s.category.padEnd(35)} ${String(s.modern).padEnd(11)} ${String(s.sheetjs).padEnd(9)} ${w}`,
       );
