@@ -81,6 +81,7 @@ fn main() {
         frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+        sheet_view: None,
         columns: Vec::new(),
         data_validations: Vec::new(),
         conditional_formatting: Vec::new(),

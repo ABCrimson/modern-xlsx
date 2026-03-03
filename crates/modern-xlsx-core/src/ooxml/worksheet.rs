@@ -147,6 +147,8 @@ pub struct WorksheetXml {
     pub split_pane: Option<SplitPane>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pane_selections: Vec<PaneSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet_view: Option<SheetViewData>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub columns: Vec<ColumnInfo>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -283,6 +285,79 @@ pub struct PaneSelection {
     /// The selected range, e.g. `"A1:C5"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sqref: Option<String>,
+}
+
+/// Sheet view configuration from `<sheetView>` attributes (ECMA-376 §18.3.1.87).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SheetViewData {
+    /// Whether grid lines are visible (default: true).
+    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    pub show_grid_lines: bool,
+    /// Whether row and column headers are visible (default: true).
+    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    pub show_row_col_headers: bool,
+    /// Whether zero values are displayed (default: true).
+    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    pub show_zeros: bool,
+    /// Right-to-left display mode (default: false).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub right_to_left: bool,
+    /// Whether this sheet tab is selected (default: false).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub tab_selected: bool,
+    /// Whether the ruler is shown in Page Layout view (default: true).
+    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    pub show_ruler: bool,
+    /// Whether outline (grouping) symbols are shown (default: true).
+    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    pub show_outline_symbols: bool,
+    /// Whether white space around the page is shown in Page Layout view (default: true).
+    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    pub show_white_space: bool,
+    /// Whether the default grid color is used (default: true).
+    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    pub default_grid_color: bool,
+    /// Zoom percentage (10-400).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom_scale: Option<u16>,
+    /// Zoom percentage for Normal view.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom_scale_normal: Option<u16>,
+    /// Zoom percentage for Page Layout view.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom_scale_page_layout_view: Option<u16>,
+    /// Zoom percentage for Page Break Preview.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom_scale_sheet_layout_view: Option<u16>,
+    /// Theme color ID for the grid color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_id: Option<u32>,
+    /// View mode: `"normal"`, `"pageBreakPreview"`, or `"pageLayout"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
+}
+
+impl Default for SheetViewData {
+    fn default() -> Self {
+        Self {
+            show_grid_lines: true,
+            show_row_col_headers: true,
+            show_zeros: true,
+            right_to_left: false,
+            tab_selected: false,
+            show_ruler: true,
+            show_outline_symbols: true,
+            show_white_space: true,
+            default_grid_color: true,
+            zoom_scale: None,
+            zoom_scale_normal: None,
+            zoom_scale_page_layout_view: None,
+            zoom_scale_sheet_layout_view: None,
+            color_id: None,
+            view: None,
+        }
+    }
 }
 
 /// Column formatting information from the `<cols>` section.
@@ -1602,6 +1677,7 @@ impl WorksheetXml {
             frozen_pane,
             split_pane,
             pane_selections,
+            sheet_view: None,
             columns,
             data_validations,
             conditional_formatting,
@@ -3969,6 +4045,7 @@ mod tests {
             frozen_pane: Some(FrozenPane { rows: 1, cols: 0 }),
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![ColumnInfo {
                 min: 1,
                 max: 1,
@@ -4068,6 +4145,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: Vec::new(),
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4160,6 +4238,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: Vec::new(),
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4207,6 +4286,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: Vec::new(),
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4292,6 +4372,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![
                 DataValidation {
@@ -4443,6 +4524,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: Vec::new(),
             data_validations: Vec::new(),
             conditional_formatting: vec![
@@ -4554,6 +4636,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4620,6 +4703,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4687,6 +4771,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4802,6 +4887,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -4874,6 +4960,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![DataValidation {
                 sqref: "A1:A10".to_string(),
@@ -4960,6 +5047,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -5022,6 +5110,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![ConditionalFormatting {
@@ -5122,6 +5211,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![ConditionalFormatting {
@@ -5190,6 +5280,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -5228,6 +5319,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -5278,6 +5370,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![
                 ColumnInfo { min: 1, max: 1, width: 10.0, hidden: false, custom_width: true, outline_level: None, collapsed: false },
                 ColumnInfo { min: 2, max: 3, width: 10.0, hidden: false, custom_width: true, outline_level: Some(1), collapsed: false },
@@ -5310,6 +5403,7 @@ mod tests {
             frozen_pane: None,
             split_pane: None,
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -5351,6 +5445,7 @@ mod tests {
                 active_cell: Some("A5".to_owned()),
                 sqref: Some("A5".to_owned()),
             }],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -5392,6 +5487,7 @@ mod tests {
                 PaneSelection { pane: Some("bottomLeft".to_owned()), active_cell: Some("A5".to_owned()), sqref: Some("A5".to_owned()) },
                 PaneSelection { pane: Some("bottomRight".to_owned()), active_cell: Some("D5".to_owned()), sqref: Some("D5".to_owned()) },
             ],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
@@ -5427,6 +5523,7 @@ mod tests {
                 active_pane: Some("bottomLeft".to_owned()),
             }),
             pane_selections: vec![],
+            sheet_view: None,
             columns: vec![],
             data_validations: vec![],
             conditional_formatting: vec![],
