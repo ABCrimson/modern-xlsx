@@ -1,6 +1,13 @@
 export type DateSystem = 'date1900' | 'date1904';
 
-export type CellType = 'sharedString' | 'number' | 'boolean' | 'error' | 'formulaStr' | 'inlineStr';
+export type CellType =
+  | 'sharedString'
+  | 'number'
+  | 'boolean'
+  | 'error'
+  | 'formulaStr'
+  | 'inlineStr'
+  | 'stub';
 
 export type PatternType =
   | 'none'
@@ -51,6 +58,7 @@ export interface CellData {
   formulaRef?: string | null;
   sharedIndex?: number | null;
   inlineString?: string | null;
+  dynamicArray?: boolean | null;
 }
 
 export interface RowData {
@@ -211,6 +219,7 @@ export interface WorksheetData {
   pageSetup?: PageSetupData | null;
   sheetProtection?: SheetProtectionData | null;
   comments?: CommentData[];
+  tabColor?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -379,6 +388,9 @@ export interface DocPropertiesData {
   application?: string | null;
   company?: string | null;
   manager?: string | null;
+  appVersion?: string | null;
+  hyperlinkBase?: string | null;
+  revision?: string | null;
 }
 
 export interface ThemeColorsData {

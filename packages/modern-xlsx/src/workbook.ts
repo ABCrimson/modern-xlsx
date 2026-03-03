@@ -1,6 +1,8 @@
 import type { DrawBarcodeOptions, ImageAnchor } from './barcode.js';
 import { generateBarcode, generateDrawingRels, generateDrawingXml } from './barcode.js';
 import { columnToLetter, decodeCellRef } from './cell-ref.js';
+import { isDateFormatCode, serialToDate } from './dates.js';
+import { getBuiltinFormat } from './format-cell.js';
 import { StyleBuilder } from './style-builder.js';
 import type {
   AutoFilterData,
@@ -112,13 +114,13 @@ export class Workbook {
   /** Returns the worksheet with the given name, or `undefined` if not found. */
   getSheet(name: string): Worksheet | undefined {
     const sheet = this.data.sheets.find((s) => s.name === name);
-    return sheet ? new Worksheet(sheet) : undefined;
+    return sheet ? new Worksheet(sheet, this.data.styles) : undefined;
   }
 
   /** Returns the worksheet at the given 0-based index, or `undefined` if out of range. */
   getSheetByIndex(index: number): Worksheet | undefined {
     const sheet = this.data.sheets[index];
-    return sheet ? new Worksheet(sheet) : undefined;
+    return sheet ? new Worksheet(sheet, this.data.styles) : undefined;
   }
 
   /**
@@ -143,7 +145,7 @@ export class Workbook {
       },
     };
     this.data.sheets.push(sheetData);
-    return new Worksheet(sheetData);
+    return new Worksheet(sheetData, this.data.styles);
   }
 
   /**
@@ -380,10 +382,12 @@ export class Workbook {
 /** Represents a single worksheet within a workbook. */
 export class Worksheet {
   private readonly data: SheetData;
+  /** @internal */ readonly styles: StylesData | undefined;
 
   /** Wraps an existing sheet data object. Typically obtained via `Workbook.getSheet()` or `Workbook.addSheet()`. */
-  constructor(data: SheetData) {
+  constructor(data: SheetData, styles?: StylesData) {
     this.data = data;
+    this.styles = styles;
   }
 
   /** Returns the sheet tab name. */
@@ -549,6 +553,43 @@ export class Worksheet {
     this.data.worksheet.frozenPane = pane;
   }
 
+  // --- Tab color ---
+
+  /** Returns the sheet tab color as an RGB hex string (e.g., `"FF0000"`) or `null`. */
+  get tabColor(): string | null {
+    return this.data.worksheet.tabColor ?? null;
+  }
+
+  /** Sets the sheet tab color. Pass `null` to clear. */
+  set tabColor(color: string | null) {
+    this.data.worksheet.tabColor = color;
+  }
+
+  // --- Used range ---
+
+  /** Returns the computed used range (e.g., `"B2:D5"`) or `null` if the sheet has no cells. */
+  get usedRange(): string | null {
+    let minRow = Number.MAX_SAFE_INTEGER;
+    let maxRow = 0;
+    let minCol = Number.MAX_SAFE_INTEGER;
+    let maxCol = 0;
+    let hasCell = false;
+
+    for (const row of this.data.worksheet.rows) {
+      for (const cell of row.cells) {
+        const { row: r, col: c } = decodeCellRef(cell.reference);
+        hasCell = true;
+        if (r < minRow) minRow = r;
+        if (r > maxRow) maxRow = r;
+        if (c < minCol) minCol = c;
+        if (c > maxCol) maxCol = c;
+      }
+    }
+
+    if (!hasCell) return null;
+    return `${columnToLetter(minCol)}${minRow + 1}:${columnToLetter(maxCol)}${maxRow + 1}`;
+  }
+
   // --- Data validations ---
 
   /** Returns all data validation rules applied to this sheet. */
@@ -648,7 +689,7 @@ export class Worksheet {
       row.cells.push(cellData);
     }
 
-    return new Cell(cellData);
+    return new Cell(cellData, this.styles);
   }
 
   // --- Row utilities ---
@@ -683,10 +724,12 @@ export class Worksheet {
 /** Represents a single cell within a worksheet row. Mutations are applied directly to the underlying data. */
 export class Cell {
   private readonly data: CellData;
+  private readonly styles: StylesData | undefined;
 
   /** Wraps an existing cell data object. Typically obtained via `Worksheet.cell()`. */
-  constructor(data: CellData) {
+  constructor(data: CellData, styles?: StylesData) {
     this.data = data;
+    this.styles = styles;
   }
 
   /** Returns the A1-style cell reference (e.g., `"B3"`). */
@@ -763,6 +806,35 @@ export class Cell {
     if (f !== null) {
       this.data.cellType = 'formulaStr';
     }
+  }
+
+  /**
+   * Returns the resolved number format code (e.g., `"#,##0.00"`, `"yyyy-mm-dd"`),
+   * or `null` if the cell uses the default General format.
+   */
+  get numberFormat(): string | null {
+    if (!this.styles || this.data.styleIndex == null) return null;
+    const xf = this.styles.cellXfs[this.data.styleIndex];
+    if (!xf?.numFmtId) return null;
+
+    // Check builtin formats first (id 1–49)
+    const builtin = getBuiltinFormat(xf.numFmtId);
+    if (builtin && builtin !== 'General') return builtin;
+
+    // Check custom numFmts
+    const custom = this.styles.numFmts?.find((nf) => nf.id === xf.numFmtId);
+    return custom?.formatCode ?? null;
+  }
+
+  /**
+   * Returns a `Date` if this cell contains a date-formatted number, or `null` otherwise.
+   * Uses the cell's number format to determine whether the numeric value represents a date.
+   */
+  get dateValue(): Date | null {
+    if (this.data.cellType !== 'number' || this.data.value == null) return null;
+    const fmt = this.numberFormat;
+    if (!fmt || !isDateFormatCode(fmt)) return null;
+    return serialToDate(Number.parseFloat(this.data.value));
   }
 }
 
