@@ -241,7 +241,7 @@ pub enum CellType {
 }
 
 /// Frozen pane configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FrozenPane {
     /// Number of frozen rows (ySplit).

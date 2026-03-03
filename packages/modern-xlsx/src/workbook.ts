@@ -631,6 +631,7 @@ export class Worksheet {
     this.data.worksheet.frozenPane = pane;
     if (pane) {
       this.data.worksheet.splitPane = null;
+      this.data.worksheet.paneSelections = [];
     }
   }
 
@@ -646,6 +647,8 @@ export class Worksheet {
     this.data.worksheet.splitPane = pane;
     if (pane) {
       this.data.worksheet.frozenPane = null;
+    } else {
+      this.data.worksheet.paneSelections = [];
     }
   }
 
