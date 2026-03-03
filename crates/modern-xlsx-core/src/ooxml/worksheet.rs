@@ -523,6 +523,8 @@ impl WorksheetXml {
         let mut merge_cells: Vec<String> = Vec::new();
         let mut auto_filter: Option<AutoFilter> = None;
         let mut frozen_pane: Option<FrozenPane> = None;
+        let mut split_pane = None::<SplitPane>;
+        let mut pane_selections = Vec::<PaneSelection>::new();
         let mut columns: Vec<ColumnInfo> = Vec::new();
         let mut data_validations: Vec<DataValidation> = Vec::new();
         let mut conditional_formatting: Vec<ConditionalFormatting> = Vec::new();
@@ -592,6 +594,32 @@ impl WorksheetXml {
                         }
                         (ParseState::SheetViews, b"sheetView") => {
                             state = ParseState::SheetView;
+                        }
+                        (ParseState::SheetView, b"selection") => {
+                            // Handle <selection> as Start element (non-self-closing).
+                            let mut sel_pane = None::<String>;
+                            let mut sel_active = None::<String>;
+                            let mut sel_sqref = None::<String>;
+                            for attr in e.attributes().flatten() {
+                                let ln = attr.key.local_name();
+                                match ln.as_ref() {
+                                    b"pane" => {
+                                        sel_pane = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    b"activeCell" => {
+                                        sel_active = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    b"sqref" => {
+                                        sel_sqref = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            pane_selections.push(PaneSelection {
+                                pane: sel_pane,
+                                active_cell: sel_active,
+                                sqref: sel_sqref,
+                            });
                         }
                         (ParseState::Root, b"cols") => {
                             state = ParseState::Cols;
@@ -931,35 +959,77 @@ impl WorksheetXml {
                             });
                         }
                         (ParseState::SheetView, b"pane") => {
-                            let mut y_split: u32 = 0;
-                            let mut x_split: u32 = 0;
-                            let mut is_frozen = false;
+                            let mut y_split_raw = String::new();
+                            let mut x_split_raw = String::new();
+                            let mut state_val = String::new();
+                            let mut top_left_cell_val = None::<String>;
+                            let mut active_pane_val = None::<String>;
 
                             for attr in e.attributes().flatten() {
                                 let ln = attr.key.local_name();
                                 match ln.as_ref() {
                                     b"ySplit" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        y_split = val.parse::<u32>().unwrap_or(0);
+                                        y_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     b"xSplit" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        x_split = val.parse::<u32>().unwrap_or(0);
+                                        x_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     b"state" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        is_frozen = val == "frozen";
+                                        state_val = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    }
+                                    b"topLeftCell" => {
+                                        top_left_cell_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    b"activePane" => {
+                                        active_pane_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
                                     }
                                     _ => {}
                                 }
                             }
 
-                            if is_frozen && (y_split > 0 || x_split > 0) {
-                                frozen_pane = Some(FrozenPane {
-                                    rows: y_split,
-                                    cols: x_split,
-                                });
+                            if state_val == "frozen" {
+                                let y: u32 = y_split_raw.parse().unwrap_or(0);
+                                let x: u32 = x_split_raw.parse().unwrap_or(0);
+                                if y > 0 || x > 0 {
+                                    frozen_pane = Some(FrozenPane { rows: y, cols: x });
+                                }
+                            } else {
+                                let y: f64 = y_split_raw.parse().unwrap_or(0.0);
+                                let x: f64 = x_split_raw.parse().unwrap_or(0.0);
+                                if y > 0.0 || x > 0.0 {
+                                    split_pane = Some(SplitPane {
+                                        horizontal: if y > 0.0 { Some(y) } else { None },
+                                        vertical: if x > 0.0 { Some(x) } else { None },
+                                        top_left_cell: top_left_cell_val,
+                                        active_pane: active_pane_val,
+                                    });
+                                }
                             }
+                        }
+                        (ParseState::SheetView, b"selection") => {
+                            let mut sel_pane = None::<String>;
+                            let mut sel_active = None::<String>;
+                            let mut sel_sqref = None::<String>;
+                            for attr in e.attributes().flatten() {
+                                let ln = attr.key.local_name();
+                                match ln.as_ref() {
+                                    b"pane" => {
+                                        sel_pane = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    b"activeCell" => {
+                                        sel_active = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    b"sqref" => {
+                                        sel_sqref = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            pane_selections.push(PaneSelection {
+                                pane: sel_pane,
+                                active_cell: sel_active,
+                                sqref: sel_sqref,
+                            });
                         }
                         (ParseState::Cols, b"col") => {
                             columns.push(parse_col_element(e));
@@ -1530,8 +1600,8 @@ impl WorksheetXml {
             merge_cells,
             auto_filter,
             frozen_pane,
-            split_pane: None,
-            pane_selections: vec![],
+            split_pane,
+            pane_selections,
             columns,
             data_validations,
             conditional_formatting,
@@ -1576,6 +1646,8 @@ impl WorksheetXml {
         let mut merge_cells: Vec<String> = Vec::new();
         let mut auto_filter: Option<AutoFilter> = None;
         let mut frozen_pane: Option<FrozenPane> = None;
+        let mut split_pane = None::<SplitPane>;
+        let mut pane_selections = Vec::<PaneSelection>::new();
         let mut columns: Vec<ColumnInfo> = Vec::new();
         let mut data_validations: Vec<DataValidation> = Vec::new();
         let mut conditional_formatting: Vec<ConditionalFormatting> = Vec::new();
@@ -1634,6 +1706,32 @@ impl WorksheetXml {
                         // ---- Sheet views / pane (metadata) ----
                         (ParseState::Root, b"sheetViews") => state = ParseState::SheetViews,
                         (ParseState::SheetViews, b"sheetView") => state = ParseState::SheetView,
+                        (ParseState::SheetView, b"selection") => {
+                            // Handle <selection> as Start element (non-self-closing).
+                            let mut sel_pane = None::<String>;
+                            let mut sel_active = None::<String>;
+                            let mut sel_sqref = None::<String>;
+                            for attr in e.attributes().flatten() {
+                                let ln = attr.key.local_name();
+                                match ln.as_ref() {
+                                    b"pane" => {
+                                        sel_pane = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    b"activeCell" => {
+                                        sel_active = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    b"sqref" => {
+                                        sel_sqref = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            pane_selections.push(PaneSelection {
+                                pane: sel_pane,
+                                active_cell: sel_active,
+                                sqref: sel_sqref,
+                            });
+                        }
                         (ParseState::Root, b"cols") => state = ParseState::Cols,
 
                         // ---- Sheet data (rows/cells → streamed to JSON) ----
@@ -1989,30 +2087,77 @@ impl WorksheetXml {
                             });
                         }
                         (ParseState::SheetView, b"pane") => {
-                            let mut y_split: u32 = 0;
-                            let mut x_split: u32 = 0;
-                            let mut is_frozen = false;
+                            let mut y_split_raw = String::new();
+                            let mut x_split_raw = String::new();
+                            let mut state_val = String::new();
+                            let mut top_left_cell_val = None::<String>;
+                            let mut active_pane_val = None::<String>;
+
                             for attr in e.attributes().flatten() {
                                 let ln = attr.key.local_name();
                                 match ln.as_ref() {
                                     b"ySplit" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        y_split = val.parse::<u32>().unwrap_or(0);
+                                        y_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     b"xSplit" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        x_split = val.parse::<u32>().unwrap_or(0);
+                                        x_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                     }
                                     b"state" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        is_frozen = val == "frozen";
+                                        state_val = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    }
+                                    b"topLeftCell" => {
+                                        top_left_cell_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    b"activePane" => {
+                                        active_pane_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
                                     }
                                     _ => {}
                                 }
                             }
-                            if is_frozen && (y_split > 0 || x_split > 0) {
-                                frozen_pane = Some(FrozenPane { rows: y_split, cols: x_split });
+
+                            if state_val == "frozen" {
+                                let y: u32 = y_split_raw.parse().unwrap_or(0);
+                                let x: u32 = x_split_raw.parse().unwrap_or(0);
+                                if y > 0 || x > 0 {
+                                    frozen_pane = Some(FrozenPane { rows: y, cols: x });
+                                }
+                            } else {
+                                let y: f64 = y_split_raw.parse().unwrap_or(0.0);
+                                let x: f64 = x_split_raw.parse().unwrap_or(0.0);
+                                if y > 0.0 || x > 0.0 {
+                                    split_pane = Some(SplitPane {
+                                        horizontal: if y > 0.0 { Some(y) } else { None },
+                                        vertical: if x > 0.0 { Some(x) } else { None },
+                                        top_left_cell: top_left_cell_val,
+                                        active_pane: active_pane_val,
+                                    });
+                                }
                             }
+                        }
+                        (ParseState::SheetView, b"selection") => {
+                            let mut sel_pane = None::<String>;
+                            let mut sel_active = None::<String>;
+                            let mut sel_sqref = None::<String>;
+                            for attr in e.attributes().flatten() {
+                                let ln = attr.key.local_name();
+                                match ln.as_ref() {
+                                    b"pane" => {
+                                        sel_pane = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    b"activeCell" => {
+                                        sel_active = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    b"sqref" => {
+                                        sel_sqref = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            pane_selections.push(PaneSelection {
+                                pane: sel_pane,
+                                active_cell: sel_active,
+                                sqref: sel_sqref,
+                            });
                         }
                         (ParseState::Cols, b"col") => columns.push(parse_col_element(e)),
                         (ParseState::MergeCells, b"mergeCell") => {
@@ -2630,6 +2775,16 @@ impl WorksheetXml {
         if let Some(ref fp) = frozen_pane {
             out.push_str(",\"frozenPane\":");
             out.push_str(&serde_json::to_string(fp)
+                .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
+        }
+        if let Some(ref sp) = split_pane {
+            out.push_str(",\"splitPane\":");
+            out.push_str(&serde_json::to_string(sp)
+                .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
+        }
+        if !pane_selections.is_empty() {
+            out.push_str(",\"paneSelections\":");
+            out.push_str(&serde_json::to_string(&pane_selections)
                 .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
         }
         if !columns.is_empty() {
@@ -3517,6 +3672,110 @@ mod tests {
         let pane = ws.frozen_pane.as_ref().unwrap();
         assert_eq!(pane.rows, 1);
         assert_eq!(pane.cols, 0);
+    }
+
+    #[test]
+    fn test_parse_horizontal_split_pane() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane ySplit="2400" topLeftCell="A5" activePane="bottomLeft" state="split"/>
+      <selection pane="bottomLeft" activeCell="A5" sqref="A5"/>
+    </sheetView>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        assert!(ws.frozen_pane.is_none(), "split pane must not set frozen_pane");
+        let sp = ws.split_pane.as_ref().expect("split_pane should be Some");
+        assert!((sp.horizontal.unwrap() - 2400.0).abs() < f64::EPSILON);
+        assert!(sp.vertical.is_none());
+        assert_eq!(sp.top_left_cell.as_deref(), Some("A5"));
+        assert_eq!(sp.active_pane.as_deref(), Some("bottomLeft"));
+        assert_eq!(ws.pane_selections.len(), 1);
+        assert_eq!(ws.pane_selections[0].pane.as_deref(), Some("bottomLeft"));
+        assert_eq!(ws.pane_selections[0].active_cell.as_deref(), Some("A5"));
+        assert_eq!(ws.pane_selections[0].sqref.as_deref(), Some("A5"));
+    }
+
+    #[test]
+    fn test_parse_vertical_split_pane() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane xSplit="3000" topLeftCell="D1" activePane="topRight" state="split"/>
+      <selection pane="topRight" activeCell="D1" sqref="D1"/>
+    </sheetView>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        assert!(ws.frozen_pane.is_none());
+        let sp = ws.split_pane.as_ref().unwrap();
+        assert!(sp.horizontal.is_none());
+        assert!((sp.vertical.unwrap() - 3000.0).abs() < f64::EPSILON);
+        assert_eq!(sp.top_left_cell.as_deref(), Some("D1"));
+        assert_eq!(sp.active_pane.as_deref(), Some("topRight"));
+    }
+
+    #[test]
+    fn test_parse_four_way_split_pane() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane xSplit="3000" ySplit="2400" topLeftCell="D5" activePane="bottomRight" state="split"/>
+      <selection pane="topRight" activeCell="D1" sqref="D1"/>
+      <selection pane="bottomLeft" activeCell="A5" sqref="A5"/>
+      <selection pane="bottomRight" activeCell="D5" sqref="D5"/>
+    </sheetView>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        assert!(ws.frozen_pane.is_none());
+        let sp = ws.split_pane.as_ref().unwrap();
+        assert!((sp.vertical.unwrap() - 3000.0).abs() < f64::EPSILON);
+        assert!((sp.horizontal.unwrap() - 2400.0).abs() < f64::EPSILON);
+        assert_eq!(sp.top_left_cell.as_deref(), Some("D5"));
+        assert_eq!(sp.active_pane.as_deref(), Some("bottomRight"));
+        assert_eq!(ws.pane_selections.len(), 3);
+    }
+
+    #[test]
+    fn test_frozen_and_split_mutually_exclusive() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+    </sheetView>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        assert!(ws.frozen_pane.is_some());
+        assert!(ws.split_pane.is_none());
+    }
+
+    #[test]
+    fn test_parse_split_no_state_attr() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane xSplit="1500" ySplit="900" topLeftCell="B2"/>
+    </sheetView>
+  </sheetViews>
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        assert!(ws.frozen_pane.is_none());
+        let sp = ws.split_pane.as_ref().unwrap();
+        assert!((sp.vertical.unwrap() - 1500.0).abs() < f64::EPSILON);
+        assert!((sp.horizontal.unwrap() - 900.0).abs() < f64::EPSILON);
     }
 
     #[test]
