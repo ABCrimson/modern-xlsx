@@ -45,6 +45,15 @@ export { formatCell, getBuiltinFormat } from './format-cell.js';
 // Builders
 export { RichTextBuilder } from './rich-text.js';
 export { StyleBuilder } from './style-builder.js';
+// Table layout engine
+export type {
+  CellStyle,
+  DrawTableFromDataOptions,
+  DrawTableOptions,
+  TableColumn,
+  TableResult,
+} from './table.js';
+export { drawTable, drawTableFromData } from './table.js';
 // Types
 export type {
   AlignmentData,
@@ -165,4 +174,4 @@ export async function readFile(path: string): Promise<_Workbook> {
   return readBuffer(new Uint8Array(buffer));
 }
 
-export const VERSION = '0.3.0' as const;
+export const VERSION = '0.4.0' as const;
