@@ -9,6 +9,55 @@ use crate::{ModernXlsxError, Result};
 use super::SPREADSHEET_NS;
 const RELATIONSHIPS_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
+fn is_false(v: &bool) -> bool {
+    !v
+}
+
+/// Workbook-level protection from `<workbookProtection>` (ECMA-376 §18.2.29).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkbookProtection {
+    /// Prevent structural changes (add/delete/rename/move/copy sheets).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub lock_structure: bool,
+    /// Prevent window position/size changes.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub lock_windows: bool,
+    /// Prevent revision log changes.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub lock_revision: bool,
+    /// Algorithm name for workbook password hash (e.g., "SHA-512").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workbook_algorithm_name: Option<String>,
+    /// Base64-encoded hash value for workbook password.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workbook_hash_value: Option<String>,
+    /// Base64-encoded salt for workbook password hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workbook_salt_value: Option<String>,
+    /// Spin count for workbook password hash iteration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workbook_spin_count: Option<u32>,
+    /// Algorithm name for revision password hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revisions_algorithm_name: Option<String>,
+    /// Base64-encoded hash value for revision password.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revisions_hash_value: Option<String>,
+    /// Base64-encoded salt for revision password hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revisions_salt_value: Option<String>,
+    /// Spin count for revision password hash iteration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revisions_spin_count: Option<u32>,
+    /// Legacy 16-bit password hash (hex string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workbook_password: Option<String>,
+    /// Legacy 16-bit revision password hash (hex string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revisions_password: Option<String>,
+}
+
 /// Parsed representation of `xl/workbook.xml`.
 #[derive(Debug, Clone)]
 pub struct WorkbookXml {
@@ -16,6 +65,7 @@ pub struct WorkbookXml {
     pub date_system: DateSystem,
     pub defined_names: Vec<DefinedName>,
     pub workbook_views: Vec<WorkbookView>,
+    pub protection: Option<WorkbookProtection>,
 }
 
 /// Metadata for a single worksheet as declared in the workbook.
@@ -88,6 +138,7 @@ impl WorkbookXml {
         let mut date_system = DateSystem::Date1900;
         let mut defined_names = Vec::new();
         let mut workbook_views = Vec::new();
+        let mut protection = None::<WorkbookProtection>;
 
         // State for collecting definedName text content.
         let mut in_defined_name = false;
@@ -115,6 +166,9 @@ impl WorkbookXml {
                         b"workbookView" => {
                             workbook_views.push(parse_workbook_view_element(e));
                         }
+                        b"workbookProtection" => {
+                            protection = Some(parse_workbook_protection_element(e));
+                        }
                         _ => {}
                     }
                 }
@@ -135,6 +189,9 @@ impl WorkbookXml {
                         }
                         b"workbookView" => {
                             workbook_views.push(parse_workbook_view_element(e));
+                        }
+                        b"workbookProtection" => {
+                            protection = Some(parse_workbook_protection_element(e));
                         }
                         b"definedName" => {
                             in_defined_name = true;
@@ -188,6 +245,7 @@ impl WorkbookXml {
             date_system,
             defined_names,
             workbook_views,
+            protection,
         })
     }
 
@@ -215,6 +273,51 @@ impl WorkbookXml {
             let mut pr = BytesStart::new("workbookPr");
             pr.push_attribute(("date1904", "1"));
             writer.write_event(Event::Empty(pr)).map_err(map_err)?;
+        }
+
+        // <workbookProtection>
+        if let Some(ref prot) = self.protection {
+            let mut elem = BytesStart::new("workbookProtection");
+            if prot.lock_structure {
+                elem.push_attribute(("lockStructure", "1"));
+            }
+            if prot.lock_windows {
+                elem.push_attribute(("lockWindows", "1"));
+            }
+            if prot.lock_revision {
+                elem.push_attribute(("lockRevision", "1"));
+            }
+            if let Some(ref v) = prot.workbook_algorithm_name {
+                elem.push_attribute(("workbookAlgorithmName", v.as_str()));
+            }
+            if let Some(ref v) = prot.workbook_hash_value {
+                elem.push_attribute(("workbookHashValue", v.as_str()));
+            }
+            if let Some(ref v) = prot.workbook_salt_value {
+                elem.push_attribute(("workbookSaltValue", v.as_str()));
+            }
+            if let Some(sc) = prot.workbook_spin_count {
+                elem.push_attribute(("workbookSpinCount", ibuf.format(sc)));
+            }
+            if let Some(ref v) = prot.revisions_algorithm_name {
+                elem.push_attribute(("revisionsAlgorithmName", v.as_str()));
+            }
+            if let Some(ref v) = prot.revisions_hash_value {
+                elem.push_attribute(("revisionsHashValue", v.as_str()));
+            }
+            if let Some(ref v) = prot.revisions_salt_value {
+                elem.push_attribute(("revisionsSaltValue", v.as_str()));
+            }
+            if let Some(sc) = prot.revisions_spin_count {
+                elem.push_attribute(("revisionsSpinCount", ibuf.format(sc)));
+            }
+            if let Some(ref v) = prot.workbook_password {
+                elem.push_attribute(("workbookPassword", v.as_str()));
+            }
+            if let Some(ref v) = prot.revisions_password {
+                elem.push_attribute(("revisionsPassword", v.as_str()));
+            }
+            writer.write_event(Event::Empty(elem)).map_err(map_err)?;
         }
 
         // <bookViews> (only if non-empty)
@@ -318,6 +421,45 @@ impl WorkbookXml {
 
         Ok(buf)
     }
+}
+
+/// Parse a `<workbookProtection>` element (either Empty or Start) into a `WorkbookProtection`.
+fn parse_workbook_protection_element(e: &BytesStart<'_>) -> WorkbookProtection {
+    let mut prot = WorkbookProtection {
+        lock_structure: false,
+        lock_windows: false,
+        lock_revision: false,
+        workbook_algorithm_name: None,
+        workbook_hash_value: None,
+        workbook_salt_value: None,
+        workbook_spin_count: None,
+        revisions_algorithm_name: None,
+        revisions_hash_value: None,
+        revisions_salt_value: None,
+        revisions_spin_count: None,
+        workbook_password: None,
+        revisions_password: None,
+    };
+    for attr in e.attributes().flatten() {
+        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        match attr.key.local_name().as_ref() {
+            b"lockStructure" => prot.lock_structure = val == "1",
+            b"lockWindows" => prot.lock_windows = val == "1",
+            b"lockRevision" => prot.lock_revision = val == "1",
+            b"workbookAlgorithmName" => prot.workbook_algorithm_name = Some(val.to_owned()),
+            b"workbookHashValue" => prot.workbook_hash_value = Some(val.to_owned()),
+            b"workbookSaltValue" => prot.workbook_salt_value = Some(val.to_owned()),
+            b"workbookSpinCount" => prot.workbook_spin_count = val.parse().ok(),
+            b"revisionsAlgorithmName" => prot.revisions_algorithm_name = Some(val.to_owned()),
+            b"revisionsHashValue" => prot.revisions_hash_value = Some(val.to_owned()),
+            b"revisionsSaltValue" => prot.revisions_salt_value = Some(val.to_owned()),
+            b"revisionsSpinCount" => prot.revisions_spin_count = val.parse().ok(),
+            b"workbookPassword" => prot.workbook_password = Some(val.to_owned()),
+            b"revisionsPassword" => prot.revisions_password = Some(val.to_owned()),
+            _ => {}
+        }
+    }
+    prot
 }
 
 /// Parse a `<workbookView>` element (either Empty or Start) into a `WorkbookView`.
@@ -526,6 +668,7 @@ mod tests {
                 sheet_id: Some(0),
             }],
             workbook_views: Vec::new(),
+            protection: None,
         };
 
         let xml = wb.to_xml().unwrap();
@@ -594,6 +737,7 @@ mod tests {
                 window_height: Some(10800),
                 tab_ratio: Some(500),
             }],
+            protection: None,
         };
 
         let xml = wb.to_xml().unwrap();
@@ -623,6 +767,7 @@ mod tests {
             date_system: DateSystem::Date1900,
             defined_names: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
         };
 
         let xml = wb.to_xml().unwrap();
@@ -636,5 +781,103 @@ mod tests {
         // Verify date1904 attribute is NOT in the output for 1900 system.
         let xml_str = String::from_utf8(xml).unwrap();
         assert!(!xml_str.contains("date1904"));
+    }
+
+    #[test]
+    fn test_parse_workbook_protection_lock_structure() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <workbookProtection lockStructure="1"/>
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"#;
+        let wb = WorkbookXml::parse(xml.as_bytes()).unwrap();
+        let prot = wb.protection.as_ref().unwrap();
+        assert!(prot.lock_structure);
+        assert!(!prot.lock_windows);
+        assert!(!prot.lock_revision);
+    }
+
+    #[test]
+    fn test_parse_workbook_protection_with_hash() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <workbookProtection lockStructure="1" lockWindows="1" workbookAlgorithmName="SHA-512" workbookHashValue="abc123" workbookSaltValue="def456" workbookSpinCount="100000"/>
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"#;
+        let wb = WorkbookXml::parse(xml.as_bytes()).unwrap();
+        let prot = wb.protection.as_ref().unwrap();
+        assert!(prot.lock_structure);
+        assert!(prot.lock_windows);
+        assert_eq!(prot.workbook_algorithm_name.as_deref(), Some("SHA-512"));
+        assert_eq!(prot.workbook_hash_value.as_deref(), Some("abc123"));
+        assert_eq!(prot.workbook_salt_value.as_deref(), Some("def456"));
+        assert_eq!(prot.workbook_spin_count, Some(100000));
+    }
+
+    #[test]
+    fn test_parse_no_workbook_protection() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"#;
+        let wb = WorkbookXml::parse(xml.as_bytes()).unwrap();
+        assert!(wb.protection.is_none());
+    }
+
+    #[test]
+    fn test_roundtrip_workbook_protection() {
+        let wb = WorkbookXml {
+            sheets: vec![SheetInfo {
+                name: "Sheet1".to_owned(),
+                sheet_id: 1,
+                r_id: "rId1".to_owned(),
+                state: SheetState::Visible,
+            }],
+            date_system: DateSystem::Date1900,
+            defined_names: vec![],
+            workbook_views: vec![],
+            protection: Some(WorkbookProtection {
+                lock_structure: true,
+                lock_windows: true,
+                lock_revision: false,
+                workbook_algorithm_name: Some("SHA-512".to_owned()),
+                workbook_hash_value: Some("abc123".to_owned()),
+                workbook_salt_value: Some("def456".to_owned()),
+                workbook_spin_count: Some(100000),
+                revisions_algorithm_name: None,
+                revisions_hash_value: None,
+                revisions_salt_value: None,
+                revisions_spin_count: None,
+                workbook_password: None,
+                revisions_password: None,
+            }),
+        };
+        let xml = wb.to_xml().unwrap();
+        let wb2 = WorkbookXml::parse(&xml).unwrap();
+        let prot = wb2.protection.as_ref().unwrap();
+        assert!(prot.lock_structure);
+        assert!(prot.lock_windows);
+        assert_eq!(prot.workbook_algorithm_name.as_deref(), Some("SHA-512"));
+        assert_eq!(prot.workbook_hash_value.as_deref(), Some("abc123"));
+        assert_eq!(prot.workbook_spin_count, Some(100000));
+    }
+
+    #[test]
+    fn test_roundtrip_clear_protection() {
+        let wb = WorkbookXml {
+            sheets: vec![SheetInfo {
+                name: "Sheet1".to_owned(),
+                sheet_id: 1,
+                r_id: "rId1".to_owned(),
+                state: SheetState::Visible,
+            }],
+            date_system: DateSystem::Date1900,
+            defined_names: vec![],
+            workbook_views: vec![],
+            protection: None,
+        };
+        let xml = wb.to_xml().unwrap();
+        let xml_str = std::str::from_utf8(&xml).unwrap();
+        assert!(!xml_str.contains("workbookProtection"));
     }
 }

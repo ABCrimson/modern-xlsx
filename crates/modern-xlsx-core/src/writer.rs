@@ -86,6 +86,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         date_system: workbook.date_system,
         defined_names: workbook.defined_names.clone(),
         workbook_views: workbook.workbook_views.clone(),
+        protection: None,
     };
 
     // 3. Assemble ZIP entries.

@@ -525,6 +525,7 @@ mod tests {
             date_system: DateSystem::Date1900,
             defined_names: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
         };
         let wb_xml = wb.to_xml().unwrap();
 
@@ -664,6 +665,7 @@ mod tests {
             date_system: DateSystem::Date1900,
             defined_names: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
         };
         let wb_xml = wb.to_xml().unwrap();
 
@@ -768,6 +770,7 @@ mod tests {
             date_system: DateSystem::Date1904,
             defined_names: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
         };
         let wb_xml = wb.to_xml().unwrap();
 
@@ -940,6 +943,7 @@ mod tests {
             date_system: DateSystem::Date1900,
             defined_names: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
         };
         let wb_xml = wb.to_xml().unwrap();
         let sst_builder = SharedStringTableBuilder::new();
@@ -1044,6 +1048,7 @@ mod tests {
             date_system: DateSystem::Date1900,
             defined_names: Vec::new(),
             workbook_views: Vec::new(),
+            protection: None,
         };
         let wb_xml = wb.to_xml().unwrap();
 
