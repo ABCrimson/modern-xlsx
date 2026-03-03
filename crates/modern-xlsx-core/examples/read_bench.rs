@@ -27,6 +27,8 @@ fn main() {
         cells: header_cells,
         height: None,
         hidden: false,
+        outline_level: None,
+        collapsed: false,
     });
 
     for r in 0..100_000u32 {
@@ -66,6 +68,8 @@ fn main() {
             cells,
             height: None,
             hidden: false,
+            outline_level: None,
+            collapsed: false,
         });
     }
 
@@ -83,6 +87,9 @@ fn main() {
         sheet_protection: None,
         comments: Vec::new(),
         tab_color: None,
+        header_footer: None,
+        outline_properties: None,
+        tables: vec![],
     };
     let wb = WorkbookData {
         sheets: vec![SheetData {
