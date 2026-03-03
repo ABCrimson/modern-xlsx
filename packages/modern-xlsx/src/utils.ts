@@ -531,7 +531,7 @@ function writeJsonRow(
 }
 
 function nextEmptyRow(ws: Worksheet): number {
-  return ws.rows.reduce((max, r) => Math.max(max, r.index), 0);
+  return ws.rows.at(-1)?.index ?? 0;
 }
 
 function setCellValue(cell: ReturnType<Worksheet['cell']>, val: unknown): void {

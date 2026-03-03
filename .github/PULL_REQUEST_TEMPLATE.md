@@ -14,6 +14,7 @@
 
 - [ ] Rust tests pass (`cargo test -p modern-xlsx-core`)
 - [ ] TypeScript tests pass (`pnpm -C packages/modern-xlsx test`)
+- [ ] TypeScript build succeeds (`pnpm -C packages/modern-xlsx build`)
 - [ ] Lint clean (`cargo clippy` + `biome check`)
 - [ ] Type check passes (`pnpm -C packages/modern-xlsx typecheck`)
 

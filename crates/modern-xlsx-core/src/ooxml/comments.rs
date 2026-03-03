@@ -185,9 +185,11 @@ pub fn write_comments(comments: &[Comment]) -> Result<Vec<u8>> {
     let mut author_indices: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
     for comment in comments {
-        if !author_indices.contains_key(&comment.author) {
-            let idx = author_list.len();
-            author_indices.insert(comment.author.clone(), idx);
+        let next_idx = author_list.len();
+        if let std::collections::hash_map::Entry::Vacant(e) =
+            author_indices.entry(comment.author.clone())
+        {
+            e.insert(next_idx);
             author_list.push(comment.author.clone());
         }
     }

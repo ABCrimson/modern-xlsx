@@ -27,8 +27,10 @@ export interface RenderOptions {
   textValue?: string;
 }
 
+export type BarcodeType = 'qr' | 'code128' | 'ean13' | 'upca' | 'code39' | 'pdf417' | 'datamatrix' | 'itf14' | 'gs1128';
+
 export interface DrawBarcodeOptions extends RenderOptions {
-  type: 'qr' | 'code128' | 'ean13' | 'upca' | 'code39' | 'pdf417' | 'datamatrix' | 'itf14' | 'gs1128';
+  type: BarcodeType;
   fitWidth?: number;
   fitHeight?: number;
   ecLevel?: 'L' | 'M' | 'Q' | 'H';
@@ -197,7 +199,7 @@ function qrCcBits(ver: number, mode: 'numeric' | 'alphanumeric' | 'byte'): numbe
   return mode === 'numeric' ? 12 : mode === 'alphanumeric' ? 11 : 16;
 }
 
-function qrEncData(data: string, mode: 'numeric' | 'alphanumeric' | 'byte'): number[] {
+function qrEncData(data: string, mode: 'numeric' | 'alphanumeric' | 'byte'): { bits: number[]; charCnt: number } {
   const bits: number[] = [];
   const push = (val: number, len: number) => {
     for (let i = len - 1; i >= 0; i--) bits.push((val >> i) & 1);
@@ -215,9 +217,11 @@ function qrEncData(data: string, mode: 'numeric' | 'alphanumeric' | 'byte'): num
       else push(a, 6);
     }
   } else {
-    for (const b of new TextEncoder().encode(data)) push(b, 8);
+    const encoded = new TextEncoder().encode(data);
+    for (const b of encoded) push(b, 8);
+    return { bits, charCnt: encoded.length };
   }
-  return bits;
+  return { bits, charCnt: data.length };
 }
 
 function qrSelVer(dataBits: number, mode: 'numeric' | 'alphanumeric' | 'byte', ec: QrEcLevel): number {
@@ -232,13 +236,12 @@ function qrSelVer(dataBits: number, mode: 'numeric' | 'alphanumeric' | 'byte', e
 export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): BarcodeMatrix {
   const ec: QrEcLevel = options?.ecLevel ?? 'M';
   const mode = qrMode(data);
-  const dataBits = qrEncData(data, mode);
+  const { bits: dataBits, charCnt } = qrEncData(data, mode);
   const ver = qrSelVer(dataBits.length, mode, ec);
   const sz = 17 + ver * 4;
 
   const modeInd = mode === 'numeric' ? 0b0001 : mode === 'alphanumeric' ? 0b0010 : 0b0100;
   const ccLen = qrCcBits(ver, mode);
-  const charCnt = mode === 'byte' ? new TextEncoder().encode(data).length : data.length;
   const info = at(QR_VI[ec], ver);
   const totalDCW = info[2] * info[3] + info[4] * info[5];
   const totalCap = totalDCW * 8;
@@ -1034,26 +1037,29 @@ function dmPad(cws: number[], cap: number): number[] {
   return p;
 }
 
-function dmEC(data: number[], numEc: number): number[] {
-  const EXP = new Uint8Array(512);
-  const LOG = new Uint8Array(256);
+const DM_GF_EXP = new Uint8Array(512);
+const DM_GF_LOG = new Uint8Array(256);
+{
   let v = 1;
   for (let i = 0; i < 255; i++) {
-    EXP[i] = v; LOG[v] = i;
+    DM_GF_EXP[i] = v;
+    DM_GF_LOG[v] = i;
     v <<= 1;
     if (v >= 256) v ^= 0x12d;
   }
-  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255]!;
+  for (let i = 255; i < 512; i++) DM_GF_EXP[i] = DM_GF_EXP[i - 255]!;
+}
 
+function dmEC(data: number[], numEc: number): number[] {
   const mul = (a: number, b: number): number => {
     if (a === 0 || b === 0) return 0;
-    return EXP[LOG[a]! + LOG[b]!]!;
+    return DM_GF_EXP[DM_GF_LOG[a]! + DM_GF_LOG[b]!]!;
   };
 
   let g = new Uint8Array([1]);
   for (let i = 0; i < numEc; i++) {
     const next = new Uint8Array(g.length + 1);
-    const factor = EXP[i + 1]!;
+    const factor = DM_GF_EXP[i + 1]!;
     for (let j = 0; j < g.length; j++) {
       next[j] = next[j]! ^ g[j]!;
       next[j + 1] = next[j + 1]! ^ mul(g[j]!, factor);

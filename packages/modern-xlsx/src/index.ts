@@ -1,10 +1,14 @@
-// Core classes
-
 // Barcode & QR code generation
-export type { BarcodeMatrix, DrawBarcodeOptions, ImageAnchor, RenderOptions } from './barcode.js';
+export type {
+  BarcodeMatrix,
+  BarcodeType,
+  DrawBarcodeOptions,
+  ImageAnchor,
+  RenderOptions,
+} from './barcode.js';
 export {
-  encodeCode128,
   encodeCode39,
+  encodeCode128,
   encodeDataMatrix,
   encodeEAN13,
   encodeGS1128,
@@ -73,7 +77,6 @@ export type {
   GradientStopData,
   HyperlinkData,
   IconSetData,
-  // Validation & compliance
   IssueCategory,
   NumFmt,
   PageMarginsData,
@@ -116,15 +119,16 @@ export {
 } from './utils.js';
 // WASM initialization
 export { ensureReady, initWasm, initWasmSync } from './wasm-loader.js';
+// Core classes
 export { Cell, Workbook, Worksheet } from './workbook.js';
 
 // Web Worker support
 export type { XlsxWorker, XlsxWorkerOptions } from './worker-api.js';
 export { createXlsxWorker } from './worker-api.js';
 
-// Internal imports for readBuffer and writeBlob
+// Internal imports for readBuffer, writeBlob, readFile
 import { ensureInitialized, wasmRead, wasmWriteBlob } from './wasm-loader.js';
-import { Workbook } from './workbook.js';
+import { Workbook as _Workbook } from './workbook.js';
 
 /**
  * Read an XLSX file buffer and return a Workbook instance.
@@ -134,10 +138,10 @@ import { Workbook } from './workbook.js';
  * JSON.parse in JS) for optimal performance — 8-13x faster than
  * serde_wasm_bindgen for large workbooks (100K+ rows).
  */
-export async function readBuffer(data: Uint8Array): Promise<Workbook> {
+export async function readBuffer(data: Uint8Array): Promise<_Workbook> {
   ensureInitialized();
   const raw = wasmRead(data);
-  return new Workbook(raw);
+  return new _Workbook(raw);
 }
 
 /**
@@ -145,7 +149,7 @@ export async function readBuffer(data: Uint8Array): Promise<Workbook> {
  * WASM must be initialized first via `initWasm()`.
  * Only available in browser environments that support the Blob API.
  */
-export function writeBlob(wb: Workbook): Blob {
+export function writeBlob(wb: _Workbook): Blob {
   ensureInitialized();
   return wasmWriteBlob(wb.toJSON());
 }
@@ -155,7 +159,7 @@ export function writeBlob(wb: Workbook): Blob {
  * Only available in Node.js, Bun, and Deno environments.
  * WASM must be initialized first via `initWasm()`.
  */
-export async function readFile(path: string): Promise<Workbook> {
+export async function readFile(path: string): Promise<_Workbook> {
   const { readFile: fsReadFile } = await import('node:fs/promises');
   const buffer = await fsReadFile(path);
   return readBuffer(new Uint8Array(buffer));

@@ -64,6 +64,9 @@ impl SharedStringTable {
         let mut in_rpr = false;
         let mut current_text = String::new();
 
+        // Track whether any rich text was found across all entries.
+        let mut has_any_rich = false;
+
         // Rich text accumulation for the current <si>
         let mut runs: Vec<RichTextRun> = Vec::new();
         let mut run_text = String::new();
@@ -100,7 +103,7 @@ impl SharedStringTable {
                         }
                         b"rFont" if in_rpr => {
                             for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"val" {
+                                if attr.key.local_name().as_ref() == b"val" {
                                     run_font_name = Some(
                                         std::str::from_utf8(&attr.value)
                                             .unwrap_or_default()
@@ -111,7 +114,7 @@ impl SharedStringTable {
                         }
                         b"sz" if in_rpr => {
                             for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"val"
+                                if attr.key.local_name().as_ref() == b"val"
                                     && let Ok(s) =
                                         std::str::from_utf8(&attr.value)
                                     {
@@ -121,7 +124,7 @@ impl SharedStringTable {
                         }
                         b"color" if in_rpr => {
                             for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"rgb" {
+                                if attr.key.local_name().as_ref() == b"rgb" {
                                     run_color = Some(
                                         std::str::from_utf8(&attr.value)
                                             .unwrap_or_default()
@@ -144,7 +147,7 @@ impl SharedStringTable {
                         }
                         b"rFont" if in_rpr => {
                             for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"val" {
+                                if attr.key.local_name().as_ref() == b"val" {
                                     run_font_name = Some(
                                         std::str::from_utf8(&attr.value)
                                             .unwrap_or_default()
@@ -155,7 +158,7 @@ impl SharedStringTable {
                         }
                         b"sz" if in_rpr => {
                             for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"val"
+                                if attr.key.local_name().as_ref() == b"val"
                                     && let Ok(s) =
                                         std::str::from_utf8(&attr.value)
                                     {
@@ -165,7 +168,7 @@ impl SharedStringTable {
                         }
                         b"color" if in_rpr => {
                             for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"rgb" {
+                                if attr.key.local_name().as_ref() == b"rgb" {
                                     run_color = Some(
                                         std::str::from_utf8(&attr.value)
                                             .unwrap_or_default()
@@ -219,6 +222,7 @@ impl SharedStringTable {
                             if runs.is_empty() {
                                 rich_runs.push(None);
                             } else {
+                                has_any_rich = true;
                                 rich_runs
                                     .push(Some(std::mem::take(&mut runs)));
                             }
@@ -238,7 +242,7 @@ impl SharedStringTable {
 
         // If no rich text was found at all, keep rich_runs empty to avoid
         // serializing an all-None vector.
-        if rich_runs.iter().all(|r| r.is_none()) {
+        if !has_any_rich {
             rich_runs.clear();
         }
 
@@ -476,14 +480,16 @@ impl SharedStringTableBuilder {
     /// If the string has been inserted before, the existing index is returned
     /// without adding a duplicate entry.
     pub fn insert(&mut self, s: &str) -> usize {
-        if let Some(&idx) = self.index.get(s) {
-            return idx;
+        use std::collections::hash_map::Entry;
+        let next_idx = self.strings.len();
+        match self.index.entry(s.to_owned()) {
+            Entry::Occupied(e) => *e.get(),
+            Entry::Vacant(e) => {
+                self.strings.push(s.to_owned());
+                e.insert(next_idx);
+                next_idx
+            }
         }
-        let idx = self.strings.len();
-        let owned = s.to_owned();
-        self.index.insert(owned.clone(), idx);
-        self.strings.push(owned);
-        idx
     }
 
     /// Serialize the shared string table to XML bytes suitable for

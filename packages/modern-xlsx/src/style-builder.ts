@@ -158,7 +158,7 @@ function resolveNumFmtId(styles: StylesData, code: string | null): number {
   const existing = styles.numFmts.find((f) => f.formatCode === code);
   if (existing) return existing.id;
 
-  const maxId = styles.numFmts.reduce((max, f) => Math.max(max, f.id), 163);
+  const maxId = styles.numFmts.at(-1)?.id ?? 163;
   const id = maxId + 1;
   styles.numFmts.push({ id, formatCode: code });
   return id;

@@ -65,6 +65,8 @@ function binaryInsertIndex(rows: readonly RowData[], index: number): number {
 /** Represents an Excel workbook containing sheets, styles, and metadata. */
 export class Workbook {
   private readonly data: WorkbookData;
+  private readonly imageAnchors = new Map<string, { anchor: ImageAnchor; imageIndex: number }[]>();
+  private readonly imageRels = new Map<string, { rId: string; target: string }[]>();
 
   /** Create a new workbook, optionally seeded with existing data from a read operation. */
   constructor(data?: Partial<WorkbookData>) {
@@ -315,16 +317,18 @@ export class Workbook {
     this.data.preservedEntries[mediaPath] = Array.from(imageBytes);
 
     // Build or extend drawing XML
-    const existingAnchors: { anchor: ImageAnchor; imageIndex: number }[] = [];
-    existingAnchors.push({ anchor, imageIndex: imageId });
-    const drawingXml = generateDrawingXml(existingAnchors);
+    const sheetAnchors = this.imageAnchors.get(drawingPath) ?? [];
+    sheetAnchors.push({ anchor, imageIndex: imageId });
+    this.imageAnchors.set(drawingPath, sheetAnchors);
+    const drawingXml = generateDrawingXml(sheetAnchors);
     const enc = new TextEncoder();
     this.data.preservedEntries[drawingPath] = Array.from(enc.encode(drawingXml));
 
     // Build drawing rels
-    const drawingRels = generateDrawingRels([
-      { rId, target: `../media/image${imageId}.${format}` },
-    ]);
+    const sheetRels = this.imageRels.get(drawingRelsPath) ?? [];
+    sheetRels.push({ rId, target: `../media/image${imageId}.${format}` });
+    this.imageRels.set(drawingRelsPath, sheetRels);
+    const drawingRels = generateDrawingRels(sheetRels);
     this.data.preservedEntries[drawingRelsPath] = Array.from(enc.encode(drawingRels));
 
     // Build or extend sheet rels (add drawing relationship)

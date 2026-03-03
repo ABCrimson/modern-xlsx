@@ -518,14 +518,12 @@ impl Styles {
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
                                     b"diagonalUp" => {
-                                        dxf_border.diagonal_up =
-                                            std::str::from_utf8(&attr.value).unwrap_or_default() == "1"
-                                            || std::str::from_utf8(&attr.value).unwrap_or_default() == "true";
+                                        let v = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                        dxf_border.diagonal_up = v == "1" || v == "true";
                                     }
                                     b"diagonalDown" => {
-                                        dxf_border.diagonal_down =
-                                            std::str::from_utf8(&attr.value).unwrap_or_default() == "1"
-                                            || std::str::from_utf8(&attr.value).unwrap_or_default() == "true";
+                                        let v = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                        dxf_border.diagonal_down = v == "1" || v == "true";
                                     }
                                     _ => {}
                                 }

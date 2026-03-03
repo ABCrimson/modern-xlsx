@@ -188,7 +188,7 @@ fn validate_sheets(report: &mut ValidationReport, wb: &WorkbookData) {
             });
         }
 
-        if sheet.name.len() > MAX_SHEET_NAME_LEN {
+        if sheet.name.chars().count() > MAX_SHEET_NAME_LEN {
             report.push(ValidationIssue {
                 severity: Severity::Error,
                 category: IssueCategory::SheetName,
@@ -199,7 +199,7 @@ fn validate_sheets(report: &mut ValidationReport, wb: &WorkbookData) {
                 location: loc.clone(),
                 suggestion: format!(
                     "Truncate to '{}'",
-                    &sheet.name[..MAX_SHEET_NAME_LEN]
+                    sheet.name.chars().take(MAX_SHEET_NAME_LEN).collect::<String>()
                 ),
                 auto_fixable: true,
             });
@@ -423,8 +423,7 @@ fn validate_merge_cells(report: &mut ValidationReport, wb: &WorkbookData) {
         for merge_ref in &sheet.worksheet.merge_cells {
             let loc = format!("{}!mergeCell({})", sheet.name, merge_ref);
 
-            let parts: Vec<&str> = merge_ref.split(':').collect();
-            if parts.len() != 2 {
+            let Some((start_str, end_str)) = merge_ref.split_once(':') else {
                 report.push(ValidationIssue {
                     severity: Severity::Error,
                     category: IssueCategory::MergeCell,
@@ -434,9 +433,9 @@ fn validate_merge_cells(report: &mut ValidationReport, wb: &WorkbookData) {
                     auto_fixable: false,
                 });
                 continue;
-            }
+            };
 
-            let (start, end) = match (CellRef::parse(parts[0]), CellRef::parse(parts[1])) {
+            let (start, end) = match (CellRef::parse(start_str), CellRef::parse(end_str)) {
                 (Ok(s), Ok(e)) => (s, e),
                 _ => {
                     report.push(ValidationIssue {
@@ -680,8 +679,8 @@ fn repair_sheet_names(wb: &mut WorkbookData) -> usize {
         }
 
         // Truncate overlong names.
-        if sheet.name.len() > MAX_SHEET_NAME_LEN {
-            sheet.name = sheet.name[..MAX_SHEET_NAME_LEN].to_string();
+        if sheet.name.chars().count() > MAX_SHEET_NAME_LEN {
+            sheet.name = sheet.name.chars().take(MAX_SHEET_NAME_LEN).collect();
             repairs += 1;
         }
 

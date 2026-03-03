@@ -337,7 +337,7 @@
       <option value="hello">Hello World</option>
       <option value="styled">Styled Workbook</option>
       <option value="read">Read & Inspect</option>
-      <option value="batch">Batch Data (aoaToSheet)</option>
+      <option value="batch">Batch Data (1K Rows)</option>
       <option value="json">JSON to Sheet</option>
       <option value="formulas">Formulas & Dates</option>
       <option value="barcodes">Barcodes & QR Codes</option>
@@ -449,8 +449,8 @@ data.forEach((row, ri) => {
 ws.autoFilter = { range: 'A1:F4' };
 
 // Column widths
-ws.setColumnWidth(0, 15);
-for (let i = 1; i <= 5; i++) ws.setColumnWidth(i, 12);
+ws.setColumnWidth(1, 15);
+for (let i = 2; i <= 6; i++) ws.setColumnWidth(i, 12);
 
 log('Created styled sales report');
 const blob = ModernXlsx.writeBlob(wb);
@@ -605,10 +605,10 @@ ws.cell('D8').styleIndex = totalStyle;
 ws.cell('C8').value = 'Grand Total:';
 ws.cell('C8').styleIndex = boldStyle;
 
-ws.setColumnWidth(0, 15);
-ws.setColumnWidth(1, 8);
-ws.setColumnWidth(2, 12);
-ws.setColumnWidth(3, 14);
+ws.setColumnWidth(1, 15);
+ws.setColumnWidth(2, 8);
+ws.setColumnWidth(3, 12);
+ws.setColumnWidth(4, 14);
 
 log('Created invoice with formulas and date');
 const blob = ModernXlsx.writeBlob(wb);
@@ -652,8 +652,8 @@ log('QR matrix: ' + matrix.width + 'x' + matrix.height + ' modules');
 log('PNG size: ' + (png.length / 1024).toFixed(1) + ' KB');
 log('Created workbook with 3 embedded barcodes');
 
-ws.setColumnWidth(0, 12);
-for (let i = 1; i <= 5; i++) ws.setColumnWidth(i, 10);
+ws.setColumnWidth(1, 12);
+for (let i = 2; i <= 6; i++) ws.setColumnWidth(i, 10);
 
 const blob = ModernXlsx.writeBlob(wb);
 log('File size: ' + (blob.size / 1024).toFixed(1) + ' KB');
