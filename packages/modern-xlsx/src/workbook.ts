@@ -27,6 +27,7 @@ import type {
   RowData,
   SheetData,
   SheetProtectionData,
+  SheetState,
   SplitPaneData,
   StylesData,
   TableDefinitionData,
@@ -171,6 +172,92 @@ export class Workbook {
     if (idx < 0 || idx >= this.data.sheets.length) return false;
     this.data.sheets.splice(idx, 1);
     return true;
+  }
+
+  /**
+   * Moves a sheet from one position to another.
+   */
+  moveSheet(fromIndex: number, toIndex: number): void {
+    if (fromIndex < 0 || fromIndex >= this.data.sheets.length) {
+      throw new Error(`Invalid source index: ${fromIndex}`);
+    }
+    if (toIndex < 0 || toIndex >= this.data.sheets.length) {
+      throw new Error(`Invalid destination index: ${toIndex}`);
+    }
+    const [sheet] = this.data.sheets.splice(fromIndex, 1) as [SheetData];
+    this.data.sheets.splice(toIndex, 0, sheet);
+  }
+
+  /**
+   * Clones a sheet and inserts the copy at the end (or given position).
+   * @returns The new Worksheet.
+   */
+  cloneSheet(sourceIndex: number, newName: string, insertIndex?: number): Worksheet {
+    if (sourceIndex < 0 || sourceIndex >= this.data.sheets.length) {
+      throw new Error(`Invalid source index: ${sourceIndex}`);
+    }
+    validateSheetName(newName);
+    if (this.data.sheets.some((s) => s.name === newName)) {
+      throw new Error(`Sheet "${newName}" already exists`);
+    }
+    const source = this.data.sheets[sourceIndex]!;
+    const clone: SheetData = structuredClone(source);
+    clone.name = newName;
+    const idx = insertIndex ?? this.data.sheets.length;
+    this.data.sheets.splice(idx, 0, clone);
+    return new Worksheet(clone, this.data.styles);
+  }
+
+  /**
+   * Renames a sheet.
+   */
+  renameSheet(nameOrIndex: string | number, newName: string): void {
+    const idx =
+      typeof nameOrIndex === 'string'
+        ? this.data.sheets.findIndex((s) => s.name === nameOrIndex)
+        : nameOrIndex;
+    if (idx < 0 || idx >= this.data.sheets.length) {
+      throw new Error(`Sheet not found: ${nameOrIndex}`);
+    }
+    validateSheetName(newName);
+    if (this.data.sheets.some((s, i) => s.name === newName && i !== idx)) {
+      throw new Error(`Sheet "${newName}" already exists`);
+    }
+    this.data.sheets[idx]!.name = newName;
+  }
+
+  /**
+   * Hides a sheet. At least one sheet must remain visible.
+   */
+  hideSheet(nameOrIndex: string | number): void {
+    const idx =
+      typeof nameOrIndex === 'string'
+        ? this.data.sheets.findIndex((s) => s.name === nameOrIndex)
+        : nameOrIndex;
+    if (idx < 0 || idx >= this.data.sheets.length) {
+      throw new Error(`Sheet not found: ${nameOrIndex}`);
+    }
+    const visibleCount = this.data.sheets.filter(
+      (s) => !s.state || s.state === 'visible',
+    ).length;
+    if (visibleCount <= 1) {
+      throw new Error('Cannot hide the last visible sheet');
+    }
+    this.data.sheets[idx]!.state = 'hidden';
+  }
+
+  /**
+   * Unhides a sheet (sets state to visible).
+   */
+  unhideSheet(nameOrIndex: string | number): void {
+    const idx =
+      typeof nameOrIndex === 'string'
+        ? this.data.sheets.findIndex((s) => s.name === nameOrIndex)
+        : nameOrIndex;
+    if (idx < 0 || idx >= this.data.sheets.length) {
+      throw new Error(`Sheet not found: ${nameOrIndex}`);
+    }
+    this.data.sheets[idx]!.state = null;
   }
 
   // --- Named ranges ---
@@ -496,6 +583,16 @@ export class Worksheet {
   set name(value: string) {
     validateSheetName(value);
     this.data.name = value;
+  }
+
+  /** Returns the sheet visibility state. */
+  get state(): SheetState {
+    return this.data.state ?? 'visible';
+  }
+
+  /** Sets the sheet visibility state. */
+  set state(value: SheetState) {
+    this.data.state = value === 'visible' ? null : value;
   }
 
   /** Returns all rows in the sheet, sorted by 1-based row index. */

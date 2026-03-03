@@ -101,6 +101,8 @@ export interface PaneSelectionData {
 
 export type ViewMode = 'normal' | 'pageBreakPreview' | 'pageLayout';
 
+export type SheetState = 'visible' | 'hidden' | 'veryHidden';
+
 export interface SheetViewData {
   /** Whether grid lines are visible (default: true). */
   showGridLines?: boolean;
@@ -492,6 +494,8 @@ export interface WorkbookProtectionData {
 
 export interface SheetData {
   name: string;
+  /** Sheet visibility: 'visible' (default/omitted), 'hidden', or 'veryHidden'. */
+  state?: SheetState | null;
   worksheet: WorksheetData;
 }
 

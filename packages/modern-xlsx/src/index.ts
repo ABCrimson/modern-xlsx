@@ -115,6 +115,7 @@ export type {
   SharedStringsData,
   SheetData,
   SheetProtectionData,
+  SheetState,
   SheetViewData,
   SplitPaneData,
   StylesData,
