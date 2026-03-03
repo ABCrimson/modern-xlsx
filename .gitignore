@@ -28,3 +28,4 @@ Thumbs.db
 
 # Lock files (pnpm uses pnpm-lock.yaml)
 package-lock.json
+.worktrees/
