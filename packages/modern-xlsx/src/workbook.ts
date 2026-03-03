@@ -34,6 +34,8 @@ import type {
 } from './types.js';
 import { ensureInitialized, wasmRepair, wasmValidate, wasmWrite } from './wasm-loader.js';
 
+const TEXT_ENCODER = new TextEncoder();
+
 // ---------------------------------------------------------------------------
 // Binary search helpers for sorted rows
 // ---------------------------------------------------------------------------
@@ -398,15 +400,14 @@ export class Workbook {
     sheetAnchors.push({ anchor, imageIndex: imageId });
     this.imageAnchors.set(drawingPath, sheetAnchors);
     const drawingXml = generateDrawingXml(sheetAnchors);
-    const enc = new TextEncoder();
-    this.data.preservedEntries[drawingPath] = Array.from(enc.encode(drawingXml));
+    this.data.preservedEntries[drawingPath] = Array.from(TEXT_ENCODER.encode(drawingXml));
 
     // Build drawing rels
     const sheetRels = this.imageRels.get(drawingRelsPath) ?? [];
     sheetRels.push({ rId, target: `../media/image${imageId}.${format}` });
     this.imageRels.set(drawingRelsPath, sheetRels);
     const drawingRels = generateDrawingRels(sheetRels);
-    this.data.preservedEntries[drawingRelsPath] = Array.from(enc.encode(drawingRels));
+    this.data.preservedEntries[drawingRelsPath] = Array.from(TEXT_ENCODER.encode(drawingRels));
 
     // Build or extend sheet rels (add drawing relationship)
     const existingSheetRels = this.data.preservedEntries[sheetRelsPath];
@@ -423,7 +424,7 @@ export class Workbook {
     } else {
       sheetRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdDrawing${sheetNum}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${sheetNum}.xml"/></Relationships>`;
     }
-    this.data.preservedEntries[sheetRelsPath] = Array.from(enc.encode(sheetRelsXml));
+    this.data.preservedEntries[sheetRelsPath] = Array.from(TEXT_ENCODER.encode(sheetRelsXml));
   }
 
   /**

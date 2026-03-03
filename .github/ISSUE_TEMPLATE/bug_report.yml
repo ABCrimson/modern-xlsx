@@ -36,7 +36,7 @@ body:
     attributes:
       label: Version
       description: "modern-xlsx version (run: npm ls modern-xlsx)"
-      placeholder: "0.3.0"
+      placeholder: "0.5.0"
     validations:
       required: true
 

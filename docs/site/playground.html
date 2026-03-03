@@ -370,7 +370,7 @@
 </div>
 
 <!-- Load modern-xlsx IIFE bundle from jsDelivr CDN -->
-<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.3.0/dist/modern-xlsx.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.5.0/dist/modern-xlsx.min.js"></script>
 <script>
 (async () => {
   const statusEl = document.getElementById('wasm-status');
@@ -712,7 +712,7 @@ download(blob, 'labels.xlsx');`,
     appendLog('Trying to load from a local path...', 'warn');
     // Fallback: try loading from relative path (for local development)
     try {
-      await ModernXlsx.initWasm('https://cdn.jsdelivr.net/npm/modern-xlsx@0.3.0/dist/modern-xlsx.wasm');
+      await ModernXlsx.initWasm('https://cdn.jsdelivr.net/npm/modern-xlsx@0.5.0/dist/modern-xlsx.wasm');
       statusEl.className = 'status ready';
       statusEl.innerHTML = '<span class="dot"></span>WASM Ready (local)';
       runBtn.disabled = false;

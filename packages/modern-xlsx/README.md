@@ -78,7 +78,7 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
 | sheetToCsv (10K) | 134 ms | 151 ms | **1.1x faster** |
 | sheetToJson (10K) | 130 ms | 127 ms | ~1.0x |
 
-> ESM 108 KB + IIFE 29 KB + WASM 939 KB. Zero runtime dependencies. Output files **8.4x smaller**.
+> ESM 133 KB + IIFE 60 KB + WASM 1.1 MB. Zero runtime dependencies. Output files **8.4x smaller**.
 
 ## Feature Comparison
 
@@ -100,7 +100,7 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
 | Page setup & margins | **Free** | Margins only | Paid |
 | Temporal API dates | **Yes** | No | No |
 | Format cell values (SSF) | **Free** | Basic | Full |
-| Available on npm | **Yes** | No (CDN) | No |
+| Available on npm | **Yes** | Yes | No |
 | Tree-shakable ESM | **Yes** | No | No |
 | Strict TypeScript types | **Yes** | Partial | Partial |
 | WASM-accelerated I/O | **Yes** | No | No |

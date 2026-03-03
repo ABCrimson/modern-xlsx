@@ -3,6 +3,6 @@
     "dev": "deno run --allow-net --allow-read main.ts"
   },
   "imports": {
-    "modern-xlsx": "npm:modern-xlsx@^0.3.0"
+    "modern-xlsx": "npm:modern-xlsx@^0.5.0"
   }
 }

@@ -1766,7 +1766,7 @@ export function generateDrawingXml(anchors: { anchor: ImageAnchor; imageIndex: n
   for (let i = 0; i < anchors.length; i++) {
     const entry = anchors[i]!;
     const a = entry.anchor;
-    const rId = `rId${entry.imageIndex + 1}`;
+    const rId = `rId${entry.imageIndex}`;
 
     p.push('  <xdr:twoCellAnchor editAs="oneCell">');
     p.push('    <xdr:from>');

@@ -64,6 +64,10 @@ fn cell_type_json_str(ct: CellType) -> &'static str {
 /// Write an f64 to the JSON output buffer matching serde_json's formatting.
 fn write_f64_json(out: &mut String, v: f64) {
     use std::fmt::Write;
+    if !v.is_finite() {
+        out.push_str("null");
+        return;
+    }
     // serde_json formats floats without trailing zeros for integers.
     // Writing to String is infallible — the fmt::Write impl never returns Err.
     if v == v.floor() && v.abs() < 1e15 {
@@ -2728,7 +2732,13 @@ impl WorksheetXml {
             let mut top_left = col_index_to_letter(pane.cols + 1);
             top_left.push_str(ibuf.format(pane.rows + 1));
             pane_elem.push_attribute(("topLeftCell", top_left.as_str()));
-            pane_elem.push_attribute(("activePane", "bottomLeft"));
+            let active_pane = match (pane.rows > 0, pane.cols > 0) {
+                (true, true) => "bottomRight",
+                (true, false) => "bottomLeft",
+                (false, true) => "topRight",
+                (false, false) => "bottomLeft",
+            };
+            pane_elem.push_attribute(("activePane", active_pane));
             pane_elem.push_attribute(("state", "frozen"));
             writer
                 .write_event(Event::Empty(pane_elem))
@@ -3403,14 +3413,7 @@ fn parse_col_element(e: &BytesStart<'_>) -> ColumnInfo {
 
 /// Convert a 1-based column index to a letter string (1 -> "A", 26 -> "Z", 27 -> "AA").
 fn col_index_to_letter(col: u32) -> String {
-    let mut result = String::new();
-    let mut c = col;
-    while c > 0 {
-        c -= 1;
-        result.insert(0, (b'A' + (c % 26) as u8) as char);
-        c /= 26;
-    }
-    result
+    crate::ooxml::cell::col_to_letters(col.saturating_sub(1))
 }
 
 /// Format an f64 to a string, removing trailing zeros after the decimal point

@@ -18,7 +18,7 @@ docs/plans/                  # Design and implementation plans
 ## Build Commands
 
 ```bash
-# Rust tests (196 tests)
+# Rust tests (217 tests)
 cargo test -p modern-xlsx-core
 
 # WASM build (from repo root)
@@ -27,7 +27,7 @@ cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir .
 # TypeScript build
 pnpm -C packages/modern-xlsx build
 
-# TypeScript tests (457 tests)
+# TypeScript tests (487 tests)
 pnpm -C packages/modern-xlsx test
 
 # Lint & format
@@ -48,7 +48,7 @@ pnpm -C packages/modern-xlsx typecheck
 
 ## Toolchain Versions
 
-- Rust 1.94.0 Edition 2024 (CI: dtolnay/rust-toolchain@beta), wasm-bindgen 0.2.114, quick-xml 0.39.2, zip 8.1 (`deflate`)
+- Rust 1.94.0 Edition 2024 (CI: dtolnay/rust-toolchain@1.94.0), wasm-bindgen 0.2.114, quick-xml 0.39.2, zip 8.1 (`deflate`)
 - TypeScript 6.0.0-dev, Vitest 4.1.0-beta.5, tsdown 0.21.0-beta.2, Biome 2.4.4, pnpm 11
 
 ## Code Conventions

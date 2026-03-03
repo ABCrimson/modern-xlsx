@@ -36,7 +36,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
     let cursor = Cursor::new(data);
     let mut archive = ZipArchive::new(cursor).map_err(|e| ModernXlsxError::ZipRead(e.to_string()))?;
 
-    let mut entries = HashMap::new();
+    let mut entries = HashMap::with_capacity(archive.len());
     let mut total_decompressed: u64 = 0;
 
     for i in 0..archive.len() {
