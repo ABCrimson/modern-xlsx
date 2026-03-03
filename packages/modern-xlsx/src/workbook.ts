@@ -23,6 +23,7 @@ import type {
   PageSetupData,
   PaneSelectionData,
   RepairResult,
+  SheetViewData,
   RowData,
   SheetData,
   SheetProtectionData,
@@ -31,6 +32,7 @@ import type {
   TableDefinitionData,
   ThemeColorsData,
   ValidationReport,
+  ViewMode,
   WorkbookData,
   WorkbookViewData,
 } from './types.js';
@@ -662,6 +664,31 @@ export class Worksheet {
   /** Sets per-pane selection state. */
   set paneSelections(selections: PaneSelectionData[]) {
     this.data.worksheet.paneSelections = selections;
+  }
+
+  // --- Sheet view ---
+
+  /** Returns the sheet view configuration, or `null` if using defaults. */
+  get view(): SheetViewData | null {
+    return this.data.worksheet.sheetView ?? null;
+  }
+
+  /** Sets sheet view configuration. Pass `null` to reset to defaults. */
+  set view(sv: SheetViewData | null) {
+    this.data.worksheet.sheetView = sv;
+  }
+
+  /** Returns the view mode: `'normal'`, `'pageBreakPreview'`, or `'pageLayout'`. */
+  get viewMode(): ViewMode {
+    return (this.data.worksheet.sheetView?.view as ViewMode) ?? 'normal';
+  }
+
+  /** Sets the view mode. Creates a sheet view if none exists. */
+  set viewMode(mode: ViewMode) {
+    if (!this.data.worksheet.sheetView) {
+      this.data.worksheet.sheetView = {};
+    }
+    this.data.worksheet.sheetView.view = mode === 'normal' ? null : mode;
   }
 
   // --- Tab color ---

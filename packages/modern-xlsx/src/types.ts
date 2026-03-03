@@ -99,6 +99,41 @@ export interface PaneSelectionData {
   sqref?: string | null;
 }
 
+export type ViewMode = 'normal' | 'pageBreakPreview' | 'pageLayout';
+
+export interface SheetViewData {
+  /** Whether grid lines are visible (default: true). */
+  showGridLines?: boolean;
+  /** Whether row and column headers are visible (default: true). */
+  showRowColHeaders?: boolean;
+  /** Whether zero values are displayed (default: true). */
+  showZeros?: boolean;
+  /** Right-to-left display mode (default: false). */
+  rightToLeft?: boolean;
+  /** Whether this sheet tab is selected (default: false). */
+  tabSelected?: boolean;
+  /** Whether the ruler is shown in Page Layout view (default: true). */
+  showRuler?: boolean;
+  /** Whether outline (grouping) symbols are shown (default: true). */
+  showOutlineSymbols?: boolean;
+  /** Whether white space around the page is shown in Page Layout view (default: true). */
+  showWhiteSpace?: boolean;
+  /** Whether the default grid color is used (default: true). */
+  defaultGridColor?: boolean;
+  /** Zoom percentage (10–400). */
+  zoomScale?: number | null;
+  /** Zoom percentage for Normal view. */
+  zoomScaleNormal?: number | null;
+  /** Zoom percentage for Page Layout view. */
+  zoomScalePageLayoutView?: number | null;
+  /** Zoom percentage for Page Break Preview. */
+  zoomScaleSheetLayoutView?: number | null;
+  /** Theme color ID for the grid color. */
+  colorId?: number | null;
+  /** View mode. */
+  view?: ViewMode | null;
+}
+
 export interface ColumnInfo {
   min: number;
   max: number;
@@ -298,6 +333,7 @@ export interface WorksheetData {
   frozenPane: FrozenPane | null;
   splitPane?: SplitPaneData | null;
   paneSelections?: PaneSelectionData[];
+  sheetView?: SheetViewData | null;
   columns: ColumnInfo[];
   dataValidations?: DataValidationData[];
   conditionalFormatting?: ConditionalFormattingData[];
