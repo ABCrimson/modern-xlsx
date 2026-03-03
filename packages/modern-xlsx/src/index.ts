@@ -22,14 +22,17 @@ export {
   renderBarcodePNG,
 } from './barcode.js';
 // Cell reference utilities
-export type { CellAddress, CellRange } from './cell-ref.js';
+export type { CellAddress, CellRange, SplitCellRef } from './cell-ref.js';
 export {
   columnToLetter,
   decodeCellRef,
   decodeRange,
+  decodeRow,
   encodeCellRef,
   encodeRange,
+  encodeRow,
   letterToColumn,
+  splitCellRef,
 } from './cell-ref.js';
 // Date utilities
 export {

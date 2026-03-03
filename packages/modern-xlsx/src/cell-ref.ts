@@ -92,3 +92,54 @@ export function decodeRange(range: string): CellRange {
     end: decodeCellRef(endRef),
   };
 }
+
+/** Result of splitting a cell reference into its components. */
+export interface SplitCellRef {
+  /** Column letters (e.g., "A", "XFD"). */
+  readonly col: string;
+  /** Row number as string (1-based, e.g., "1", "1048576"). */
+  readonly row: string;
+  /** Whether the column is absolute ($A). */
+  readonly absCol: boolean;
+  /** Whether the row is absolute ($1). */
+  readonly absRow: boolean;
+}
+
+/**
+ * Convert a 0-based row index to a 1-based row string.
+ * `encodeRow(0)` → `"1"`
+ */
+export function encodeRow(row: number): string {
+  return String(row + 1);
+}
+
+/**
+ * Convert a 1-based row string to a 0-based row index.
+ * `decodeRow("1")` → `0`
+ */
+export function decodeRow(rowStr: string): number {
+  const n = Number.parseInt(rowStr, 10);
+  if (!Number.isFinite(n) || n < 1) {
+    throw new Error(`Invalid row string: ${rowStr}`);
+  }
+  return n - 1;
+}
+
+const SPLIT_RE = /^(\$?)([A-Z]+)(\$?)(\d+)$/;
+
+/**
+ * Split a cell reference into column/row parts with absolute flags.
+ * `splitCellRef("$A$1")` → `{ col: "A", row: "1", absCol: true, absRow: true }`
+ */
+export function splitCellRef(ref: string): SplitCellRef {
+  const match = ref.toUpperCase().match(SPLIT_RE);
+  if (!match?.[2] || !match[4]) {
+    throw new Error(`Invalid cell reference: ${ref}`);
+  }
+  return {
+    col: match[2],
+    row: match[4],
+    absCol: match[1] === '$',
+    absRow: match[3] === '$',
+  };
+}
