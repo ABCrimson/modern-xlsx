@@ -16,9 +16,7 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     ws.cell('A1').styleIndex = boldIdx;
 
     // Italic cell with font color
-    const italicIdx = new StyleBuilder()
-      .font({ italic: true, color: 'FF0000' })
-      .build(wb.styles);
+    const italicIdx = new StyleBuilder().font({ italic: true, color: 'FF0000' }).build(wb.styles);
     ws.cell('B1').value = 'Italic Red';
     ws.cell('B1').styleIndex = italicIdx;
 
@@ -356,9 +354,7 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     expect(encrypted[1]).toBe(0xcf);
 
     // Wrong password should fail
-    await expect(readBuffer(encrypted, { password: 'wrong' })).rejects.toThrow(
-      /password|decrypt/i,
-    );
+    await expect(readBuffer(encrypted, { password: 'wrong' })).rejects.toThrow(/password|decrypt/i);
 
     // Correct unicode password should work
     const wb2 = await readBuffer(encrypted, { password: unicodePassword });
@@ -386,9 +382,7 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     expect(encrypted[1]).toBe(0xcf);
 
     // Wrong password should fail
-    await expect(readBuffer(encrypted, { password: 'short' })).rejects.toThrow(
-      /password|decrypt/i,
-    );
+    await expect(readBuffer(encrypted, { password: 'short' })).rejects.toThrow(/password|decrypt/i);
 
     // Correct long password should work
     const wb2 = await readBuffer(encrypted, { password: longPassword });
