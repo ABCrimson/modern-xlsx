@@ -52,7 +52,17 @@ impl StreamingReader {
             FileFormat::Zip => {} // continue with existing ZIP path
             FileFormat::Ole2 => match classify_ole2(data)? {
                 Ole2Kind::EncryptedXlsx => {
-                    return Err(ModernXlsxError::PasswordProtected(ERR_ENCRYPTED.into()));
+                    // Try to parse EncryptionInfo for better error message
+                    let msg =
+                        match crate::ole2::encryption_info::read_and_parse_encryption_info(data) {
+                            Ok(info) => {
+                                let desc =
+                                    crate::ole2::encryption_info::describe_encryption(&info);
+                                format!("Password-protected XLSX ({desc}). Provide password via readBuffer(data, {{ password: '...' }}).")
+                            }
+                            Err(_) => ERR_ENCRYPTED.into(),
+                        };
+                    return Err(ModernXlsxError::PasswordProtected(msg));
                 }
                 Ole2Kind::LegacyXls => {
                     return Err(ModernXlsxError::LegacyFormat(ERR_LEGACY_XLS.into()));
