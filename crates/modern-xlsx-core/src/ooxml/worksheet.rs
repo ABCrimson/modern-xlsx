@@ -447,6 +447,35 @@ pub struct Sparkline {
     pub sqref: String,
 }
 
+impl Default for SparklineGroup {
+    fn default() -> Self {
+        Self {
+            sparkline_type: default_sparkline_type(),
+            sparklines: Vec::new(),
+            color_series: None,
+            color_negative: None,
+            color_axis: None,
+            color_markers: None,
+            color_first: None,
+            color_last: None,
+            color_high: None,
+            color_low: None,
+            line_weight: None,
+            markers: false,
+            high: false,
+            low: false,
+            first: false,
+            last: false,
+            negative: false,
+            display_x_axis: false,
+            display_empty_cells_as: None,
+            manual_min: None,
+            manual_max: None,
+            right_to_left: false,
+        }
+    }
+}
+
 fn default_sparkline_type() -> String {
     "line".to_string()
 }
@@ -4308,6 +4337,166 @@ impl WorksheetXml {
                 .map_err(map_err)?;
         }
 
+        // <extLst> — sparkline groups and/or preserved extensions.
+        if !self.sparkline_groups.is_empty() || !self.preserved_extensions.is_empty() {
+            writer
+                .write_event(Event::Start(BytesStart::new("extLst")))
+                .map_err(map_err)?;
+
+            // Write sparkline extension.
+            if !self.sparkline_groups.is_empty() {
+                let mut ext = BytesStart::new("ext");
+                ext.push_attribute(("uri", "{05C60535-1F16-4fd2-B633-F4F36011B0BD}"));
+                ext.push_attribute((
+                    "xmlns:x14",
+                    "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main",
+                ));
+                writer.write_event(Event::Start(ext)).map_err(map_err)?;
+
+                let mut groups_elem = BytesStart::new("x14:sparklineGroups");
+                groups_elem.push_attribute((
+                    "xmlns:xm",
+                    "http://schemas.microsoft.com/office/excel/2006/main",
+                ));
+                writer
+                    .write_event(Event::Start(groups_elem))
+                    .map_err(map_err)?;
+
+                for group in &self.sparkline_groups {
+                    let mut group_elem = BytesStart::new("x14:sparklineGroup");
+
+                    // Type attribute (omit if "line" which is default).
+                    if group.sparkline_type != "line" {
+                        group_elem
+                            .push_attribute(("type", group.sparkline_type.as_str()));
+                    }
+
+                    // Boolean attributes (only write if true, as "1").
+                    if group.markers {
+                        group_elem.push_attribute(("markers", "1"));
+                    }
+                    if group.high {
+                        group_elem.push_attribute(("high", "1"));
+                    }
+                    if group.low {
+                        group_elem.push_attribute(("low", "1"));
+                    }
+                    if group.first {
+                        group_elem.push_attribute(("first", "1"));
+                    }
+                    if group.last {
+                        group_elem.push_attribute(("last", "1"));
+                    }
+                    if group.negative {
+                        group_elem.push_attribute(("negative", "1"));
+                    }
+                    if group.display_x_axis {
+                        group_elem.push_attribute(("displayXAxis", "1"));
+                    }
+                    if group.right_to_left {
+                        group_elem.push_attribute(("rightToLeft", "1"));
+                    }
+
+                    // Optional string/numeric attributes.
+                    if let Some(ref d) = group.display_empty_cells_as {
+                        group_elem.push_attribute(("displayEmptyCellsAs", d.as_str()));
+                    }
+                    if let Some(w) = group.line_weight {
+                        let s = format!("{w}");
+                        group_elem.push_attribute(("lineWeight", s.as_str()));
+                    }
+                    if let Some(v) = group.manual_min {
+                        let s = format!("{v}");
+                        group_elem.push_attribute(("manualMin", s.as_str()));
+                    }
+                    if let Some(v) = group.manual_max {
+                        let s = format!("{v}");
+                        group_elem.push_attribute(("manualMax", s.as_str()));
+                    }
+
+                    writer
+                        .write_event(Event::Start(group_elem))
+                        .map_err(map_err)?;
+
+                    // Write color elements (self-closing).
+                    macro_rules! write_sparkline_color {
+                        ($name:expr, $field:expr) => {
+                            if let Some(ref c) = $field {
+                                let mut e = BytesStart::new($name);
+                                e.push_attribute(("rgb", c.as_str()));
+                                writer.write_event(Event::Empty(e)).map_err(map_err)?;
+                            }
+                        };
+                    }
+                    write_sparkline_color!("x14:colorSeries", group.color_series);
+                    write_sparkline_color!("x14:colorNegative", group.color_negative);
+                    write_sparkline_color!("x14:colorAxis", group.color_axis);
+                    write_sparkline_color!("x14:colorMarkers", group.color_markers);
+                    write_sparkline_color!("x14:colorFirst", group.color_first);
+                    write_sparkline_color!("x14:colorLast", group.color_last);
+                    write_sparkline_color!("x14:colorHigh", group.color_high);
+                    write_sparkline_color!("x14:colorLow", group.color_low);
+
+                    // Write sparklines.
+                    writer
+                        .write_event(Event::Start(BytesStart::new("x14:sparklines")))
+                        .map_err(map_err)?;
+                    for sparkline in &group.sparklines {
+                        writer
+                            .write_event(Event::Start(BytesStart::new("x14:sparkline")))
+                            .map_err(map_err)?;
+
+                        writer
+                            .write_event(Event::Start(BytesStart::new("xm:f")))
+                            .map_err(map_err)?;
+                        writer
+                            .write_event(Event::Text(BytesText::new(&sparkline.formula)))
+                            .map_err(map_err)?;
+                        writer
+                            .write_event(Event::End(BytesEnd::new("xm:f")))
+                            .map_err(map_err)?;
+
+                        writer
+                            .write_event(Event::Start(BytesStart::new("xm:sqref")))
+                            .map_err(map_err)?;
+                        writer
+                            .write_event(Event::Text(BytesText::new(&sparkline.sqref)))
+                            .map_err(map_err)?;
+                        writer
+                            .write_event(Event::End(BytesEnd::new("xm:sqref")))
+                            .map_err(map_err)?;
+
+                        writer
+                            .write_event(Event::End(BytesEnd::new("x14:sparkline")))
+                            .map_err(map_err)?;
+                    }
+                    writer
+                        .write_event(Event::End(BytesEnd::new("x14:sparklines")))
+                        .map_err(map_err)?;
+
+                    writer
+                        .write_event(Event::End(BytesEnd::new("x14:sparklineGroup")))
+                        .map_err(map_err)?;
+                }
+
+                writer
+                    .write_event(Event::End(BytesEnd::new("x14:sparklineGroups")))
+                    .map_err(map_err)?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("ext")))
+                    .map_err(map_err)?;
+            }
+
+            // Write preserved non-sparkline extensions.
+            for ext_xml in &self.preserved_extensions {
+                writer.get_mut().extend_from_slice(ext_xml.as_bytes());
+            }
+
+            writer
+                .write_event(Event::End(BytesEnd::new("extLst")))
+                .map_err(map_err)?;
+        }
+
         // </worksheet>
         writer
             .write_event(Event::End(BytesEnd::new("worksheet")))
@@ -6549,5 +6738,141 @@ mod tests {
 </worksheet>"#;
         let ws = WorksheetXml::parse(xml).unwrap();
         assert!(ws.sparkline_groups.is_empty());
+    }
+
+    // ---- Sparkline writer roundtrip tests ----
+
+    #[test]
+    fn test_sparkline_line_roundtrip() {
+        let mut ws = default_test_ws();
+        ws.sparkline_groups = vec![SparklineGroup {
+            sparkline_type: "line".into(),
+            sparklines: vec![
+                Sparkline { formula: "Sheet1!A1:A10".into(), sqref: "B1".into() },
+                Sparkline { formula: "Sheet1!A1:A10".into(), sqref: "B2".into() },
+            ],
+            ..Default::default()
+        }];
+        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        assert_eq!(ws2.sparkline_groups.len(), 1);
+        assert_eq!(ws2.sparkline_groups[0].sparklines.len(), 2);
+        assert_eq!(ws2.sparkline_groups[0].sparklines[0].formula, "Sheet1!A1:A10");
+        assert_eq!(ws2.sparkline_groups[0].sparklines[0].sqref, "B1");
+        assert_eq!(ws2.sparkline_groups[0].sparklines[1].sqref, "B2");
+        assert_eq!(ws2.sparkline_groups[0].sparkline_type, "line");
+    }
+
+    #[test]
+    fn test_sparkline_column_with_colors_roundtrip() {
+        let mut ws = default_test_ws();
+        ws.sparkline_groups = vec![SparklineGroup {
+            sparkline_type: "column".into(),
+            sparklines: vec![
+                Sparkline { formula: "Sheet1!C1:C5".into(), sqref: "D1".into() },
+            ],
+            color_series: Some("FF376092".into()),
+            color_negative: Some("FFC00000".into()),
+            markers: true,
+            high: true,
+            low: true,
+            ..Default::default()
+        }];
+        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        assert_eq!(ws2.sparkline_groups[0].sparkline_type, "column");
+        assert_eq!(ws2.sparkline_groups[0].color_series.as_deref(), Some("FF376092"));
+        assert_eq!(ws2.sparkline_groups[0].color_negative.as_deref(), Some("FFC00000"));
+        assert!(ws2.sparkline_groups[0].markers);
+        assert!(ws2.sparkline_groups[0].high);
+        assert!(ws2.sparkline_groups[0].low);
+    }
+
+    #[test]
+    fn test_multiple_sparkline_groups_roundtrip() {
+        let mut ws = default_test_ws();
+        ws.sparkline_groups = vec![
+            SparklineGroup {
+                sparkline_type: "line".into(),
+                sparklines: vec![
+                    Sparkline { formula: "Sheet1!A1:A10".into(), sqref: "B1".into() },
+                ],
+                ..Default::default()
+            },
+            SparklineGroup {
+                sparkline_type: "column".into(),
+                sparklines: vec![
+                    Sparkline { formula: "Sheet1!C1:C10".into(), sqref: "D1".into() },
+                ],
+                negative: true,
+                display_empty_cells_as: Some("gap".into()),
+                ..Default::default()
+            },
+        ];
+        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        assert_eq!(ws2.sparkline_groups.len(), 2);
+        assert_eq!(ws2.sparkline_groups[0].sparkline_type, "line");
+        assert_eq!(ws2.sparkline_groups[1].sparkline_type, "column");
+        assert!(ws2.sparkline_groups[1].negative);
+        assert_eq!(
+            ws2.sparkline_groups[1].display_empty_cells_as.as_deref(),
+            Some("gap")
+        );
+    }
+
+    #[test]
+    fn test_sparkline_all_options_roundtrip() {
+        let mut ws = default_test_ws();
+        ws.sparkline_groups = vec![SparklineGroup {
+            sparkline_type: "stacked".into(),
+            sparklines: vec![
+                Sparkline { formula: "Sheet1!D1:D10".into(), sqref: "E1".into() },
+            ],
+            color_series: Some("FF376092".into()),
+            color_negative: Some("FFC00000".into()),
+            color_axis: Some("FF000000".into()),
+            color_markers: Some("FF0070C0".into()),
+            color_first: Some("FF00B050".into()),
+            color_last: Some("FFFFC000".into()),
+            color_high: Some("FF00B0F0".into()),
+            color_low: Some("FFFF0000".into()),
+            line_weight: Some(1.25),
+            markers: true,
+            high: true,
+            low: true,
+            first: true,
+            last: true,
+            negative: true,
+            display_x_axis: true,
+            display_empty_cells_as: Some("gap".into()),
+            manual_min: Some(0.0),
+            manual_max: Some(100.0),
+            right_to_left: true,
+        }];
+        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        let g = &ws2.sparkline_groups[0];
+        assert_eq!(g.sparkline_type, "stacked");
+        assert_eq!(g.color_series.as_deref(), Some("FF376092"));
+        assert_eq!(g.color_negative.as_deref(), Some("FFC00000"));
+        assert_eq!(g.color_axis.as_deref(), Some("FF000000"));
+        assert_eq!(g.color_markers.as_deref(), Some("FF0070C0"));
+        assert_eq!(g.color_first.as_deref(), Some("FF00B050"));
+        assert_eq!(g.color_last.as_deref(), Some("FFFFC000"));
+        assert_eq!(g.color_high.as_deref(), Some("FF00B0F0"));
+        assert_eq!(g.color_low.as_deref(), Some("FFFF0000"));
+        assert_eq!(g.line_weight, Some(1.25));
+        assert!(g.markers);
+        assert!(g.high);
+        assert!(g.low);
+        assert!(g.first);
+        assert!(g.last);
+        assert!(g.negative);
+        assert!(g.display_x_axis);
+        assert_eq!(g.display_empty_cells_as.as_deref(), Some("gap"));
+        assert_eq!(g.manual_min, Some(0.0));
+        assert_eq!(g.manual_max, Some(100.0));
+        assert!(g.right_to_left);
     }
 }
