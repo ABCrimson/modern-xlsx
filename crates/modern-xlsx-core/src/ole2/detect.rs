@@ -8,6 +8,13 @@ const OLE2_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 /// ZIP archive magic bytes (PK\x03\x04).
 const ZIP_MAGIC: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
 
+// Error message constants shared between reader.rs and streaming.rs.
+pub const ERR_ENCRYPTED: &str = "This file is password-protected (OLE2 compound document). \
+    Decryption not yet supported in this version.";
+pub const ERR_LEGACY_XLS: &str = "Legacy .xls format not supported. Convert to .xlsx first.";
+pub const ERR_OLE2_UNKNOWN: &str = "Unrecognized OLE2 compound document.";
+pub const ERR_NOT_XLSX: &str = "Not a valid XLSX file (expected ZIP or OLE2 header).";
+
 /// Detected file format.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileFormat {
@@ -205,7 +212,7 @@ pub fn read_stream(data: &[u8], name: &str) -> Result<Vec<u8>> {
     let entries = read_directory(data, &header, &fat);
 
     let entry = entries.iter().find(|e| e.name == name).ok_or_else(|| {
-        ModernXlsxError::PasswordProtected(format!("OLE2 stream '{name}' not found"))
+        ModernXlsxError::MissingPart(format!("OLE2 stream '{name}' not found"))
     })?;
 
     let chain = follow_chain(&fat, entry.start_sector);
@@ -252,6 +259,18 @@ mod tests {
     fn test_legacy_xls_classification() {
         let ole2 = build_test_ole2(&["Workbook"]);
         assert_eq!(classify_ole2(&ole2).unwrap(), Ole2Kind::LegacyXls);
+    }
+
+    #[test]
+    fn test_legacy_xls_book_stream() {
+        let ole2 = build_test_ole2(&["Book"]);
+        assert_eq!(classify_ole2(&ole2).unwrap(), Ole2Kind::LegacyXls);
+    }
+
+    #[test]
+    fn test_unknown_ole2_classification() {
+        let ole2 = build_test_ole2(&["SomeRandomStream"]);
+        assert_eq!(classify_ole2(&ole2).unwrap(), Ole2Kind::Unknown);
     }
 
     /// Builds a minimal OLE2 compound document with the given stream names

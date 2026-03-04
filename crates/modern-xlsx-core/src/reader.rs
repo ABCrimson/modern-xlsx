@@ -77,31 +77,24 @@ struct ReaderContext {
 /// Parse all shared XLSX metadata from the ZIP entries.
 fn parse_common(data: &[u8], limits: &ZipSecurityLimits) -> Result<ReaderContext> {
     // Format detection: reject OLE2 (encrypted/legacy) and unknown formats early.
+    use crate::ole2::detect::{ERR_ENCRYPTED, ERR_LEGACY_XLS, ERR_NOT_XLSX, ERR_OLE2_UNKNOWN};
     match detect_format(data) {
         FileFormat::Zip => {} // continue with existing ZIP path
         FileFormat::Ole2 => match classify_ole2(data)? {
             Ole2Kind::EncryptedXlsx => {
-                return Err(ModernXlsxError::PasswordProtected(
-                    "This file is password-protected (OLE2 compound document). \
-                     Decryption not yet supported in this version."
-                        .into(),
-                ));
+                return Err(ModernXlsxError::PasswordProtected(ERR_ENCRYPTED.into()));
             }
             Ole2Kind::LegacyXls => {
-                return Err(ModernXlsxError::LegacyFormat(
-                    "Legacy .xls format not supported. Convert to .xlsx first.".into(),
-                ));
+                return Err(ModernXlsxError::LegacyFormat(ERR_LEGACY_XLS.into()));
             }
             Ole2Kind::Unknown => {
                 return Err(ModernXlsxError::UnrecognizedFormat(
-                    "Unrecognized OLE2 compound document.".into(),
+                    ERR_OLE2_UNKNOWN.into(),
                 ));
             }
         },
         FileFormat::Unknown => {
-            return Err(ModernXlsxError::UnrecognizedFormat(
-                "Not a valid XLSX file (expected ZIP or OLE2 header).".into(),
-            ));
+            return Err(ModernXlsxError::UnrecognizedFormat(ERR_NOT_XLSX.into()));
         }
     }
 
