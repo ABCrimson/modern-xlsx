@@ -98,7 +98,8 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     // 3. Assemble ZIP entries.
     // NOTE: [Content_Types].xml is added last so we can append comment
     // content-type overrides discovered while writing worksheets.
-    let mut entries = Vec::with_capacity(6 + sheet_count);
+    let preserved_count = workbook.preserved_entries.len();
+    let mut entries = Vec::with_capacity(10 + sheet_count * 3 + preserved_count);
 
     entries.push(ZipEntry {
         name: "_rels/.rels".to_string(),

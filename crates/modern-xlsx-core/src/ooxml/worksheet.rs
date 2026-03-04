@@ -2376,7 +2376,7 @@ impl WorksheetXml {
                             if !first_cell { out.push(','); }
                             first_cell = false;
                             out.push_str("{\"reference\":\"");
-                            out.push_str(&cur_cell_ref);
+                            json_escape_to(out, &cur_cell_ref);
                             out.push_str("\",\"cellType\":\"");
                             out.push_str(cell_type_json_str(cur_cell_type));
                             out.push('"');
@@ -2891,7 +2891,7 @@ impl WorksheetXml {
                             if !first_cell { out.push(','); }
                             first_cell = false;
                             out.push_str("{\"reference\":\"");
-                            out.push_str(&cell_ref_buf);
+                            json_escape_to(out, &cell_ref_buf);
                             out.push_str("\",\"cellType\":\"");
                             out.push_str(cell_type_json_str(cell_type));
                             out.push('"');
@@ -3837,8 +3837,8 @@ impl WorksheetXml {
                     if pane.rows > 0 {
                         pane_elem.push_attribute(("ySplit", ibuf.format(pane.rows)));
                     }
-                    let mut top_left = col_index_to_letter(pane.cols + 1);
-                    top_left.push_str(ibuf.format(pane.rows + 1));
+                    let mut top_left = col_index_to_letter(pane.cols.saturating_add(1));
+                    top_left.push_str(ibuf.format(pane.rows.saturating_add(1)));
                     pane_elem.push_attribute(("topLeftCell", top_left.as_str()));
                     let active_pane = match (pane.rows > 0, pane.cols > 0) {
                         (true, true) => "bottomRight",

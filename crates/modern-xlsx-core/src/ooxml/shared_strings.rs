@@ -396,8 +396,15 @@ impl SharedStringTable {
                     }
 
                     // <t>text</t>
+                    let mut t_elem = BytesStart::new("t");
+                    if run.text.starts_with(' ') || run.text.ends_with(' ')
+                        || run.text.starts_with('\t') || run.text.ends_with('\t')
+                        || run.text.starts_with('\n') || run.text.ends_with('\n')
+                    {
+                        t_elem.push_attribute(("xml:space", "preserve"));
+                    }
                     writer
-                        .write_event(Event::Start(BytesStart::new("t")))
+                        .write_event(Event::Start(t_elem))
                         .map_err(map_write_err)?;
                     writer
                         .write_event(Event::Text(BytesText::new(
@@ -414,8 +421,15 @@ impl SharedStringTable {
                 }
             } else {
                 // Plain text entry.
+                let mut t_elem = BytesStart::new("t");
+                if s.starts_with(' ') || s.ends_with(' ')
+                    || s.starts_with('\t') || s.ends_with('\t')
+                    || s.starts_with('\n') || s.ends_with('\n')
+                {
+                    t_elem.push_attribute(("xml:space", "preserve"));
+                }
                 writer
-                    .write_event(Event::Start(BytesStart::new("t")))
+                    .write_event(Event::Start(t_elem))
                     .map_err(map_write_err)?;
                 writer
                     .write_event(Event::Text(BytesText::new(s)))
@@ -529,8 +543,15 @@ impl SharedStringTableBuilder {
             writer
                 .write_event(Event::Start(BytesStart::new("si")))
                 .map_err(map_write_err)?;
+            let mut t_elem = BytesStart::new("t");
+            if s.starts_with(' ') || s.ends_with(' ')
+                || s.starts_with('\t') || s.ends_with('\t')
+                || s.starts_with('\n') || s.ends_with('\n')
+            {
+                t_elem.push_attribute(("xml:space", "preserve"));
+            }
             writer
-                .write_event(Event::Start(BytesStart::new("t")))
+                .write_event(Event::Start(t_elem))
                 .map_err(map_write_err)?;
             writer
                 .write_event(Event::Text(BytesText::new(s)))

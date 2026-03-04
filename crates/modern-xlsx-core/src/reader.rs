@@ -552,7 +552,9 @@ fn resolve_relative_path(base_dir: &str, relative: &str) -> String {
     for segment in relative.split('/') {
         match segment {
             ".." => {
-                parts.pop();
+                if parts.len() > 1 {
+                    parts.pop();
+                }
             }
             "." | "" => {}
             other => {
