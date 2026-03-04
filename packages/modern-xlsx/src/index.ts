@@ -158,6 +158,9 @@ export {
   sheetToJson,
   sheetToTxt,
 } from './utils.js';
+// Formula engine
+export type { Token, TokenizeResult, TokenType } from './formula/index.js';
+export { tokenize } from './formula/index.js';
 // WASM initialization
 export { ensureReady, initWasm, initWasmSync } from './wasm-loader.js';
 // Core classes
