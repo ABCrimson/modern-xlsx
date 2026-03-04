@@ -37,6 +37,8 @@ export {
 // Builders
 export type { AddSeriesOptions, AxisOptions } from './chart-builder.js';
 export { ChartBuilder } from './chart-builder.js';
+// Chart style presets
+export { CHART_STYLE_PALETTES, getChartStylePalette } from './chart-styles.js';
 // Date utilities
 export {
   dateToSerial,
