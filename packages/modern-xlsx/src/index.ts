@@ -76,6 +76,7 @@ export type {
   UnaryOpNode,
 } from './formula/index.js';
 export {
+  createDefaultFunctions,
   evaluateFormula,
   evaluateNode,
   expandSharedFormula,

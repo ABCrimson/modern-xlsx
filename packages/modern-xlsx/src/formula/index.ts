@@ -1,4 +1,5 @@
 export { evaluateFormula, evaluateNode } from './evaluator.js';
+export { createDefaultFunctions } from './functions/index.js';
 export type {
   ArrayNode,
   ASTNode,
