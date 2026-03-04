@@ -171,6 +171,12 @@ pub struct WorksheetXml {
     pub header_footer: Option<HeaderFooter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline_properties: Option<OutlineProperties>,
+    /// Sparkline groups (from x14 extension in extLst).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sparkline_groups: Vec<SparklineGroup>,
+    /// Non-sparkline extension XML preserved as raw strings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preserved_extensions: Vec<String>,
 }
 
 /// A single row in the worksheet.
@@ -358,6 +364,95 @@ impl Default for SheetViewData {
             view: None,
         }
     }
+}
+
+/// A group of sparklines sharing the same type, style, and options (ECMA-376 x14 extension).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SparklineGroup {
+    /// Sparkline type: "line" (default), "column", or "stacked" (win/loss).
+    #[serde(default = "default_sparkline_type", skip_serializing_if = "is_default_sparkline_type")]
+    pub sparkline_type: String,
+    /// Individual sparklines in this group.
+    pub sparklines: Vec<Sparkline>,
+    /// Series color (RGB hex, e.g. "FF376092").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_series: Option<String>,
+    /// Negative value color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_negative: Option<String>,
+    /// Axis color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_axis: Option<String>,
+    /// Marker color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_markers: Option<String>,
+    /// First point color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_first: Option<String>,
+    /// Last point color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_last: Option<String>,
+    /// High point color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_high: Option<String>,
+    /// Low point color.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_low: Option<String>,
+    /// Line weight in points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_weight: Option<f64>,
+    /// Show markers on data points.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub markers: bool,
+    /// Highlight high point.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub high: bool,
+    /// Highlight low point.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub low: bool,
+    /// Highlight first point.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub first: bool,
+    /// Highlight last point.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub last: bool,
+    /// Highlight negative values.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub negative: bool,
+    /// Show the horizontal axis.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub display_x_axis: bool,
+    /// How to display empty cells: "gap", "zero", or "span".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_empty_cells_as: Option<String>,
+    /// Manual minimum value for axis scaling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manual_min: Option<f64>,
+    /// Manual maximum value for axis scaling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manual_max: Option<f64>,
+    /// Right-to-left display.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub right_to_left: bool,
+}
+
+/// A single sparkline: data range -> display cell.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Sparkline {
+    /// Data range formula (e.g. "Sheet1!A1:A10").
+    pub formula: String,
+    /// Cell where the sparkline renders (e.g. "B1").
+    pub sqref: String,
+}
+
+fn default_sparkline_type() -> String {
+    "line".to_string()
+}
+
+fn is_default_sparkline_type(s: &str) -> bool {
+    s == "line"
 }
 
 /// Column formatting information from the `<cols>` section.
@@ -1745,6 +1840,8 @@ impl WorksheetXml {
             tables: Vec::new(),
             header_footer,
             outline_properties,
+            sparkline_groups: Vec::new(),
+            preserved_extensions: Vec::new(),
         })
     }
 
@@ -3037,6 +3134,8 @@ impl WorksheetXml {
             out.push_str(&serde_json::to_string(op)
                 .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
         }
+        // Sparkline groups and preserved extensions will be serialized here
+        // once the parser (B6-T2) populates them from extLst.
 
         // Close the worksheet JSON object.
         out.push('}');
@@ -4260,6 +4359,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4352,6 +4453,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4445,6 +4548,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4493,6 +4598,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4608,6 +4715,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4758,6 +4867,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         // Write to XML.
@@ -4856,6 +4967,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4919,6 +5032,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -4992,6 +5107,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -5094,6 +5211,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -5180,6 +5299,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -5254,6 +5375,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -5335,6 +5458,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -5437,6 +5562,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
 
         let xml = ws.to_xml().unwrap();
@@ -5491,6 +5618,8 @@ mod tests {
                 ..Default::default()
             }),
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[]).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
@@ -5526,6 +5655,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[]).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
@@ -5581,6 +5712,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[]).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
@@ -5613,6 +5746,8 @@ mod tests {
                 summary_below: false,
                 summary_right: true,
             }),
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[]).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
@@ -5652,6 +5787,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
@@ -5694,6 +5831,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
@@ -5730,6 +5869,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -5854,6 +5995,8 @@ mod tests {
             tables: vec![],
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: vec![],
+            preserved_extensions: vec![],
         }
     }
 

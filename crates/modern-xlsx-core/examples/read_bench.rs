@@ -93,6 +93,8 @@ fn main() {
         header_footer: None,
         outline_properties: None,
         tables: vec![],
+        sparkline_groups: vec![],
+        preserved_extensions: vec![],
     };
     let wb = WorkbookData {
         sheets: vec![SheetData {

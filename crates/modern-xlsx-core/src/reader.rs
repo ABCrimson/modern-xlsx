@@ -625,6 +625,8 @@ mod tests {
             tables: Vec::new(),
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: Vec::new(),
+            preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -746,6 +748,8 @@ mod tests {
             tables: Vec::new(),
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: Vec::new(),
+            preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -837,6 +841,8 @@ mod tests {
             tables: Vec::new(),
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: Vec::new(),
+            preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -1004,6 +1010,8 @@ mod tests {
             tables: Vec::new(),
             header_footer: None,
             outline_properties: None,
+            sparkline_groups: Vec::new(),
+            preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
 
@@ -1141,6 +1149,8 @@ mod tests {
                 tables: Vec::new(),
                 header_footer: None,
                 outline_properties: None,
+                sparkline_groups: Vec::new(),
+                preserved_extensions: Vec::new(),
             };
             let ws_xml = ws.to_xml().unwrap();
             entries.push(ZipEntry {
@@ -1247,6 +1257,8 @@ mod tests {
                     tables: Vec::new(),
                     header_footer: None,
                     outline_properties: None,
+                    sparkline_groups: Vec::new(),
+                    preserved_extensions: Vec::new(),
                 },
             }],
             date_system: DateSystem::Date1900,
@@ -1337,6 +1349,8 @@ mod tests {
                         tables: Vec::new(),
                         header_footer: None,
                         outline_properties: None,
+                        sparkline_groups: Vec::new(),
+                        preserved_extensions: Vec::new(),
                     },
                 },
                 SheetData {
@@ -1368,6 +1382,8 @@ mod tests {
                         tables: Vec::new(),
                         header_footer: None,
                         outline_properties: None,
+                        sparkline_groups: Vec::new(),
+                        preserved_extensions: Vec::new(),
                     },
                 },
             ],

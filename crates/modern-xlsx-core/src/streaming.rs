@@ -232,6 +232,8 @@ impl StreamingWriter {
                     tables: Vec::new(),
                     header_footer: None,
                     outline_properties: None,
+                    sparkline_groups: Vec::new(),
+                    preserved_extensions: Vec::new(),
                 },
             })
             .collect();
@@ -314,6 +316,8 @@ mod tests {
                     tables: Vec::new(),
                     header_footer: None,
                     outline_properties: None,
+                    sparkline_groups: Vec::new(),
+                    preserved_extensions: Vec::new(),
                 },
             }],
             date_system: DateSystem::Date1900,
@@ -366,6 +370,8 @@ mod tests {
                     tables: Vec::new(),
                     header_footer: None,
                     outline_properties: None,
+                    sparkline_groups: Vec::new(),
+                    preserved_extensions: Vec::new(),
                 },
             }],
             date_system: DateSystem::Date1900,
