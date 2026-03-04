@@ -72,7 +72,6 @@ export interface AxisOptions {
   delete?: boolean;
   position?: AxisPosition;
   crossesAt?: number;
-  fontSize?: number;
 }
 
 /**
@@ -310,7 +309,7 @@ function buildErrorBars(opts?: AddSeriesOptions['errorBars']): ErrorBarsData | n
 }
 
 function buildAxisTitle(title: AxisOptions['title']): ChartTitleData | null {
-  if (!title) return null;
+  if (title == null) return null;
   if (typeof title === 'string') return { text: title };
   return {
     text: title.text,
@@ -338,22 +337,13 @@ const AXIS_DEFAULTS: Omit<ChartAxisData, 'id' | 'crossAx'> = {
   delete: false,
   position: null,
   crossesAt: null,
-  fontSize: null,
 };
 
 function buildAxisScaleProps(
   opts: AxisOptions,
 ): Pick<
   ChartAxisData,
-  | 'numFmt'
-  | 'sourceLinked'
-  | 'min'
-  | 'max'
-  | 'majorUnit'
-  | 'minorUnit'
-  | 'logBase'
-  | 'reversed'
-  | 'fontSize'
+  'numFmt' | 'sourceLinked' | 'min' | 'max' | 'majorUnit' | 'minorUnit' | 'logBase' | 'reversed'
 > {
   return {
     numFmt: opts.numFmt ?? null,
@@ -364,7 +354,6 @@ function buildAxisScaleProps(
     minorUnit: opts.minorUnit ?? null,
     logBase: opts.logBase ?? null,
     reversed: opts.reversed ?? false,
-    fontSize: opts.fontSize ?? null,
   };
 }
 

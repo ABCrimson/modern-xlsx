@@ -2066,7 +2066,6 @@ mod tests {
                     delete: false,
                     position: None,
                     crosses_at: None,
-                    font_size: None,
                 }),
                 val_axis: Some(ChartAxis {
                     id: 1,
@@ -2088,7 +2087,6 @@ mod tests {
                     delete: false,
                     position: None,
                     crosses_at: None,
-                    font_size: None,
                 }),
                 legend: None,
                 data_labels: None,

@@ -469,7 +469,6 @@ export interface ChartAxisData {
   delete?: boolean;
   position?: AxisPosition | null;
   crossesAt?: number | null;
-  fontSize?: number | null;
 }
 
 export interface ChartLegendData {

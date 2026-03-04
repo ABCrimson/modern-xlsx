@@ -4502,6 +4502,13 @@ impl WorksheetXml {
             writer.write_event(Event::End(BytesEnd::new("headerFooter"))).map_err(map_err)?;
         }
 
+        // <drawing r:id="..."/> — ECMA-376 schema requires <drawing> before <tableParts>.
+        if let Some(rid) = drawing_r_id {
+            let mut drawing_elem = BytesStart::new("drawing");
+            drawing_elem.push_attribute(("r:id", rid));
+            writer.write_event(Event::Empty(drawing_elem)).map_err(map_err)?;
+        }
+
         // <tableParts> — only if table rIds are provided.
         if !table_r_ids.is_empty() {
             let mut tp = BytesStart::new("tableParts");
@@ -4515,13 +4522,6 @@ impl WorksheetXml {
             writer
                 .write_event(Event::End(BytesEnd::new("tableParts")))
                 .map_err(map_err)?;
-        }
-
-        // <drawing r:id="..."/> — if a drawing relationship ID is provided (charts).
-        if let Some(rid) = drawing_r_id {
-            let mut drawing_elem = BytesStart::new("drawing");
-            drawing_elem.push_attribute(("r:id", rid));
-            writer.write_event(Event::Empty(drawing_elem)).map_err(map_err)?;
         }
 
         // <extLst> — sparkline groups and/or preserved extensions.
