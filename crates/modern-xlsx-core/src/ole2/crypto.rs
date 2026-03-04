@@ -10,6 +10,7 @@ use aes::{Aes128, Aes256};
 use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::{NoPadding, Pkcs7}};
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
+use digest::DynDigest;
 use sha2::{Digest, Sha256, Sha512, digest::FixedOutputReset};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -275,53 +276,56 @@ pub fn secure_random(len: usize) -> Result<Vec<u8>> {
 // Hashing helpers
 // ---------------------------------------------------------------------------
 
-/// Hash bytes with the named algorithm.
-fn hash_bytes(alg: &str, data: &[u8]) -> Result<Vec<u8>> {
+/// Dispatch a hash operation by algorithm name. The closure receives a fresh
+/// `Digest` instance (SHA-512, SHA-256, or SHA-1) and must return the result.
+fn with_hash_alg<F>(alg: &str, f: F) -> Result<Vec<u8>>
+where
+    F: Fn(&mut dyn DynDigest) -> Vec<u8>,
+{
     match alg {
-        "SHA512" => {
-            let mut h = Sha512::new();
-            Digest::update(&mut h, data);
-            Ok(h.finalize().to_vec())
-        }
-        "SHA256" => {
-            let mut h = Sha256::new();
-            Digest::update(&mut h, data);
-            Ok(h.finalize().to_vec())
-        }
-        "SHA1" => {
-            let mut h = Sha1::new();
-            Digest::update(&mut h, data);
-            Ok(h.finalize().to_vec())
-        }
+        "SHA512" => Ok(f(&mut Sha512::new())),
+        "SHA256" => Ok(f(&mut Sha256::new())),
+        "SHA1" => Ok(f(&mut Sha1::new())),
         _ => Err(ModernXlsxError::PasswordProtected(format!(
             "Unsupported hash algorithm: {alg}"
         ))),
     }
 }
 
+/// Hash bytes with the named algorithm.
+fn hash_bytes(alg: &str, data: &[u8]) -> Result<Vec<u8>> {
+    with_hash_alg(alg, |h| {
+        h.update(data);
+        h.finalize_reset().to_vec()
+    })
+}
+
 /// Hash the concatenation of two byte slices: H(prefix || data).
 fn hash_bytes_with_prefix(prefix: &[u8], data: &[u8], alg: &str) -> Result<Vec<u8>> {
+    with_hash_alg(alg, |h| {
+        h.update(prefix);
+        h.update(data);
+        h.finalize_reset().to_vec()
+    })
+}
+
+/// Compute HMAC of `data` using the named hash algorithm and `key`.
+fn compute_hmac(alg: &str, key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     match alg {
         "SHA512" => {
-            let mut h = Sha512::new();
-            Digest::update(&mut h, prefix);
-            Digest::update(&mut h, data);
-            Ok(h.finalize().to_vec())
+            let mut mac = Hmac::<Sha512>::new_from_slice(key)
+                .map_err(|e| ModernXlsxError::PasswordProtected(format!("HMAC init: {e}")))?;
+            mac.update(data);
+            Ok(mac.finalize().into_bytes().to_vec())
         }
         "SHA256" => {
-            let mut h = Sha256::new();
-            Digest::update(&mut h, prefix);
-            Digest::update(&mut h, data);
-            Ok(h.finalize().to_vec())
-        }
-        "SHA1" => {
-            let mut h = Sha1::new();
-            Digest::update(&mut h, prefix);
-            Digest::update(&mut h, data);
-            Ok(h.finalize().to_vec())
+            let mut mac = Hmac::<Sha256>::new_from_slice(key)
+                .map_err(|e| ModernXlsxError::PasswordProtected(format!("HMAC init: {e}")))?;
+            mac.update(data);
+            Ok(mac.finalize().into_bytes().to_vec())
         }
         _ => Err(ModernXlsxError::PasswordProtected(format!(
-            "Unsupported hash algorithm: {alg}"
+            "Unsupported hash algorithm for HMAC: {alg}"
         ))),
     }
 }
@@ -490,30 +494,7 @@ pub fn verify_hmac(
 
     // 3. Compute HMAC of encrypted package (entire encrypted stream including size prefix)
     let hash_len = info.key_hash_size as usize;
-    let computed = match info.key_hash_alg.as_str() {
-        "SHA512" => {
-            let mut mac = Hmac::<Sha512>::new_from_slice(&hmac_key[..hash_len])
-                .map_err(|e| {
-                    ModernXlsxError::PasswordProtected(format!("HMAC init: {e}"))
-                })?;
-            mac.update(encrypted_package);
-            mac.finalize().into_bytes().to_vec()
-        }
-        "SHA256" => {
-            let mut mac = Hmac::<Sha256>::new_from_slice(&hmac_key[..hash_len])
-                .map_err(|e| {
-                    ModernXlsxError::PasswordProtected(format!("HMAC init: {e}"))
-                })?;
-            mac.update(encrypted_package);
-            mac.finalize().into_bytes().to_vec()
-        }
-        _ => {
-            return Err(ModernXlsxError::PasswordProtected(format!(
-                "Unsupported hash algorithm for HMAC: {}",
-                info.key_hash_alg
-            )));
-        }
-    };
+    let computed = compute_hmac(&info.key_hash_alg, &hmac_key[..hash_len], encrypted_package)?;
 
     // 4. Constant-time compare
     if computed.len() < hash_len || expected_hmac.len() < hash_len {
@@ -592,23 +573,7 @@ pub fn compute_and_encrypt_hmac(
     let hmac_key = SensitiveKey::new(secure_random(hash_len)?);
 
     // 2. Compute HMAC of the encrypted package
-    let hmac_value = match hash_alg {
-        "SHA512" => {
-            let mut mac = Hmac::<Sha512>::new_from_slice(&hmac_key).map_err(|e| {
-                ModernXlsxError::PasswordProtected(format!("HMAC init: {e}"))
-            })?;
-            mac.update(encrypted_package);
-            mac.finalize().into_bytes().to_vec()
-        }
-        "SHA256" => {
-            let mut mac = Hmac::<Sha256>::new_from_slice(&hmac_key).map_err(|e| {
-                ModernXlsxError::PasswordProtected(format!("HMAC init: {e}"))
-            })?;
-            mac.update(encrypted_package);
-            mac.finalize().into_bytes().to_vec()
-        }
-        _ => unreachable!(),
-    };
+    let hmac_value = compute_hmac(hash_alg, &hmac_key, encrypted_package)?;
 
     // 3. Derive encryption keys for HMAC key and value
     let hmac_key_enc_key = SensitiveKey::new(
