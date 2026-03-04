@@ -1,8 +1,5 @@
 use crate::errors::{ModernXlsxError, Result};
 
-/// OLE2 Compound Document magic bytes.
-const OLE2_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-
 /// Sector size for v3 format (2^9 = 512 bytes).
 const SECTOR_SIZE: usize = 512;
 
@@ -302,7 +299,7 @@ pub fn write_ole2(streams: &[(&str, &[u8])]) -> Result<Vec<u8>> {
 /// Writes the OLE2 v3 header into the first 512 bytes.
 fn write_header(buf: &mut [u8], first_dir_sid: u32, fat_sector_count: u32, first_fat_sid: u32) {
     // Magic signature
-    buf[..8].copy_from_slice(&OLE2_MAGIC);
+    buf[..8].copy_from_slice(&super::OLE2_MAGIC);
 
     // CLSID (8..24): all zeros
 

@@ -3,9 +3,6 @@ use crate::errors::ModernXlsxError;
 
 type Result<T> = std::result::Result<T, ModernXlsxError>;
 
-/// OLE2 Compound Document magic bytes.
-const OLE2_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-
 /// ZIP archive magic bytes (PK\x03\x04).
 const ZIP_MAGIC: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
 
@@ -34,7 +31,7 @@ pub enum Ole2Kind {
 
 /// Detect whether a byte slice begins with ZIP or OLE2 magic bytes.
 pub fn detect_format(data: &[u8]) -> FileFormat {
-    if data.len() >= 8 && data[..8] == OLE2_MAGIC {
+    if data.len() >= 8 && data[..8] == super::OLE2_MAGIC {
         FileFormat::Ole2
     } else if data.len() >= 4 && data[..4] == ZIP_MAGIC {
         FileFormat::Zip
@@ -259,7 +256,7 @@ mod tests {
     #[test]
     fn test_detect_ole2_format() {
         let mut data = vec![0u8; 512];
-        data[..8].copy_from_slice(&OLE2_MAGIC);
+        data[..8].copy_from_slice(&crate::ole2::OLE2_MAGIC);
         assert_eq!(detect_format(&data), FileFormat::Ole2);
     }
 
@@ -314,7 +311,7 @@ mod tests {
 
         // --- Header ---
         // Magic
-        buf[..8].copy_from_slice(&OLE2_MAGIC);
+        buf[..8].copy_from_slice(&crate::ole2::OLE2_MAGIC);
         // Minor version
         buf[24..26].copy_from_slice(&62u16.to_le_bytes());
         // Major version (3 = 512-byte sectors)
