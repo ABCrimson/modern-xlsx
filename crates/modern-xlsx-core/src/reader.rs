@@ -22,6 +22,7 @@ use crate::ooxml::{
     workbook::{SheetState, WorkbookXml},
     worksheet::WorksheetXml,
 };
+use crate::ole2::detect::{classify_ole2, detect_format, FileFormat, Ole2Kind};
 use crate::zip::reader::{read_zip_entries, ZipSecurityLimits};
 use crate::{ModernXlsxError, Result, SheetData, WorkbookData};
 
@@ -75,6 +76,35 @@ struct ReaderContext {
 
 /// Parse all shared XLSX metadata from the ZIP entries.
 fn parse_common(data: &[u8], limits: &ZipSecurityLimits) -> Result<ReaderContext> {
+    // Format detection: reject OLE2 (encrypted/legacy) and unknown formats early.
+    match detect_format(data) {
+        FileFormat::Zip => {} // continue with existing ZIP path
+        FileFormat::Ole2 => match classify_ole2(data)? {
+            Ole2Kind::EncryptedXlsx => {
+                return Err(ModernXlsxError::PasswordProtected(
+                    "This file is password-protected (OLE2 compound document). \
+                     Decryption not yet supported in this version."
+                        .into(),
+                ));
+            }
+            Ole2Kind::LegacyXls => {
+                return Err(ModernXlsxError::LegacyFormat(
+                    "Legacy .xls format not supported. Convert to .xlsx first.".into(),
+                ));
+            }
+            Ole2Kind::Unknown => {
+                return Err(ModernXlsxError::UnrecognizedFormat(
+                    "Unrecognized OLE2 compound document.".into(),
+                ));
+            }
+        },
+        FileFormat::Unknown => {
+            return Err(ModernXlsxError::UnrecognizedFormat(
+                "Not a valid XLSX file (expected ZIP or OLE2 header).".into(),
+            ));
+        }
+    }
+
     let entries = read_zip_entries(data, limits)?;
 
     // Parse workbook (required part).

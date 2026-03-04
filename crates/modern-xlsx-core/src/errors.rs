@@ -42,6 +42,18 @@ pub enum ModernXlsxError {
     #[error("security violation: {0}")]
     Security(String),
 
+    /// The file is a password-protected OLE2 compound document.
+    #[error("Password protected: {0}")]
+    PasswordProtected(String),
+
+    /// The file is a legacy .xls (OLE2) format.
+    #[error("Legacy format: {0}")]
+    LegacyFormat(String),
+
+    /// The file format is unrecognized.
+    #[error("Unrecognized format: {0}")]
+    UnrecognizedFormat(String),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }

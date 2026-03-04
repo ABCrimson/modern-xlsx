@@ -1,6 +1,7 @@
 pub mod dates;
 pub mod errors;
 pub mod number_format;
+pub mod ole2;
 pub mod ooxml;
 pub mod reader;
 pub mod streaming;

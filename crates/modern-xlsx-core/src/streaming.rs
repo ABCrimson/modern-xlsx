@@ -6,6 +6,7 @@
 
 use crate::dates::DateSystem;
 use crate::errors::ModernXlsxError;
+use crate::ole2::detect::{classify_ole2, detect_format, FileFormat, Ole2Kind};
 use crate::ooxml::shared_strings::SharedStringTable;
 use crate::ooxml::styles::Styles;
 use crate::ooxml::workbook::WorkbookXml;
@@ -42,6 +43,35 @@ impl StreamingReader {
     ) -> Result<Self, ModernXlsxError> {
         use crate::ooxml::relationships::Relationships;
         use crate::zip::reader::read_zip_entries;
+
+        // Format detection: reject OLE2 (encrypted/legacy) and unknown formats early.
+        match detect_format(data) {
+            FileFormat::Zip => {} // continue with existing ZIP path
+            FileFormat::Ole2 => match classify_ole2(data)? {
+                Ole2Kind::EncryptedXlsx => {
+                    return Err(ModernXlsxError::PasswordProtected(
+                        "This file is password-protected (OLE2 compound document). \
+                         Decryption not yet supported in this version."
+                            .into(),
+                    ));
+                }
+                Ole2Kind::LegacyXls => {
+                    return Err(ModernXlsxError::LegacyFormat(
+                        "Legacy .xls format not supported. Convert to .xlsx first.".into(),
+                    ));
+                }
+                Ole2Kind::Unknown => {
+                    return Err(ModernXlsxError::UnrecognizedFormat(
+                        "Unrecognized OLE2 compound document.".into(),
+                    ));
+                }
+            },
+            FileFormat::Unknown => {
+                return Err(ModernXlsxError::UnrecognizedFormat(
+                    "Not a valid XLSX file (expected ZIP or OLE2 header).".into(),
+                ));
+            }
+        }
 
         let mut entries = read_zip_entries(data, limits)?;
 
