@@ -41,10 +41,12 @@ describe('Integration: Data Feature Roundtrips', () => {
     const wb3 = await readBuffer(buffer);
     const ws3 = wb3.getSheet('Sheet1');
 
-    // Verify sparkline survived
+    // Verify sparkline survived (type, color, formula, sqref)
     expect(ws3?.sparklineGroups).toHaveLength(1);
     expect(ws3?.sparklineGroups[0].sparklineType).toBe('column');
     expect(ws3?.sparklineGroups[0].colorSeries).toBe('FF376092');
+    expect(ws3?.sparklineGroups[0].sparklines[0].formula).toBe('Sheet1!A1:A3');
+    expect(ws3?.sparklineGroups[0].sparklines[0].sqref).toBe('B1');
 
     // Verify data table survived
     const readData = wb3.toJSON();
@@ -140,11 +142,13 @@ describe('Integration: Data Feature Roundtrips', () => {
     expect(ws3?.sparklineGroups).toHaveLength(1);
     expect(ws3?.sparklineGroups[0].lineWeight).toBe(2.0);
 
-    // Data table preserved
+    // Data table preserved (type, r1, r2, dt2D)
     const readData = wb3.toJSON();
     const row7 = readData.sheets[0]?.worksheet.rows.find((r) => r.index === 7);
     const dtCell = row7?.cells.find((c) => c.reference === 'D7');
     expect(dtCell?.formulaType).toBe('dataTable');
+    expect(dtCell?.formulaR1).toBe('A1');
+    expect(dtCell?.formulaR2).toBe('B1');
     expect(dtCell?.formulaDt2d).toBe(true);
   });
 
@@ -172,9 +176,109 @@ describe('Integration: Data Feature Roundtrips', () => {
     const ws3 = wb3.getSheet('Sheet1');
     expect(ws3?.sparklineGroups).toHaveLength(1);
 
-    // External link survived
+    // Sparkline formula/sqref survived
+    expect(ws3?.sparklineGroups[0].sparklines[0].formula).toBe('Sheet1!A1:A2');
+    expect(ws3?.sparklineGroups[0].sparklines[0].sqref).toBe('B1');
+
+    // External link survived with correct content
     const readData = wb3.toJSON();
-    expect(readData.preservedEntries?.['xl/externalLinks/externalLink1.xml']).toBeDefined();
+    const entry = readData.preservedEntries?.['xl/externalLinks/externalLink1.xml'];
+    expect(entry).toBeDefined();
+    const decoded = new TextDecoder().decode(new Uint8Array(entry!));
+    expect(decoded).toBe('<externalLink/>');
+  });
+
+  it('cross-sheet sparkline reference survives roundtrip', async () => {
+    const wb = new Workbook();
+
+    // Data lives on one sheet
+    const data = wb.addSheet('Data');
+    for (let i = 1; i <= 10; i++) {
+      data.cell(`A${i}`).value = i * 10;
+    }
+
+    // Sparkline renders on a different sheet referencing Data
+    const dashboard = wb.addSheet('Dashboard');
+    dashboard.cell('A1').value = 'Trend:';
+    dashboard.addSparklineGroup({
+      sparklines: [{ formula: 'Data!A1:A10', sqref: 'B1' }],
+      colorSeries: 'FF4472C4',
+    });
+
+    const buffer = await wb.toBuffer();
+    const wb2 = await readBuffer(buffer);
+
+    const dash2 = wb2.getSheet('Dashboard');
+    expect(dash2?.sparklineGroups).toHaveLength(1);
+    expect(dash2?.sparklineGroups[0].sparklines[0].formula).toBe('Data!A1:A10');
+    expect(dash2?.sparklineGroups[0].sparklines[0].sqref).toBe('B1');
+    expect(dash2?.sparklineGroups[0].colorSeries).toBe('FF4472C4');
+
+    // Data sheet should have no sparklines
+    const data2 = wb2.getSheet('Data');
+    expect(data2?.sparklineGroups).toHaveLength(0);
+  });
+
+  it('all three features: sparklines + data table + external link in one workbook', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+
+    // Regular data + sparkline
+    ws.cell('A1').value = 10;
+    ws.cell('A2').value = 20;
+    ws.addSparklineGroup({
+      sparklines: [{ formula: 'Sheet1!A1:A2', sqref: 'C1' }],
+    });
+
+    // Data table formula via JSON
+    const wbData = wb.toJSON();
+    const sheet = wbData.sheets[0];
+    if (!sheet) throw new Error('missing sheet');
+    sheet.worksheet.rows.push({
+      index: 4,
+      cells: [
+        {
+          reference: 'B4',
+          cellType: 'formulaStr',
+          styleIndex: null,
+          value: '55',
+          formula: '',
+          formulaType: 'dataTable',
+          formulaR1: 'A1',
+        },
+      ],
+      height: null,
+      hidden: false,
+    });
+
+    // External link preserved entry
+    wbData.preservedEntries = {
+      'xl/externalLinks/externalLink1.xml': Array.from(
+        new TextEncoder().encode('<externalLink/>'),
+      ),
+    };
+
+    const wb2 = new Workbook(wbData);
+    const buffer = await wb2.toBuffer();
+    const wb3 = await readBuffer(buffer);
+    const ws3 = wb3.getSheet('Sheet1');
+
+    // Sparkline survived
+    expect(ws3?.sparklineGroups).toHaveLength(1);
+    expect(ws3?.sparklineGroups[0].sparklines[0].formula).toBe('Sheet1!A1:A2');
+
+    // Data table survived
+    const readData = wb3.toJSON();
+    const row4 = readData.sheets[0]?.worksheet.rows.find((r) => r.index === 4);
+    const dtCell = row4?.cells.find((c) => c.reference === 'B4');
+    expect(dtCell?.formulaType).toBe('dataTable');
+    expect(dtCell?.formulaR1).toBe('A1');
+
+    // External link survived
+    const entry = readData.preservedEntries?.['xl/externalLinks/externalLink1.xml'];
+    expect(entry).toBeDefined();
+    const decoded = new TextDecoder().decode(new Uint8Array(entry!));
+    expect(decoded).toBe('<externalLink/>');
   });
 
   it('clone sheet preserves sparklines', async () => {
@@ -222,7 +326,10 @@ describe('Integration: Data Feature Roundtrips', () => {
 
     expect(wb2.sheetCount).toBe(50);
     expect(wb2.getSheet('Sheet1')?.sparklineGroups).toHaveLength(1);
+    expect(wb2.getSheet('Sheet1')?.sparklineGroups[0].sparklines[0].formula).toBe('Sheet1!A1:A10');
+    expect(wb2.getSheet('Sheet25')?.sparklineGroups).toHaveLength(1);
     expect(wb2.getSheet('Sheet50')?.sparklineGroups).toHaveLength(1);
+    expect(wb2.getSheet('Sheet50')?.sparklineGroups[0].sparklines[0].formula).toBe('Sheet50!A1:A10');
     // Should complete well within 10 seconds
     expect(elapsed).toBeLessThan(10000);
   });
