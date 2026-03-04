@@ -71,7 +71,12 @@ export type {
   TokenType,
   UnaryOpNode,
 } from './formula/index.js';
-export { parseCellRefValue, parseFormula, tokenize } from './formula/index.js';
+export {
+  parseCellRefValue,
+  parseFormula,
+  serializeFormula,
+  tokenize,
+} from './formula/index.js';
 // Builders
 export { HeaderFooterBuilder } from './header-footer.js';
 export { RichTextBuilder } from './rich-text.js';
