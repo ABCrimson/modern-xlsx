@@ -110,7 +110,6 @@ export function wasmRead(data: Uint8Array): WorkbookData {
  * If the file is not encrypted, the password is ignored.
  */
 export function wasmReadWithPassword(data: Uint8Array, password: string): WorkbookData {
-  ensureInitialized();
   const json = _wasmReadWithPasswordJson(data, password);
   const parsed: unknown = JSON.parse(json);
   if (!isWorkbookData(parsed)) {

@@ -370,14 +370,29 @@ pub fn read_xlsx_json(data: &[u8]) -> Result<String> {
 
 /// Read an XLSX file as JSON with custom ZIP security limits.
 pub fn read_xlsx_json_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result<String> {
-    let mut ctx = parse_common(data, limits, None)?;
+    build_json_from_context(parse_common(data, limits, None)?, data.len())
+}
+
+/// Read an XLSX file (possibly encrypted) from bytes with a password.
+///
+/// If the file is a plain ZIP (not encrypted), the password is ignored
+/// and the file is read normally. If the file is OLE2-encrypted and the
+/// password is empty, a descriptive error is returned.
+pub fn read_xlsx_json_with_password(data: &[u8], password: &str) -> Result<String> {
+    let pw = if password.is_empty() { None } else { Some(password) };
+    build_json_from_context(parse_common(data, &ZipSecurityLimits::default(), pw)?, data.len())
+}
+
+/// Shared JSON builder used by both `read_xlsx_json_with_options` and
+/// `read_xlsx_json_with_password`.
+fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<String> {
     let sheet_comments = resolve_comments(&mut ctx)?;
     let sheet_tables = resolve_tables(&mut ctx)?;
 
     // --- Build JSON output ---
     // Estimate ~80 bytes per cell × 10 cells/row × number of rows.
     // For a 5MB XLSX, expand factor ~15x is reasonable.
-    let estimated_size = (data.len() * 15).max(4096);
+    let estimated_size = (data_len * 15).max(4096);
     let mut out = String::with_capacity(estimated_size);
 
     let serde_err = |e: serde_json::Error| ModernXlsxError::XmlParse(e.to_string());
@@ -461,98 +476,6 @@ pub fn read_xlsx_json_with_options(data: &[u8], limits: &ZipSecurityLimits) -> R
     }
 
     // preservedEntries
-    if !preserved_entries.is_empty() {
-        out.push_str(",\"preservedEntries\":");
-        out.push_str(&serde_json::to_string(&preserved_entries).map_err(serde_err)?);
-    }
-
-    out.push('}');
-
-    Ok(out)
-}
-
-/// Read an XLSX file (possibly encrypted) from bytes with a password.
-///
-/// If the file is a plain ZIP (not encrypted), the password is ignored
-/// and the file is read normally. If the file is OLE2-encrypted and the
-/// password is empty, a descriptive error is returned.
-pub fn read_xlsx_json_with_password(data: &[u8], password: &str) -> Result<String> {
-    let pw = if password.is_empty() { None } else { Some(password) };
-    let mut ctx = parse_common(data, &ZipSecurityLimits::default(), pw)?;
-    let sheet_comments = resolve_comments(&mut ctx)?;
-    let sheet_tables = resolve_tables(&mut ctx)?;
-
-    let estimated_size = (data.len() * 15).max(4096);
-    let mut out = String::with_capacity(estimated_size);
-    let serde_err = |e: serde_json::Error| ModernXlsxError::XmlParse(e.to_string());
-
-    out.push_str("{\"sheets\":[");
-
-    for (i, (name, path, state)) in ctx.sheet_targets.iter().enumerate() {
-        if i > 0 { out.push(','); }
-        out.push_str("{\"name\":\"");
-        crate::ooxml::worksheet::json_escape_to_pub(&mut out, name);
-        out.push('"');
-
-        match state {
-            SheetState::Hidden => out.push_str(",\"state\":\"hidden\""),
-            SheetState::VeryHidden => out.push_str(",\"state\":\"veryHidden\""),
-            SheetState::Visible => {}
-        }
-
-        out.push_str(",\"worksheet\":");
-
-        let ws_data = ctx.entries.get(path).ok_or_else(|| {
-            ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
-        })?;
-        WorksheetXml::parse_to_json(ws_data, Some(&ctx.sst), &sheet_comments[i], &sheet_tables[i], &mut out)?;
-
-        out.push('}');
-    }
-
-    out.push(']');
-
-    let preserved_entries = collect_preserved(&mut ctx);
-
-    out.push_str(",\"dateSystem\":");
-    out.push_str(&serde_json::to_string(&ctx.workbook_xml.date_system).map_err(serde_err)?);
-
-    out.push_str(",\"styles\":");
-    out.push_str(&serde_json::to_string(&ctx.styles).map_err(serde_err)?);
-
-    if !ctx.workbook_xml.defined_names.is_empty() {
-        out.push_str(",\"definedNames\":");
-        out.push_str(&serde_json::to_string(&ctx.workbook_xml.defined_names).map_err(serde_err)?);
-    }
-
-    out.push_str(",\"sharedStrings\":");
-    out.push_str(&serde_json::to_string(&ctx.sst).map_err(serde_err)?);
-
-    if let Some(ref dp) = ctx.doc_properties {
-        out.push_str(",\"docProperties\":");
-        out.push_str(&serde_json::to_string(dp).map_err(serde_err)?);
-    }
-
-    if let Some(ref tc) = ctx.theme_colors {
-        out.push_str(",\"themeColors\":");
-        out.push_str(&serde_json::to_string(tc).map_err(serde_err)?);
-    }
-
-    if !ctx.calc_chain.is_empty() {
-        out.push_str(",\"calcChain\":");
-        out.push_str(&serde_json::to_string(&ctx.calc_chain).map_err(serde_err)?);
-    }
-
-    if !ctx.workbook_xml.workbook_views.is_empty() {
-        out.push_str(",\"workbookViews\":");
-        out.push_str(&serde_json::to_string(&ctx.workbook_xml.workbook_views).map_err(serde_err)?);
-    }
-
-    if let Some(ref prot) = ctx.workbook_xml.protection {
-        out.push_str(",\"protection\":");
-        out.push_str(&serde_json::to_string(prot).map_err(serde_err)?);
-    }
-
     if !preserved_entries.is_empty() {
         out.push_str(",\"preservedEntries\":");
         out.push_str(&serde_json::to_string(&preserved_entries).map_err(serde_err)?);
