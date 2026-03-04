@@ -9,6 +9,9 @@ import type {
   ChartTitleData,
   ChartType,
   DataLabelsData,
+  ErrorBarDirection,
+  ErrorBarsData,
+  ErrorBarType,
   LegendPosition,
   ManualLayoutData,
   MarkerStyleType,
@@ -16,6 +19,9 @@ import type {
   ScatterStyle,
   TickLabelPosition,
   TickMark,
+  TrendlineData,
+  TrendlineType,
+  View3DData,
   WorksheetChartData,
 } from './types.js';
 
@@ -32,6 +38,20 @@ export interface AddSeriesOptions {
   smooth?: boolean;
   explosion?: number;
   dataLabels?: Partial<DataLabelsData>;
+  trendline?: {
+    trendType: TrendlineType;
+    order?: number;
+    period?: number;
+    forward?: number;
+    backward?: number;
+    displayEq?: boolean;
+    displayRSqr?: boolean;
+  };
+  errorBars?: {
+    errType: ErrorBarType;
+    direction?: ErrorBarDirection;
+    value?: number;
+  };
 }
 
 export interface AxisOptions {
@@ -84,6 +104,8 @@ export class ChartBuilder {
   private styleIdValue: number | null = null;
   private layoutValue: ManualLayoutData | null = null;
   private anchorData: ChartAnchorData = { fromCol: 0, fromRow: 0, toCol: 10, toRow: 15 };
+  private showDataTableValue = false;
+  private view3dData: View3DData | null = null;
 
   constructor(type: ChartType) {
     this.chartType = type;
@@ -119,6 +141,8 @@ export class ChartBuilder {
       smooth: opts.smooth ?? null,
       explosion: opts.explosion ?? null,
       dataLabels: buildDataLabels(opts.dataLabels),
+      trendline: buildTrendline(opts.trendline),
+      errorBars: buildErrorBars(opts.errorBars),
     });
     return this;
   }
@@ -183,6 +207,23 @@ export class ChartBuilder {
     return this;
   }
 
+  /** Enable showing the data table below the chart. */
+  showDataTable(show = true): this {
+    this.showDataTableValue = show;
+    return this;
+  }
+
+  /** Set 3D rotation settings. */
+  view3d(opts: { rotX?: number; rotY?: number; perspective?: number; rAngAx?: boolean }): this {
+    this.view3dData = {
+      rotX: opts.rotX ?? null,
+      rotY: opts.rotY ?? null,
+      perspective: opts.perspective ?? null,
+      rAngAx: opts.rAngAx ?? null,
+    };
+    return this;
+  }
+
   /** Set the plot area manual layout (fractional 0.0-1.0). */
   plotLayout(x: number, y: number, w: number, h: number): this {
     this.layoutValue = { x, y, w, h };
@@ -224,6 +265,8 @@ export class ChartBuilder {
       barDirHorizontal: this.barDirValue,
       styleId: this.styleIdValue,
       plotAreaLayout: this.layoutValue,
+      showDataTable: this.showDataTableValue,
+      view3d: this.view3dData,
     };
     return { chart, anchor: this.anchorData };
   }
@@ -242,6 +285,28 @@ function normalizeDataLabels(opts: Partial<DataLabelsData>): DataLabelsData {
 
 function buildDataLabels(opts?: Partial<DataLabelsData>): DataLabelsData | null {
   return opts ? normalizeDataLabels(opts) : null;
+}
+
+function buildTrendline(opts?: AddSeriesOptions['trendline']): TrendlineData | null {
+  if (!opts) return null;
+  return {
+    trendType: opts.trendType,
+    order: opts.order ?? null,
+    period: opts.period ?? null,
+    forward: opts.forward ?? null,
+    backward: opts.backward ?? null,
+    displayEq: opts.displayEq ?? false,
+    displayRSqr: opts.displayRSqr ?? false,
+  };
+}
+
+function buildErrorBars(opts?: AddSeriesOptions['errorBars']): ErrorBarsData | null {
+  if (!opts) return null;
+  return {
+    errType: opts.errType,
+    direction: opts.direction ?? 'both',
+    value: opts.value ?? null,
+  };
 }
 
 function buildAxisTitle(title: AxisOptions['title']): ChartTitleData | null {

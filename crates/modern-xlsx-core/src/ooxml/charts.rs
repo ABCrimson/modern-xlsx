@@ -83,6 +83,23 @@ pub struct ChartData {
     pub style_id: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plot_area_layout: Option<ManualLayout>,
+    /// Secondary chart for combo charts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary_chart: Option<Box<ChartData>>,
+    /// Secondary value axis (for combo charts).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary_val_axis: Option<ChartAxis>,
+    /// Show data table below chart.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub show_data_table: bool,
+    /// 3D rotation settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_3d: Option<View3D>,
+}
+
+/// Helper for `skip_serializing_if`.
+fn is_false(v: &bool) -> bool {
+    !v
 }
 
 /// A data series within a chart.
@@ -114,6 +131,12 @@ pub struct ChartSeries {
     pub explosion: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_labels: Option<DataLabels>,
+    /// Trendline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trendline: Option<Trendline>,
+    /// Error bars.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_bars: Option<ErrorBars>,
 }
 
 /// Marker style for line/scatter series.
@@ -267,6 +290,95 @@ pub struct ManualLayout {
     pub y: f64,
     pub w: f64,
     pub h: f64,
+}
+
+/// Trendline type for regression analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrendlineType {
+    Linear,
+    Exponential,
+    Logarithmic,
+    Polynomial,
+    Power,
+    MovingAverage,
+}
+
+/// Trendline configuration for a chart series.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Trendline {
+    pub trend_type: TrendlineType,
+    /// Polynomial order (2-6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<u32>,
+    /// Moving average period.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub period: Option<u32>,
+    /// Forecast forward periods.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forward: Option<f64>,
+    /// Forecast backward periods.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backward: Option<f64>,
+    /// Display equation on chart.
+    #[serde(default)]
+    pub display_eq: bool,
+    /// Display R-squared value on chart.
+    #[serde(default)]
+    pub display_r_sqr: bool,
+}
+
+/// Error bar type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorBarType {
+    FixedVal,
+    Percentage,
+    StdDev,
+    StdErr,
+    Custom,
+}
+
+/// Error bar direction.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorBarDirection {
+    #[default]
+    Both,
+    Plus,
+    Minus,
+}
+
+/// Error bars configuration for a chart series.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorBars {
+    pub err_type: ErrorBarType,
+    /// Direction: both, plus, or minus.
+    #[serde(default)]
+    pub direction: ErrorBarDirection,
+    /// Value (for FixedVal or Percentage).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<f64>,
+}
+
+/// 3D rotation settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct View3D {
+    /// X-axis rotation (-90 to 90).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rot_x: Option<i32>,
+    /// Y-axis rotation (0 to 360).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rot_y: Option<i32>,
+    /// Perspective (0 to 240).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub perspective: Option<u32>,
+    /// Right-angle axes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r_ang_ax: Option<bool>,
 }
 
 /// Drawing anchor for positioning a chart on a worksheet.
@@ -592,6 +704,73 @@ impl TickMark {
     }
 }
 
+impl TrendlineType {
+    fn xml_val(self) -> &'static str {
+        match self {
+            Self::Linear => "linear",
+            Self::Exponential => "exp",
+            Self::Logarithmic => "log",
+            Self::Polynomial => "poly",
+            Self::Power => "power",
+            Self::MovingAverage => "movingAvg",
+        }
+    }
+
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "linear" => Some(Self::Linear),
+            "exp" => Some(Self::Exponential),
+            "log" => Some(Self::Logarithmic),
+            "poly" => Some(Self::Polynomial),
+            "power" => Some(Self::Power),
+            "movingAvg" => Some(Self::MovingAverage),
+            _ => None,
+        }
+    }
+}
+
+impl ErrorBarType {
+    fn xml_val(self) -> &'static str {
+        match self {
+            Self::FixedVal => "fixedVal",
+            Self::Percentage => "percentage",
+            Self::StdDev => "stdDev",
+            Self::StdErr => "stdErr",
+            Self::Custom => "cust",
+        }
+    }
+
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "fixedVal" => Some(Self::FixedVal),
+            "percentage" => Some(Self::Percentage),
+            "stdDev" => Some(Self::StdDev),
+            "stdErr" => Some(Self::StdErr),
+            "cust" => Some(Self::Custom),
+            _ => None,
+        }
+    }
+}
+
+impl ErrorBarDirection {
+    fn xml_val(self) -> &'static str {
+        match self {
+            Self::Both => "both",
+            Self::Plus => "plus",
+            Self::Minus => "minus",
+        }
+    }
+
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "both" => Some(Self::Both),
+            "plus" => Some(Self::Plus),
+            "minus" => Some(Self::Minus),
+            _ => None,
+        }
+    }
+}
+
 impl ChartData {
     /// Serialize this chart to valid `xl/charts/chart{n}.xml` bytes.
     pub fn to_xml(&self) -> Result<Vec<u8>> {
@@ -624,6 +803,11 @@ impl ChartData {
             .write_event(Event::Start(BytesStart::new("c:chart")))
             .map_err(map_err)?;
 
+        // <c:view3D>
+        if let Some(ref v) = self.view_3d {
+            Self::write_view_3d(&mut writer, v)?;
+        }
+
         // <c:title> (chart-level)
         if let Some(ref title) = self.title {
             Self::write_title(&mut writer, title)?;
@@ -640,12 +824,35 @@ impl ChartData {
         // Chart-type-specific element
         self.write_chart_type_element(&mut writer)?;
 
+        // Secondary chart type element (combo charts).
+        if let Some(ref secondary) = self.secondary_chart {
+            secondary.write_chart_type_element(&mut writer)?;
+        }
+
         // Axes
         if let Some(ref axis) = self.cat_axis {
             Self::write_axis(&mut writer, "c:catAx", axis)?;
         }
         if let Some(ref axis) = self.val_axis {
             Self::write_axis(&mut writer, "c:valAx", axis)?;
+        }
+
+        // Secondary value axis (combo charts).
+        if let Some(ref axis) = self.secondary_val_axis {
+            Self::write_axis(&mut writer, "c:valAx", axis)?;
+        }
+
+        // <c:dTable>
+        if self.show_data_table {
+            writer
+                .write_event(Event::Start(BytesStart::new("c:dTable")))
+                .map_err(map_err)?;
+            let mut keys = BytesStart::new("c:showKeys");
+            keys.push_attribute(("val", "1"));
+            writer.write_event(Event::Empty(keys)).map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("c:dTable")))
+                .map_err(map_err)?;
         }
 
         // </c:plotArea>
@@ -930,6 +1137,16 @@ impl ChartData {
         // Series-level data labels
         if let Some(ref dl) = ser.data_labels {
             Self::write_data_labels(writer, dl)?;
+        }
+
+        // Trendline
+        if let Some(ref tl) = ser.trendline {
+            Self::write_trendline(writer, tl, ibuf)?;
+        }
+
+        // Error bars
+        if let Some(ref eb) = ser.error_bars {
+            Self::write_error_bars(writer, eb)?;
         }
 
         writer
@@ -1412,6 +1629,126 @@ impl ChartData {
     }
 
     // -----------------------------------------------------------------------
+    // Trendline
+    // -----------------------------------------------------------------------
+
+    fn write_trendline(
+        writer: &mut Writer<&mut Vec<u8>>,
+        tl: &Trendline,
+        ibuf: &mut itoa::Buffer,
+    ) -> Result<()> {
+        writer
+            .write_event(Event::Start(BytesStart::new("c:trendline")))
+            .map_err(map_err)?;
+
+        let mut tt = BytesStart::new("c:trendlineType");
+        tt.push_attribute(("val", tl.trend_type.xml_val()));
+        writer.write_event(Event::Empty(tt)).map_err(map_err)?;
+
+        if let Some(order) = tl.order {
+            let mut el = BytesStart::new("c:order");
+            el.push_attribute(("val", ibuf.format(order)));
+            writer.write_event(Event::Empty(el)).map_err(map_err)?;
+        }
+        if let Some(period) = tl.period {
+            let mut el = BytesStart::new("c:period");
+            el.push_attribute(("val", ibuf.format(period)));
+            writer.write_event(Event::Empty(el)).map_err(map_err)?;
+        }
+        if let Some(fwd) = tl.forward {
+            Self::write_f64_element(writer, "c:forward", fwd)?;
+        }
+        if let Some(bwd) = tl.backward {
+            Self::write_f64_element(writer, "c:backward", bwd)?;
+        }
+        if tl.display_eq {
+            Self::write_bool_element(writer, "c:dispEq", true)?;
+        }
+        if tl.display_r_sqr {
+            Self::write_bool_element(writer, "c:dispRSqr", true)?;
+        }
+
+        writer
+            .write_event(Event::End(BytesEnd::new("c:trendline")))
+            .map_err(map_err)?;
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Error bars
+    // -----------------------------------------------------------------------
+
+    fn write_error_bars(
+        writer: &mut Writer<&mut Vec<u8>>,
+        eb: &ErrorBars,
+    ) -> Result<()> {
+        writer
+            .write_event(Event::Start(BytesStart::new("c:errBars")))
+            .map_err(map_err)?;
+
+        let mut dir = BytesStart::new("c:errBarType");
+        dir.push_attribute(("val", eb.direction.xml_val()));
+        writer.write_event(Event::Empty(dir)).map_err(map_err)?;
+
+        let mut vt = BytesStart::new("c:errValType");
+        vt.push_attribute(("val", eb.err_type.xml_val()));
+        writer.write_event(Event::Empty(vt)).map_err(map_err)?;
+
+        if let Some(val) = eb.value {
+            Self::write_f64_element(writer, "c:val", val)?;
+        }
+
+        writer
+            .write_event(Event::End(BytesEnd::new("c:errBars")))
+            .map_err(map_err)?;
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // View 3D
+    // -----------------------------------------------------------------------
+
+    fn write_view_3d(
+        writer: &mut Writer<&mut Vec<u8>>,
+        v: &View3D,
+    ) -> Result<()> {
+        let mut ibuf = itoa::Buffer::new();
+
+        writer
+            .write_event(Event::Start(BytesStart::new("c:view3D")))
+            .map_err(map_err)?;
+
+        if let Some(rx) = v.rot_x {
+            let mut el = BytesStart::new("c:rotX");
+            el.push_attribute(("val", ibuf.format(rx)));
+            writer.write_event(Event::Empty(el)).map_err(map_err)?;
+        }
+        if let Some(ry) = v.rot_y {
+            let mut el = BytesStart::new("c:rotY");
+            el.push_attribute(("val", ibuf.format(ry)));
+            writer.write_event(Event::Empty(el)).map_err(map_err)?;
+        }
+        if let Some(p) = v.perspective {
+            let mut el = BytesStart::new("c:perspective");
+            el.push_attribute(("val", ibuf.format(p)));
+            writer.write_event(Event::Empty(el)).map_err(map_err)?;
+        }
+        if let Some(ra) = v.r_ang_ax {
+            let mut el = BytesStart::new("c:rAngAx");
+            el.push_attribute(("val", if ra { "1" } else { "0" }));
+            writer.write_event(Event::Empty(el)).map_err(map_err)?;
+        }
+
+        writer
+            .write_event(Event::End(BytesEnd::new("c:view3D")))
+            .map_err(map_err)?;
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
     // Print settings (always present)
     // -----------------------------------------------------------------------
 
@@ -1663,6 +2000,12 @@ enum ParseCtx {
     AxisTitleRun(AxisKind),
     /// Inside `<c:numFmt>` within an axis.
     AxisNumFmt(AxisKind),
+    /// Inside `<c:trendline>` within a series.
+    SerTrendline,
+    /// Inside `<c:errBars>` within a series.
+    SerErrBars,
+    /// Inside `<c:view3D>` within `<c:chart>`.
+    View3D,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1729,6 +2072,15 @@ impl ChartData {
         let mut layout_y: Option<f64> = None;
         let mut layout_w: Option<f64> = None;
         let mut layout_h: Option<f64> = None;
+        // Trendline builder (within series).
+        let mut cur_trendline: Option<TrendlineBuilder> = None;
+        // Error bars builder (within series).
+        let mut cur_err_bars: Option<ErrorBarsBuilder> = None;
+        // View3D.
+        let mut view_3d: Option<View3D> = None;
+        let mut cur_view_3d = View3DBuilder::new();
+        // Data table.
+        let mut show_data_table = false;
 
         // Text capture buffer.
         let mut text_buf = String::new();
@@ -1763,6 +2115,10 @@ impl ChartData {
                         (ParseCtx::Chart, b"legend") => {
                             cur_legend = LegendBuilder::new();
                             ctx_stack.push(ParseCtx::Legend);
+                        }
+                        (ParseCtx::Chart, b"view3D") => {
+                            cur_view_3d = View3DBuilder::new();
+                            ctx_stack.push(ParseCtx::View3D);
                         }
                         // Chart type elements inside plotArea.
                         (ParseCtx::PlotArea, b"barChart") => {
@@ -1805,6 +2161,10 @@ impl ChartData {
                         (ParseCtx::PlotArea, b"layout") => {
                             ctx_stack.push(ParseCtx::ManualLayoutCtx);
                         }
+                        (ParseCtx::PlotArea, b"dTable") => {
+                            show_data_table = true;
+                            ctx_stack.push(ParseCtx::PlotArea); // track depth
+                        }
                         (ParseCtx::ManualLayoutCtx, b"manualLayout") => {
                             // stay in ManualLayoutCtx
                             ctx_stack.push(ParseCtx::ManualLayoutCtx);
@@ -1835,6 +2195,8 @@ impl ChartData {
                                 smooth: None,
                                 explosion: None,
                                 data_labels: None,
+                                trendline: None,
+                                error_bars: None,
                             });
                             ctx_stack.push(ParseCtx::Series);
                         }
@@ -1870,6 +2232,14 @@ impl ChartData {
                         (ParseCtx::Series, b"dLbls") => {
                             cur_ser_dlbls = DataLabelsBuilder::new();
                             ctx_stack.push(ParseCtx::SerDataLabels);
+                        }
+                        (ParseCtx::Series, b"trendline") => {
+                            cur_trendline = Some(TrendlineBuilder::new());
+                            ctx_stack.push(ParseCtx::SerTrendline);
+                        }
+                        (ParseCtx::Series, b"errBars") => {
+                            cur_err_bars = Some(ErrorBarsBuilder::new());
+                            ctx_stack.push(ParseCtx::SerErrBars);
                         }
                         // spPr children.
                         (ParseCtx::SerSpPr, b"solidFill") => {
@@ -2292,6 +2662,77 @@ impl ChartData {
                         (ParseCtx::ManualLayoutCtx, b"h") => {
                             layout_h = attr_val_str(e).parse().ok();
                         }
+                        // Trendline attributes.
+                        (ParseCtx::SerTrendline, b"trendlineType") => {
+                            if let Some(ref mut tb) = cur_trendline {
+                                tb.trend_type = TrendlineType::from_xml(&attr_val_str(e));
+                            }
+                        }
+                        (ParseCtx::SerTrendline, b"order") => {
+                            if let Some(ref mut tb) = cur_trendline {
+                                tb.order = attr_val_str(e).parse().ok();
+                            }
+                        }
+                        (ParseCtx::SerTrendline, b"period") => {
+                            if let Some(ref mut tb) = cur_trendline {
+                                tb.period = attr_val_str(e).parse().ok();
+                            }
+                        }
+                        (ParseCtx::SerTrendline, b"forward") => {
+                            if let Some(ref mut tb) = cur_trendline {
+                                tb.forward = attr_val_str(e).parse().ok();
+                            }
+                        }
+                        (ParseCtx::SerTrendline, b"backward") => {
+                            if let Some(ref mut tb) = cur_trendline {
+                                tb.backward = attr_val_str(e).parse().ok();
+                            }
+                        }
+                        (ParseCtx::SerTrendline, b"dispEq") => {
+                            if let Some(ref mut tb) = cur_trendline {
+                                tb.display_eq = attr_val_str(e) == "1";
+                            }
+                        }
+                        (ParseCtx::SerTrendline, b"dispRSqr") => {
+                            if let Some(ref mut tb) = cur_trendline {
+                                tb.display_r_sqr = attr_val_str(e) == "1";
+                            }
+                        }
+                        // Error bars attributes.
+                        (ParseCtx::SerErrBars, b"errBarType") => {
+                            if let Some(ref mut eb) = cur_err_bars {
+                                eb.direction = ErrorBarDirection::from_xml(&attr_val_str(e));
+                            }
+                        }
+                        (ParseCtx::SerErrBars, b"errValType") => {
+                            if let Some(ref mut eb) = cur_err_bars {
+                                eb.err_type = ErrorBarType::from_xml(&attr_val_str(e));
+                            }
+                        }
+                        (ParseCtx::SerErrBars, b"val") => {
+                            if let Some(ref mut eb) = cur_err_bars {
+                                eb.value = attr_val_str(e).parse().ok();
+                            }
+                        }
+                        // View3D attributes.
+                        (ParseCtx::View3D, b"rotX") => {
+                            cur_view_3d.rot_x = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::View3D, b"rotY") => {
+                            cur_view_3d.rot_y = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::View3D, b"perspective") => {
+                            cur_view_3d.perspective = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::View3D, b"rAngAx") => {
+                            let val = attr_val_str(e);
+                            cur_view_3d.r_ang_ax = Some(val == "1" || val == "true");
+                        }
+                        // Data table (showKeys within dTable).
+                        (ParseCtx::PlotArea, b"dTable") | (_, b"dTable") => {
+                            // Self-closing <c:dTable/> or containing <c:showKeys/>.
+                            show_data_table = true;
+                        }
                         // Style ID (on chartSpace level).
                         (_, b"style") => {
                             style_id = attr_val_str(e).parse().ok();
@@ -2319,6 +2760,26 @@ impl ChartData {
                             if let Some(ref mut ser) = cur_ser {
                                 ser.data_labels = Some(cur_ser_dlbls.build());
                             }
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::SerTrendline, b"trendline") => {
+                            if let Some(ref mut ser) = cur_ser
+                                && let Some(tb) = cur_trendline.take()
+                            {
+                                ser.trendline = tb.build();
+                            }
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::SerErrBars, b"errBars") => {
+                            if let Some(ref mut ser) = cur_ser
+                                && let Some(eb) = cur_err_bars.take()
+                            {
+                                ser.error_bars = eb.build();
+                            }
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::View3D, b"view3D") => {
+                            view_3d = cur_view_3d.build();
                             ctx_stack.pop();
                         }
                         (ParseCtx::CatAxis, b"catAx") => {
@@ -2432,6 +2893,10 @@ impl ChartData {
             bar_dir_horizontal,
             style_id,
             plot_area_layout,
+            secondary_chart: None,
+            secondary_val_axis: None,
+            show_data_table,
+            view_3d,
         })
     }
 }
@@ -2608,6 +3073,105 @@ impl TitleBuilder {
             font_size: self.font_size,
             bold: self.bold,
             color: self.color.clone(),
+        })
+    }
+}
+
+/// Builder for accumulating trendline data during parsing.
+struct TrendlineBuilder {
+    trend_type: Option<TrendlineType>,
+    order: Option<u32>,
+    period: Option<u32>,
+    forward: Option<f64>,
+    backward: Option<f64>,
+    display_eq: bool,
+    display_r_sqr: bool,
+}
+
+impl TrendlineBuilder {
+    fn new() -> Self {
+        Self {
+            trend_type: None,
+            order: None,
+            period: None,
+            forward: None,
+            backward: None,
+            display_eq: false,
+            display_r_sqr: false,
+        }
+    }
+
+    fn build(self) -> Option<Trendline> {
+        let trend_type = self.trend_type?;
+        Some(Trendline {
+            trend_type,
+            order: self.order,
+            period: self.period,
+            forward: self.forward,
+            backward: self.backward,
+            display_eq: self.display_eq,
+            display_r_sqr: self.display_r_sqr,
+        })
+    }
+}
+
+/// Builder for accumulating error bars data during parsing.
+struct ErrorBarsBuilder {
+    err_type: Option<ErrorBarType>,
+    direction: Option<ErrorBarDirection>,
+    value: Option<f64>,
+}
+
+impl ErrorBarsBuilder {
+    fn new() -> Self {
+        Self {
+            err_type: None,
+            direction: None,
+            value: None,
+        }
+    }
+
+    fn build(self) -> Option<ErrorBars> {
+        let err_type = self.err_type?;
+        Some(ErrorBars {
+            err_type,
+            direction: self.direction.unwrap_or_default(),
+            value: self.value,
+        })
+    }
+}
+
+/// Builder for View3D during parsing.
+struct View3DBuilder {
+    rot_x: Option<i32>,
+    rot_y: Option<i32>,
+    perspective: Option<u32>,
+    r_ang_ax: Option<bool>,
+}
+
+impl View3DBuilder {
+    fn new() -> Self {
+        Self {
+            rot_x: None,
+            rot_y: None,
+            perspective: None,
+            r_ang_ax: None,
+        }
+    }
+
+    fn build(&self) -> Option<View3D> {
+        if self.rot_x.is_none()
+            && self.rot_y.is_none()
+            && self.perspective.is_none()
+            && self.r_ang_ax.is_none()
+        {
+            return None;
+        }
+        Some(View3D {
+            rot_x: self.rot_x,
+            rot_y: self.rot_y,
+            perspective: self.perspective,
+            r_ang_ax: self.r_ang_ax,
         })
     }
 }
@@ -2824,6 +3388,8 @@ mod tests {
                 line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
@@ -2834,6 +3400,7 @@ mod tests {
             bar_dir_horizontal: Some(false),
             style_id: Some(2),
             plot_area_layout: None,
+            secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let json = serde_json::to_string(&chart).unwrap();
         let roundtrip: ChartData = serde_json::from_str(&json).unwrap();
@@ -2880,7 +3447,7 @@ mod tests {
                 title: None, series: vec![], cat_axis: None, val_axis: None,
                 legend: None, data_labels: None, grouping: None,
                 scatter_style: None, radar_style: None, hole_size: None,
-                bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
             },
             anchor: ChartAnchor {
                 from_col: 5, from_row: 0, from_col_off: 0, from_row_off: 0,
@@ -2898,7 +3465,7 @@ mod tests {
             title: None, series: vec![], cat_axis: None, val_axis: None,
             legend: None, data_labels: None, grouping: None,
             scatter_style: None, radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let json = serde_json::to_string(&chart).unwrap();
         assert!(!json.contains("title"));
@@ -2971,6 +3538,51 @@ mod tests {
         assert!((rt.h - 0.7).abs() < f64::EPSILON);
     }
 
+    #[test]
+    fn test_trendline_serde() {
+        let t = Trendline {
+            trend_type: TrendlineType::Polynomial,
+            order: Some(3),
+            period: None,
+            forward: Some(2.0),
+            backward: None,
+            display_eq: true,
+            display_r_sqr: false,
+        };
+        let json = serde_json::to_string(&t).unwrap();
+        let rt: Trendline = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.trend_type, TrendlineType::Polynomial);
+        assert_eq!(rt.order, Some(3));
+        assert!(rt.display_eq);
+    }
+
+    #[test]
+    fn test_error_bars_serde() {
+        let eb = ErrorBars {
+            err_type: ErrorBarType::Percentage,
+            direction: ErrorBarDirection::Both,
+            value: Some(5.0),
+        };
+        let json = serde_json::to_string(&eb).unwrap();
+        let rt: ErrorBars = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.err_type, ErrorBarType::Percentage);
+        assert_eq!(rt.value, Some(5.0));
+    }
+
+    #[test]
+    fn test_view3d_serde() {
+        let v = View3D {
+            rot_x: Some(15),
+            rot_y: Some(20),
+            perspective: Some(30),
+            r_ang_ax: Some(true),
+        };
+        let json = serde_json::to_string(&v).unwrap();
+        let rt: View3D = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.rot_x, Some(15));
+        assert!(rt.r_ang_ax.unwrap());
+    }
+
     // =======================================================================
     // XML Writer tests
     // =======================================================================
@@ -2990,6 +3602,8 @@ mod tests {
                 line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
@@ -3000,6 +3614,7 @@ mod tests {
             bar_dir_horizontal: Some(true),
             style_id: None,
             plot_area_layout: None,
+            secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3027,6 +3642,8 @@ mod tests {
                 fill_color: None, line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
@@ -3037,6 +3654,7 @@ mod tests {
             bar_dir_horizontal: None,
             style_id: None,
             plot_area_layout: None,
+            secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3056,13 +3674,15 @@ mod tests {
                 fill_color: None, line_color: Some("FF0000".into()), line_width: Some(25400),
                 marker: Some(MarkerStyle::Circle), smooth: Some(true), explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None,
             grouping: Some(ChartGrouping::Standard),
             scatter_style: None, radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3086,12 +3706,14 @@ mod tests {
                 fill_color: None, line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: Some(25),
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: None, val_axis: None,
             legend: Some(ChartLegend { position: LegendPosition::Right, overlay: false }),
             data_labels: Some(DataLabels { show_val: true, show_cat_name: false, show_ser_name: false, show_percent: true, num_fmt: None, show_leader_lines: true }),
             grouping: None, scatter_style: None, radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3119,6 +3741,8 @@ mod tests {
                 fill_color: None, line_color: None, line_width: None,
                 marker: Some(MarkerStyle::Diamond), smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: None,
             val_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
@@ -3126,7 +3750,7 @@ mod tests {
             grouping: None,
             scatter_style: Some(ScatterStyle::LineMarker),
             radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3150,12 +3774,14 @@ mod tests {
                 fill_color: None, line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: None, val_axis: None,
             legend: None, data_labels: None,
             grouping: None, scatter_style: None, radar_style: None,
             hole_size: Some(50),
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3175,13 +3801,15 @@ mod tests {
                 fill_color: Some("4472C4".into()), line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None,
             grouping: Some(ChartGrouping::Stacked),
             scatter_style: None, radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3201,6 +3829,8 @@ mod tests {
                 fill_color: None, line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
@@ -3208,7 +3838,7 @@ mod tests {
             grouping: None, scatter_style: None,
             radar_style: Some(RadarStyle::Filled),
             hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3226,6 +3856,7 @@ mod tests {
             bar_dir_horizontal: None,
             style_id: Some(26),
             plot_area_layout: None,
+            secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3263,7 +3894,7 @@ mod tests {
             }),
             legend: None, data_labels: None, grouping: None,
             scatter_style: None, radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3279,7 +3910,7 @@ mod tests {
             title: None, series: vec![], cat_axis: None, val_axis: None,
             legend: None, data_labels: None, grouping: None,
             scatter_style: None, radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = chart.to_xml().unwrap();
         let xml_str = std::str::from_utf8(&xml).unwrap();
@@ -3301,7 +3932,7 @@ mod tests {
                 title: None, series: vec![], cat_axis: None, val_axis: None,
                 legend: None, data_labels: None, grouping: None,
                 scatter_style: None, radar_style: None, hole_size: None,
-                bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
             },
             anchor: ChartAnchor {
                 from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
@@ -3340,7 +3971,7 @@ mod tests {
                     title: None, series: vec![], cat_axis: None, val_axis: None,
                     legend: None, data_labels: None, grouping: None,
                     scatter_style: None, radar_style: None, hole_size: None,
-                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
                 },
                 anchor: ChartAnchor {
                     from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
@@ -3353,7 +3984,7 @@ mod tests {
                     title: None, series: vec![], cat_axis: None, val_axis: None,
                     legend: None, data_labels: None, grouping: None,
                     scatter_style: None, radar_style: None, hole_size: None,
-                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
                 },
                 anchor: ChartAnchor {
                     from_col: 10, from_row: 0, from_col_off: 100, from_row_off: 200,
@@ -3401,6 +4032,8 @@ mod tests {
                 line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
@@ -3411,6 +4044,7 @@ mod tests {
             bar_dir_horizontal: Some(true),
             style_id: Some(2),
             plot_area_layout: None,
+            secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = original.to_xml().unwrap();
         let parsed = ChartData::parse(&xml).unwrap();
@@ -3441,12 +4075,14 @@ mod tests {
                 marker: None, smooth: None,
                 explosion: Some(25),
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: None, val_axis: None,
             legend: None,
             data_labels: Some(DataLabels { show_val: true, show_cat_name: false, show_ser_name: false, show_percent: true, num_fmt: None, show_leader_lines: true }),
             grouping: None, scatter_style: None, radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = original.to_xml().unwrap();
         let parsed = ChartData::parse(&xml).unwrap();
@@ -3471,13 +4107,15 @@ mod tests {
                 fill_color: None, line_color: None, line_width: None,
                 marker: Some(MarkerStyle::Diamond), smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: None,
             val_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None, grouping: None,
             scatter_style: Some(ScatterStyle::LineMarker),
             radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = original.to_xml().unwrap();
         let parsed = ChartData::parse(&xml).unwrap();
@@ -3496,7 +4134,7 @@ mod tests {
                     title: None, series: vec![], cat_axis: None, val_axis: None,
                     legend: None, data_labels: None, grouping: None,
                     scatter_style: None, radar_style: None, hole_size: None,
-                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
                 },
                 anchor: ChartAnchor {
                     from_col: 2, from_row: 5, from_col_off: 100, from_row_off: 200,
@@ -3531,6 +4169,8 @@ mod tests {
                 fill_color: None, line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
@@ -3539,6 +4179,7 @@ mod tests {
             scatter_style: None, radar_style: None, hole_size: None,
             bar_dir_horizontal: None,
             style_id: None, plot_area_layout: None,
+            secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = original.to_xml().unwrap();
         let parsed = ChartData::parse(&xml).unwrap();
@@ -3559,12 +4200,14 @@ mod tests {
                 fill_color: None, line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: None, val_axis: None,
             legend: None, data_labels: None,
             grouping: None, scatter_style: None, radar_style: None,
             hole_size: Some(50),
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = original.to_xml().unwrap();
         let parsed = ChartData::parse(&xml).unwrap();
@@ -3584,13 +4227,15 @@ mod tests {
                 fill_color: None, line_color: Some("FF0000".into()), line_width: Some(25400),
                 marker: Some(MarkerStyle::Circle), smooth: Some(true), explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None,
             grouping: Some(ChartGrouping::Standard),
             scatter_style: None, radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = original.to_xml().unwrap();
         let parsed = ChartData::parse(&xml).unwrap();
@@ -3630,7 +4275,7 @@ mod tests {
             }),
             legend: None, data_labels: None, grouping: None,
             scatter_style: None, radar_style: None, hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = original.to_xml().unwrap();
         let parsed = ChartData::parse(&xml).unwrap();
@@ -3663,6 +4308,8 @@ mod tests {
                 fill_color: None, line_color: None, line_width: None,
                 marker: None, smooth: None, explosion: None,
                 data_labels: None,
+                trendline: None,
+                error_bars: None,
             }],
             cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
@@ -3670,7 +4317,7 @@ mod tests {
             grouping: None, scatter_style: None,
             radar_style: Some(RadarStyle::Filled),
             hole_size: None,
-            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
         };
         let xml = original.to_xml().unwrap();
         let parsed = ChartData::parse(&xml).unwrap();
@@ -3687,7 +4334,7 @@ mod tests {
                     title: None, series: vec![], cat_axis: None, val_axis: None,
                     legend: None, data_labels: None, grouping: None,
                     scatter_style: None, radar_style: None, hole_size: None,
-                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
                 },
                 anchor: ChartAnchor {
                     from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
@@ -3700,7 +4347,7 @@ mod tests {
                     title: None, series: vec![], cat_axis: None, val_axis: None,
                     legend: None, data_labels: None, grouping: None,
                     scatter_style: None, radar_style: None, hole_size: None,
-                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None, secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
                 },
                 anchor: ChartAnchor {
                     from_col: 10, from_row: 0, from_col_off: 100, from_row_off: 200,

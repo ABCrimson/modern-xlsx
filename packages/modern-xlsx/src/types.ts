@@ -388,6 +388,33 @@ export type TickMark = 'cross' | 'in' | 'out' | 'none';
 export type AxisPosition = 'bottom' | 'top' | 'left' | 'right';
 export type LegendPosition = 'top' | 'bottom' | 'left' | 'right' | 'topRight';
 
+export type TrendlineType = 'linear' | 'exponential' | 'logarithmic' | 'polynomial' | 'power' | 'movingAverage';
+export type ErrorBarType = 'fixedVal' | 'percentage' | 'stdDev' | 'stdErr' | 'custom';
+export type ErrorBarDirection = 'both' | 'plus' | 'minus';
+
+export interface TrendlineData {
+  trendType: TrendlineType;
+  order?: number | null;
+  period?: number | null;
+  forward?: number | null;
+  backward?: number | null;
+  displayEq?: boolean;
+  displayRSqr?: boolean;
+}
+
+export interface ErrorBarsData {
+  errType: ErrorBarType;
+  direction?: ErrorBarDirection;
+  value?: number | null;
+}
+
+export interface View3DData {
+  rotX?: number | null;
+  rotY?: number | null;
+  perspective?: number | null;
+  rAngAx?: boolean | null;
+}
+
 export interface ChartTitleData {
   text: string;
   overlay?: boolean;
@@ -448,6 +475,8 @@ export interface ChartSeriesData {
   smooth?: boolean | null;
   explosion?: number | null;
   dataLabels?: DataLabelsData | null;
+  trendline?: TrendlineData | null;
+  errorBars?: ErrorBarsData | null;
 }
 
 export interface ManualLayoutData {
@@ -472,6 +501,10 @@ export interface ChartDataModel {
   barDirHorizontal?: boolean | null;
   styleId?: number | null;
   plotAreaLayout?: ManualLayoutData | null;
+  secondaryChart?: ChartDataModel | null;
+  secondaryValAxis?: ChartAxisData | null;
+  showDataTable?: boolean;
+  view3d?: View3DData | null;
 }
 
 export interface ChartAnchorData {

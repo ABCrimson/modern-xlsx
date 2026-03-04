@@ -214,4 +214,40 @@ describe('ChartBuilder', () => {
     const result = new ChartBuilder('radar').radarStyle('filled').build();
     expect(result.chart.radarStyle).toBe('filled');
   });
+
+  it('creates series with trendline', () => {
+    const result = new ChartBuilder('scatter')
+      .addSeries({
+        valRef: 'Sheet1!$B$2:$B$5',
+        trendline: { trendType: 'linear', displayEq: true, displayRSqr: true },
+      })
+      .build();
+
+    expect(result.chart.series[0].trendline?.trendType).toBe('linear');
+    expect(result.chart.series[0].trendline?.displayEq).toBe(true);
+  });
+
+  it('creates series with error bars', () => {
+    const result = new ChartBuilder('bar')
+      .addSeries({
+        valRef: 'Sheet1!$B$2:$B$5',
+        errorBars: { errType: 'percentage', value: 5 },
+      })
+      .build();
+
+    expect(result.chart.series[0].errorBars?.errType).toBe('percentage');
+    expect(result.chart.series[0].errorBars?.value).toBe(5);
+  });
+
+  it('sets 3D rotation', () => {
+    const result = new ChartBuilder('bar').view3d({ rotX: 15, rotY: 20, perspective: 30 }).build();
+
+    expect(result.chart.view3d?.rotX).toBe(15);
+    expect(result.chart.view3d?.rotY).toBe(20);
+  });
+
+  it('shows data table', () => {
+    const result = new ChartBuilder('bar').showDataTable().build();
+    expect(result.chart.showDataTable).toBe(true);
+  });
 });
