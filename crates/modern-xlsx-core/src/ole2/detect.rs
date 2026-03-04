@@ -10,7 +10,7 @@ const ZIP_MAGIC: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
 
 // Error message constants shared between reader.rs and streaming.rs.
 pub const ERR_ENCRYPTED: &str = "This file is password-protected (OLE2 compound document). \
-    Decryption not yet supported in this version.";
+    Provide password via readBuffer(data, { password: '...' }).";
 pub const ERR_LEGACY_XLS: &str = "Legacy .xls format not supported. Convert to .xlsx first.";
 pub const ERR_OLE2_UNKNOWN: &str = "Unrecognized OLE2 compound document.";
 pub const ERR_NOT_XLSX: &str = "Not a valid XLSX file (expected ZIP or OLE2 header).";
@@ -232,10 +232,10 @@ pub fn decrypt_file(data: &[u8], password: &str) -> Result<Vec<u8>> {
             super::crypto::verify_hmac(&data_key, agile, &encrypted_package)?;
             super::crypto::decrypt_package(&data_key, agile, &encrypted_package)
         }
-        super::encryption_info::EncryptionInfo::Standard(_) => {
-            Err(ModernXlsxError::PasswordProtected(
-                "Standard encryption not yet supported. Only Agile encryption is supported.".into(),
-            ))
+        super::encryption_info::EncryptionInfo::Standard(ref std_info) => {
+            let data_key = super::crypto::verify_password_standard(password, std_info)?;
+            let encrypted_package = read_stream(data, "EncryptedPackage")?;
+            super::crypto::decrypt_standard_package(&data_key, std_info, &encrypted_package)
         }
     }
 }
