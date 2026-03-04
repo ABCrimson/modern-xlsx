@@ -14,12 +14,7 @@ fn main() {
             cell_type: CellType::SharedString,
             style_index: None,
             value: Some(format!("Col{c}")),
-            formula: None,
-            formula_type: None,
-            formula_ref: None,
-            shared_index: None,
-            inline_string: None,
-            dynamic_array: None,
+            ..Default::default()
         })
         .collect();
     rows.push(Row {
@@ -55,12 +50,7 @@ fn main() {
                 cell_type: ct,
                 style_index: None,
                 value: Some(val),
-                formula: None,
-                formula_type: None,
-                formula_ref: None,
-                shared_index: None,
-                inline_string: None,
-                dynamic_array: None,
+                ..Default::default()
             });
         }
         rows.push(Row {

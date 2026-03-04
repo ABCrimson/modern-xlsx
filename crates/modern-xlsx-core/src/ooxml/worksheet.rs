@@ -197,7 +197,7 @@ pub struct Row {
 }
 
 /// A single cell in a row.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cell {
     /// Cell reference string, e.g. "A1".
@@ -211,7 +211,7 @@ pub struct Cell {
     /// Raw `<f>` content (the formula element text).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formula: Option<String>,
-    /// Formula type: "array" or "shared", from `t` attribute on `<f>`.
+    /// Formula type: "array", "shared", or "dataTable", from `t` attribute on `<f>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formula_type: Option<String>,
     /// Range for array/shared formulas, from `ref` attribute on `<f>`.
@@ -226,15 +226,31 @@ pub struct Cell {
     /// Whether this is a dynamic array formula (CSE/SPILL), from `cm` attribute.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dynamic_array: Option<bool>,
+    /// Data table 1st input cell (`r1` attribute on `<f>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula_r1: Option<String>,
+    /// Data table 2nd input cell (`r2` attribute on `<f>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula_r2: Option<String>,
+    /// 2D data table flag (`dt2D` attribute on `<f>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula_dt2d: Option<bool>,
+    /// Data table row input deleted (`dtr1` attribute on `<f>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula_dtr1: Option<bool>,
+    /// Data table column input deleted (`dtr2` attribute on `<f>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula_dtr2: Option<bool>,
 }
 
 /// The type of a cell, determined by the `t` attribute on the `<c>` element.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CellType {
     /// `t="s"` — value is a shared string table index.
     SharedString,
     /// `t="n"` or omitted — numeric value.
+    #[default]
     Number,
     /// `t="b"` — boolean (0 or 1).
     Boolean,
@@ -775,6 +791,11 @@ impl WorksheetXml {
         let mut cur_cell_shared_index: Option<u32> = None;
         let mut cur_cell_inline_string: Option<String> = None;
         let mut cur_cell_dynamic_array: Option<bool> = None;
+        let mut cur_cell_formula_r1: Option<String> = None;
+        let mut cur_cell_formula_r2: Option<String> = None;
+        let mut cur_cell_formula_dt2d: Option<bool> = None;
+        let mut cur_cell_formula_dtr1: Option<bool> = None;
+        let mut cur_cell_formula_dtr2: Option<bool> = None;
 
         // Buffers for text content.
         let mut text_buf = String::with_capacity(256);
@@ -920,6 +941,11 @@ impl WorksheetXml {
                             cur_cell_shared_index = None;
                             cur_cell_inline_string = None;
                             cur_cell_dynamic_array = None;
+                            cur_cell_formula_r1 = None;
+                            cur_cell_formula_r2 = None;
+                            cur_cell_formula_dt2d = None;
+                            cur_cell_formula_dtr1 = None;
+                            cur_cell_formula_dtr2 = None;
 
                             for attr in e.attributes().flatten() {
                                 let ln = attr.key.local_name();
@@ -964,6 +990,23 @@ impl WorksheetXml {
                                     b"cm" => {
                                         if val == "1" {
                                             cur_cell_dynamic_array = Some(true);
+                                        }
+                                    }
+                                    b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
+                                    b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
+                                    b"dt2D" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dt2d = Some(true);
+                                        }
+                                    }
+                                    b"dtr1" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dtr1 = Some(true);
+                                        }
+                                    }
+                                    b"dtr2" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dtr2 = Some(true);
                                         }
                                     }
                                     _ => {}
@@ -1442,13 +1485,7 @@ impl WorksheetXml {
                                 reference: cell_ref,
                                 cell_type,
                                 style_index: cell_style,
-                                value: None,
-                                formula: None,
-                                formula_type: None,
-                                formula_ref: None,
-                                shared_index: None,
-                                inline_string: None,
-                                dynamic_array: None,
+                                ..Default::default()
                             });
                         }
                         (ParseState::SheetData, b"row") => {
@@ -1510,6 +1547,23 @@ impl WorksheetXml {
                                     b"cm" => {
                                         if val == "1" {
                                             cur_cell_dynamic_array = Some(true);
+                                        }
+                                    }
+                                    b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
+                                    b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
+                                    b"dt2D" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dt2d = Some(true);
+                                        }
+                                    }
+                                    b"dtr1" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dtr1 = Some(true);
+                                        }
+                                    }
+                                    b"dtr2" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dtr2 = Some(true);
                                         }
                                     }
                                     _ => {}
@@ -1842,6 +1896,11 @@ impl WorksheetXml {
                                 shared_index: cur_cell_shared_index.take(),
                                 inline_string: cur_cell_inline_string.take(),
                                 dynamic_array: cur_cell_dynamic_array.take(),
+                                formula_r1: cur_cell_formula_r1.take(),
+                                formula_r2: cur_cell_formula_r2.take(),
+                                formula_dt2d: cur_cell_formula_dt2d.take(),
+                                formula_dtr1: cur_cell_formula_dtr1.take(),
+                                formula_dtr2: cur_cell_formula_dtr2.take(),
                             });
                             state = ParseState::InRow;
                         }
@@ -2133,6 +2192,11 @@ impl WorksheetXml {
         let mut cur_cell_formula_ref: Option<String> = None;
         let mut cur_cell_shared_index: Option<u32> = None;
         let mut cur_cell_dynamic_array: Option<bool> = None;
+        let mut cur_cell_formula_r1: Option<String> = None;
+        let mut cur_cell_formula_r2: Option<String> = None;
+        let mut cur_cell_formula_dt2d: Option<bool> = None;
+        let mut cur_cell_formula_dtr1: Option<bool> = None;
+        let mut cur_cell_formula_dtr2: Option<bool> = None;
 
         // Metadata builder state (same as parse_with_sst).
         let mut cur_dv: Option<DataValidation> = None;
@@ -2275,6 +2339,11 @@ impl WorksheetXml {
                             cur_cell_formula_ref = None;
                             cur_cell_shared_index = None;
                             cur_cell_dynamic_array = None;
+                            cur_cell_formula_r1 = None;
+                            cur_cell_formula_r2 = None;
+                            cur_cell_formula_dt2d = None;
+                            cur_cell_formula_dtr1 = None;
+                            cur_cell_formula_dtr2 = None;
 
                             for attr in e.attributes().flatten() {
                                 let ln = attr.key.local_name();
@@ -2334,6 +2403,23 @@ impl WorksheetXml {
                                     b"cm" => {
                                         if val == "1" {
                                             cur_cell_dynamic_array = Some(true);
+                                        }
+                                    }
+                                    b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
+                                    b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
+                                    b"dt2D" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dt2d = Some(true);
+                                        }
+                                    }
+                                    b"dtr1" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dtr1 = Some(true);
+                                        }
+                                    }
+                                    b"dtr2" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dtr2 = Some(true);
                                         }
                                     }
                                     _ => {}
@@ -2884,6 +2970,23 @@ impl WorksheetXml {
                                             cur_cell_dynamic_array = Some(true);
                                         }
                                     }
+                                    b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
+                                    b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
+                                    b"dt2D" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dt2d = Some(true);
+                                        }
+                                    }
+                                    b"dtr1" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dtr1 = Some(true);
+                                        }
+                                    }
+                                    b"dtr2" => {
+                                        if val == "1" || val.eq_ignore_ascii_case("true") {
+                                            cur_cell_formula_dtr2 = Some(true);
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -3199,6 +3302,25 @@ impl WorksheetXml {
                             if cur_cell_dynamic_array == Some(true) {
                                 out.push_str(",\"dynamicArray\":true");
                             }
+                            if let Some(ref r1) = cur_cell_formula_r1 {
+                                out.push_str(",\"formulaR1\":\"");
+                                json_escape_to(out, r1);
+                                out.push('"');
+                            }
+                            if let Some(ref r2) = cur_cell_formula_r2 {
+                                out.push_str(",\"formulaR2\":\"");
+                                json_escape_to(out, r2);
+                                out.push('"');
+                            }
+                            if cur_cell_formula_dt2d == Some(true) {
+                                out.push_str(",\"formulaDt2d\":true");
+                            }
+                            if cur_cell_formula_dtr1 == Some(true) {
+                                out.push_str(",\"formulaDtr1\":true");
+                            }
+                            if cur_cell_formula_dtr2 == Some(true) {
+                                out.push_str(",\"formulaDtr2\":true");
+                            }
                             state = ParseState::InCell;
                         }
 
@@ -3239,6 +3361,25 @@ impl WorksheetXml {
                             }
                             if cur_cell_dynamic_array.take() == Some(true) {
                                 out.push_str(",\"dynamicArray\":true");
+                            }
+                            if let Some(ref r1) = cur_cell_formula_r1.take() {
+                                out.push_str(",\"formulaR1\":\"");
+                                json_escape_to(out, r1);
+                                out.push('"');
+                            }
+                            if let Some(ref r2) = cur_cell_formula_r2.take() {
+                                out.push_str(",\"formulaR2\":\"");
+                                json_escape_to(out, r2);
+                                out.push('"');
+                            }
+                            if cur_cell_formula_dt2d.take() == Some(true) {
+                                out.push_str(",\"formulaDt2d\":true");
+                            }
+                            if cur_cell_formula_dtr1.take() == Some(true) {
+                                out.push_str(",\"formulaDtr1\":true");
+                            }
+                            if cur_cell_formula_dtr2.take() == Some(true) {
+                                out.push_str(",\"formulaDtr2\":true");
                             }
                             out.push('}');
                             state = ParseState::InRow;
@@ -3854,6 +3995,21 @@ impl WorksheetXml {
                             if cell.dynamic_array == Some(true) {
                                 f_elem.push_attribute(("cm", "1"));
                             }
+                            if let Some(ref r1) = cell.formula_r1 {
+                                f_elem.push_attribute(("r1", r1.as_str()));
+                            }
+                            if let Some(ref r2) = cell.formula_r2 {
+                                f_elem.push_attribute(("r2", r2.as_str()));
+                            }
+                            if cell.formula_dt2d == Some(true) {
+                                f_elem.push_attribute(("dt2D", "1"));
+                            }
+                            if cell.formula_dtr1 == Some(true) {
+                                f_elem.push_attribute(("dtr1", "1"));
+                            }
+                            if cell.formula_dtr2 == Some(true) {
+                                f_elem.push_attribute(("dtr2", "1"));
+                            }
                             writer
                                 .write_event(Event::Start(f_elem))
                                 .map_err(map_err)?;
@@ -3877,6 +4033,21 @@ impl WorksheetXml {
                             }
                             if cell.dynamic_array == Some(true) {
                                 f_elem.push_attribute(("cm", "1"));
+                            }
+                            if let Some(ref r1) = cell.formula_r1 {
+                                f_elem.push_attribute(("r1", r1.as_str()));
+                            }
+                            if let Some(ref r2) = cell.formula_r2 {
+                                f_elem.push_attribute(("r2", r2.as_str()));
+                            }
+                            if cell.formula_dt2d == Some(true) {
+                                f_elem.push_attribute(("dt2D", "1"));
+                            }
+                            if cell.formula_dtr1 == Some(true) {
+                                f_elem.push_attribute(("dtr1", "1"));
+                            }
+                            if cell.formula_dtr2 == Some(true) {
+                                f_elem.push_attribute(("dtr2", "1"));
                             }
                             writer
                                 .write_event(Event::Empty(f_elem))
@@ -4831,36 +5002,21 @@ mod tests {
                             cell_type: CellType::SharedString,
                             style_index: Some(0),
                             value: Some("0".to_string()),
-                            formula: None,
-                            formula_type: None,
-                            formula_ref: None,
-                            shared_index: None,
-                            inline_string: None,
-                            dynamic_array: None,
+                            ..Default::default()
                         },
                         Cell {
                             reference: "B1".to_string(),
                             cell_type: CellType::Number,
                             style_index: None,
                             value: Some("42.5".to_string()),
-                            formula: None,
-                            formula_type: None,
-                            formula_ref: None,
-                            shared_index: None,
-                            inline_string: None,
-                            dynamic_array: None,
+                            ..Default::default()
                         },
                         Cell {
                             reference: "C1".to_string(),
                             cell_type: CellType::Number,
-                            style_index: None,
                             value: Some("42.5".to_string()),
                             formula: Some("SUM(A1:B1)".to_string()),
-                            formula_type: None,
-                            formula_ref: None,
-                            shared_index: None,
-                            inline_string: None,
-                            dynamic_array: None,
+                            ..Default::default()
                         },
                     ],
                     height: Some(18.0),
@@ -4875,12 +5031,7 @@ mod tests {
                         cell_type: CellType::Boolean,
                         style_index: None,
                         value: Some("1".to_string()),
-                        formula: None,
-                        formula_type: None,
-                        formula_ref: None,
-                        shared_index: None,
-                        inline_string: None,
-                        dynamic_array: None,
+                        ..Default::default()
                     }],
                     height: None,
                     hidden: true,
@@ -4978,12 +5129,7 @@ mod tests {
                     cell_type: CellType::Number,
                     style_index: None,
                     value: Some("100".to_string()),
-                    formula: None,
-                    formula_type: None,
-                    formula_ref: None,
-                    shared_index: None,
-                    inline_string: None,
-                    dynamic_array: None,
+                    ..Default::default()
                 }],
                 height: None,
                 hidden: false,
@@ -5073,12 +5219,7 @@ mod tests {
                     cell_type: CellType::Number,
                     style_index: None,
                     value: Some("42".to_string()),
-                    formula: None,
-                    formula_type: None,
-                    formula_ref: None,
-                    shared_index: None,
-                    inline_string: None,
-                    dynamic_array: None,
+                    ..Default::default()
                 }],
                 height: None,
                 hidden: false,
@@ -5123,12 +5264,7 @@ mod tests {
                     cell_type: CellType::SharedString,
                     style_index: Some(1),
                     value: Some("5".to_string()),
-                    formula: None,
-                    formula_type: None,
-                    formula_ref: None,
-                    shared_index: None,
-                    inline_string: None,
-                    dynamic_array: None,
+                    ..Default::default()
                 }],
                 height: None,
                 hidden: false,
@@ -5365,12 +5501,7 @@ mod tests {
                     cell_type: CellType::Number,
                     style_index: None,
                     value: Some("200".to_string()),
-                    formula: None,
-                    formula_type: None,
-                    formula_ref: None,
-                    shared_index: None,
-                    inline_string: None,
-                    dynamic_array: None,
+                    ..Default::default()
                 }],
                 height: None,
                 hidden: false,
@@ -5734,14 +5865,11 @@ mod tests {
                 cells: vec![Cell {
                     reference: "A1".to_string(),
                     cell_type: CellType::Number,
-                    style_index: None,
                     value: Some("100".to_string()),
                     formula: Some("SUM(B1:B3*C1:C3)".to_string()),
                     formula_type: Some("array".to_string()),
                     formula_ref: Some("A1:A3".to_string()),
-                    shared_index: None,
-                    inline_string: None,
-                    dynamic_array: None,
+                    ..Default::default()
                 }],
                 height: None,
                 hidden: false,
@@ -6874,5 +7002,95 @@ mod tests {
         assert_eq!(g.manual_min, Some(0.0));
         assert_eq!(g.manual_max, Some(100.0));
         assert!(g.right_to_left);
+    }
+
+    #[test]
+    fn test_parse_data_table_formula() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="2">
+      <c r="B2">
+        <f t="dataTable" r1="B1" r2="A2"/>
+        <v>42</v>
+      </c>
+    </row>
+  </sheetData>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        let cell = &ws.rows[0].cells[0];
+        assert_eq!(cell.formula_type.as_deref(), Some("dataTable"));
+        assert_eq!(cell.formula_r1.as_deref(), Some("B1"));
+        assert_eq!(cell.formula_r2.as_deref(), Some("A2"));
+    }
+
+    #[test]
+    fn test_parse_2d_data_table() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="2">
+      <c r="B2">
+        <f t="dataTable" r1="B1" r2="A2" dt2D="1" dtr1="1" dtr2="1"/>
+        <v>99</v>
+      </c>
+    </row>
+  </sheetData>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        let cell = &ws.rows[0].cells[0];
+        assert_eq!(cell.formula_dt2d, Some(true));
+        assert_eq!(cell.formula_dtr1, Some(true));
+        assert_eq!(cell.formula_dtr2, Some(true));
+    }
+
+    #[test]
+    fn test_data_table_formula_roundtrip() {
+        let mut ws = default_test_ws();
+        ws.rows.push(Row {
+            index: 2,
+            cells: vec![Cell {
+                reference: "B2".into(),
+                cell_type: CellType::Number,
+                value: Some("42".into()),
+                formula: Some(String::new()),
+                formula_type: Some("dataTable".into()),
+                formula_r1: Some("B1".into()),
+                formula_r2: Some("A2".into()),
+                formula_dt2d: Some(true),
+                ..Default::default()
+            }],
+            height: None,
+            hidden: false,
+            outline_level: None,
+            collapsed: false,
+        });
+        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        let cell = &ws2.rows[0].cells[0];
+        assert_eq!(cell.formula_type.as_deref(), Some("dataTable"));
+        assert_eq!(cell.formula_r1.as_deref(), Some("B1"));
+        assert_eq!(cell.formula_r2.as_deref(), Some("A2"));
+        assert_eq!(cell.formula_dt2d, Some(true));
+    }
+
+    #[test]
+    fn test_normal_formula_no_data_table_attrs() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1">
+        <f>SUM(B1:B10)</f>
+        <v>55</v>
+      </c>
+    </row>
+  </sheetData>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        let cell = &ws.rows[0].cells[0];
+        assert!(cell.formula_r1.is_none());
+        assert!(cell.formula_r2.is_none());
+        assert!(cell.formula_dt2d.is_none());
     }
 }
