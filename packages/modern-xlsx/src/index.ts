@@ -65,6 +65,7 @@ export type {
   ParseResult,
   PercentNode,
   RangeNode,
+  RewriteAction,
   StringNode,
   Token,
   TokenizeResult,
@@ -74,6 +75,7 @@ export type {
 export {
   parseCellRefValue,
   parseFormula,
+  rewriteFormula,
   serializeFormula,
   tokenize,
 } from './formula/index.js';
