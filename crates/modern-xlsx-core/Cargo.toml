@@ -17,6 +17,7 @@ thiserror.workspace = true
 log.workspace = true
 itoa.workspace = true
 serde_json.workspace = true
+digest.workspace = true
 sha2.workspace = true
 sha1.workspace = true
 zeroize.workspace = true
