@@ -22,9 +22,9 @@ export interface XlsxWorkerOptions {
 
 export interface XlsxWorker {
   /** Read XLSX bytes into parsed WorkbookData (runs in worker thread). */
-  readBuffer(data: Uint8Array): Promise<WorkbookData>;
+  readBuffer(data: Uint8Array, options?: { password?: string }): Promise<WorkbookData>;
   /** Write WorkbookData to XLSX bytes (runs in worker thread). */
-  writeBuffer(data: WorkbookData): Promise<Uint8Array>;
+  writeBuffer(data: WorkbookData, options?: { password?: string }): Promise<Uint8Array>;
   /** Terminate the worker. */
   terminate(): void;
 }
@@ -78,16 +78,23 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
   }
 
   return {
-    async readBuffer(data: Uint8Array): Promise<WorkbookData> {
+    async readBuffer(data: Uint8Array, options?: { password?: string }): Promise<WorkbookData> {
       // Transfer the buffer to the worker (zero-copy)
-      const response = await send({ type: 'read', data }, [data.buffer]);
+      const response = await send(
+        { type: 'read', data, ...(options?.password != null && { password: options.password }) },
+        [data.buffer],
+      );
       if (!response.json) throw new Error('Worker returned no data');
       return JSON.parse(response.json) as WorkbookData;
     },
 
-    async writeBuffer(data: WorkbookData): Promise<Uint8Array> {
+    async writeBuffer(data: WorkbookData, options?: { password?: string }): Promise<Uint8Array> {
       const json = JSON.stringify(data);
-      const response = await send({ type: 'write', json });
+      const response = await send({
+        type: 'write',
+        json,
+        ...(options?.password != null && { password: options.password }),
+      });
       if (!response.data) throw new Error('Worker returned no data');
       return response.data;
     },

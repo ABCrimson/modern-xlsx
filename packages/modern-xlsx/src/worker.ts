@@ -8,7 +8,12 @@
  * Build as a separate entry: `dist/modern-xlsx.worker.js`
  */
 
-import init, { read as _wasmReadJson, write as _wasmWriteJson } from '../wasm/modern_xlsx_wasm.js';
+import init, {
+  read as _wasmReadJson,
+  readWithPassword as _wasmReadWithPasswordJson,
+  write as _wasmWriteJson,
+  writeWithPassword as _wasmWriteWithPasswordJson,
+} from '../wasm/modern_xlsx_wasm.js';
 
 let initPromise: Promise<void> | null = null;
 
@@ -32,6 +37,7 @@ export interface WorkerRequest {
   wasmUrl?: string;
   data?: Uint8Array;
   json?: string;
+  password?: string;
 }
 
 export interface WorkerResponse {
@@ -50,8 +56,8 @@ const _self = globalThis as unknown as {
 };
 
 _self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
-  const { id, type, wasmUrl, data, json } = event.data;
-  handleMessage(id, type, wasmUrl, data, json).catch((err) => {
+  const { id, type, wasmUrl, data, json, password } = event.data;
+  handleMessage(id, type, wasmUrl, data, json, password).catch((err) => {
     const response: WorkerResponse = {
       id,
       type: 'error',
@@ -67,6 +73,7 @@ async function handleMessage(
   wasmUrl?: string,
   data?: Uint8Array,
   json?: string,
+  password?: string,
 ): Promise<void> {
   switch (type) {
     case 'init': {
@@ -79,7 +86,7 @@ async function handleMessage(
     case 'read': {
       await ensureInit(wasmUrl);
       if (!data) throw new Error('read requires data (Uint8Array)');
-      const resultJson = _wasmReadJson(data);
+      const resultJson = password ? _wasmReadWithPasswordJson(data, password) : _wasmReadJson(data);
       const response: WorkerResponse = { id, type: 'result', json: resultJson };
       _self.postMessage(response);
       break;
@@ -88,7 +95,9 @@ async function handleMessage(
     case 'write': {
       await ensureInit(wasmUrl);
       if (!json) throw new Error('write requires json (WorkbookData)');
-      const resultData = _wasmWriteJson(json);
+      const resultData = password
+        ? _wasmWriteWithPasswordJson(json, password)
+        : _wasmWriteJson(json);
       const response: WorkerResponse = { id, type: 'result', data: resultData };
       _self.postMessage(response, [resultData.buffer]);
       break;
