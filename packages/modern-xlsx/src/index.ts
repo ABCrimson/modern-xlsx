@@ -73,6 +73,7 @@ export type {
   UnaryOpNode,
 } from './formula/index.js';
 export {
+  expandSharedFormula,
   parseCellRefValue,
   parseFormula,
   rewriteFormula,
