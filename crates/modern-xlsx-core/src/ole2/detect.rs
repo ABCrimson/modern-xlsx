@@ -1,3 +1,4 @@
+use super::crypto::SensitiveKey;
 use crate::errors::ModernXlsxError;
 
 type Result<T> = std::result::Result<T, ModernXlsxError>;
@@ -227,13 +228,18 @@ pub fn decrypt_file(data: &[u8], password: &str) -> Result<Vec<u8>> {
 
     match enc_info {
         super::encryption_info::EncryptionInfo::Agile(ref agile) => {
-            let data_key = super::crypto::verify_password_agile(password, agile)?;
+            // SensitiveKey auto-zeroizes data_key on Drop (including early returns)
+            let data_key = SensitiveKey::new(
+                super::crypto::verify_password_agile(password, agile)?,
+            );
             let encrypted_package = read_stream(data, "EncryptedPackage")?;
             super::crypto::verify_hmac(&data_key, agile, &encrypted_package)?;
             super::crypto::decrypt_package(&data_key, agile, &encrypted_package)
         }
         super::encryption_info::EncryptionInfo::Standard(ref std_info) => {
-            let data_key = super::crypto::verify_password_standard(password, std_info)?;
+            let data_key = SensitiveKey::new(
+                super::crypto::verify_password_standard(password, std_info)?,
+            );
             let encrypted_package = read_stream(data, "EncryptedPackage")?;
             super::crypto::decrypt_standard_package(&data_key, std_info, &encrypted_package)
         }

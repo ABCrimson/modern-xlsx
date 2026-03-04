@@ -63,6 +63,14 @@ export function write(json: string): Uint8Array;
  */
 export function writeBlob(json: string): Blob;
 
+/**
+ * Write a password-protected XLSX file using Agile Encryption (AES-256-CBC, SHA-512).
+ *
+ * Accepts a JSON string describing the workbook and a password.
+ * Returns a `Uint8Array` containing the encrypted OLE2 compound document.
+ */
+export function writeWithPassword(json: string, password: string): Uint8Array;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -74,6 +82,7 @@ export interface InitOutput {
     readonly version: (a: number) => void;
     readonly write: (a: number, b: number, c: number) => void;
     readonly writeBlob: (a: number, b: number, c: number) => void;
+    readonly writeWithPassword: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

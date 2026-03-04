@@ -225,6 +225,35 @@ export function writeBlob(json) {
     }
 }
 
+/**
+ * Write a password-protected XLSX file using Agile Encryption (AES-256-CBC, SHA-512).
+ *
+ * Accepts a JSON string describing the workbook and a password.
+ * Returns a `Uint8Array` containing the encrypted OLE2 compound document.
+ * @param {string} json
+ * @param {string} password
+ * @returns {Uint8Array}
+ */
+export function writeWithPassword(json, password) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(password, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.writeWithPassword(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return takeObject(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -246,6 +275,9 @@ function __wbg_get_imports() {
             const ret = getObject(arg0).buffer;
             return addHeapObject(ret);
         },
+        __wbg_getRandomValues_3f44b700395062e5: function() { return handleError(function (arg0, arg1) {
+            globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
+        }, arguments); },
         __wbg_length_ea16607d7b61445b: function(arg0) {
             const ret = getObject(arg0).length;
             return ret;

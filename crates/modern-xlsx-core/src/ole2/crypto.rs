@@ -11,12 +11,37 @@ use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::{N
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha512, digest::FixedOutputReset};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::encryption_info::{AgileEncryptionInfo, StandardEncryptionInfo};
 use crate::errors::ModernXlsxError;
 
 type Result<T> = std::result::Result<T, ModernXlsxError>;
+
+/// RAII wrapper that zeroizes key material on Drop, regardless of control flow.
+///
+/// Prevents key leaks from early returns (`?`), panics, or forgotten cleanup.
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub(crate) struct SensitiveKey(pub(super) Vec<u8>);
+
+impl SensitiveKey {
+    pub(crate) fn new(data: Vec<u8>) -> Self {
+        Self(data)
+    }
+}
+
+impl std::ops::Deref for SensitiveKey {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl AsMut<[u8]> for SensitiveKey {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+}
 
 type Aes128CbcDec = cbc::Decryptor<Aes128>;
 type Aes256CbcDec = cbc::Decryptor<Aes256>;
@@ -311,15 +336,15 @@ pub fn verify_password_agile(
     password: &str,
     info: &AgileEncryptionInfo,
 ) -> Result<Vec<u8>> {
-    // 1. Derive verifier hash input key
-    let input_key = derive_key(
+    // 1. Derive verifier hash input key (SensitiveKey auto-zeroizes on Drop)
+    let input_key = SensitiveKey::new(derive_key(
         password,
         &info.pw_salt,
         info.pw_spin_count,
         info.pw_key_bits,
         &BLOCK_KEY_VERIFIER_INPUT,
         &info.pw_hash_alg,
-    )?;
+    )?);
 
     // 2. Decrypt verifier hash input
     let verifier_input = aes_cbc_decrypt(
@@ -329,14 +354,14 @@ pub fn verify_password_agile(
     )?;
 
     // 3. Derive verifier hash value key
-    let value_key = derive_key(
+    let value_key = SensitiveKey::new(derive_key(
         password,
         &info.pw_salt,
         info.pw_spin_count,
         info.pw_key_bits,
         &BLOCK_KEY_VERIFIER_VALUE,
         &info.pw_hash_alg,
-    )?;
+    )?);
 
     // 4. Decrypt verifier hash value
     let verifier_hash = aes_cbc_decrypt(
@@ -362,14 +387,14 @@ pub fn verify_password_agile(
     }
 
     // 7. Derive data encryption key
-    let enc_key_key = derive_key(
+    let enc_key_key = SensitiveKey::new(derive_key(
         password,
         &info.pw_salt,
         info.pw_spin_count,
         info.pw_key_bits,
         &BLOCK_KEY_ENCRYPTED_KEY,
         &info.pw_hash_alg,
-    )?;
+    )?);
 
     // 8. Decrypt the actual data encryption key
     let data_key = aes_cbc_decrypt(&enc_key_key, &info.pw_salt, &info.pw_encrypted_key_value)?;
@@ -443,23 +468,25 @@ pub fn verify_hmac(
 ) -> Result<()> {
     let key_len = (info.key_bits / 8) as usize;
 
-    // 1. Derive HMAC key: Hash(dataKey + blockKeyHmacKey), decrypt encrypted HMAC key
-    let hmac_key_derivation =
-        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_KEY, &info.key_hash_alg)?;
-    let hmac_key = aes_cbc_decrypt(
+    // 1. Derive HMAC key (SensitiveKey auto-zeroizes on Drop)
+    let hmac_key_derivation = SensitiveKey::new(
+        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_KEY, &info.key_hash_alg)?,
+    );
+    let hmac_key = SensitiveKey::new(aes_cbc_decrypt(
         &hmac_key_derivation[..key_len],
         &info.key_salt,
         &info.encrypted_hmac_key,
-    )?;
+    )?);
 
     // 2. Derive HMAC value key and decrypt expected HMAC
-    let hmac_value_derivation =
-        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_VALUE, &info.key_hash_alg)?;
-    let expected_hmac = aes_cbc_decrypt(
+    let hmac_value_derivation = SensitiveKey::new(
+        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_VALUE, &info.key_hash_alg)?,
+    );
+    let expected_hmac = SensitiveKey::new(aes_cbc_decrypt(
         &hmac_value_derivation[..key_len],
         &info.key_salt,
         &info.encrypted_hmac_value,
-    )?;
+    )?);
 
     // 3. Compute HMAC of encrypted package (entire encrypted stream including size prefix)
     let hash_len = info.key_hash_size as usize;
@@ -561,8 +588,8 @@ pub fn compute_and_encrypt_hmac(
         }
     };
 
-    // 1. Generate random HMAC key
-    let hmac_key = secure_random(hash_len)?;
+    // 1. Generate random HMAC key (SensitiveKey auto-zeroizes on Drop)
+    let hmac_key = SensitiveKey::new(secure_random(hash_len)?);
 
     // 2. Compute HMAC of the encrypted package
     let hmac_value = match hash_alg {
@@ -584,10 +611,12 @@ pub fn compute_and_encrypt_hmac(
     };
 
     // 3. Derive encryption keys for HMAC key and value
-    let hmac_key_enc_key =
-        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_KEY, hash_alg)?;
-    let hmac_value_enc_key =
-        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_VALUE, hash_alg)?;
+    let hmac_key_enc_key = SensitiveKey::new(
+        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_KEY, hash_alg)?,
+    );
+    let hmac_value_enc_key = SensitiveKey::new(
+        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_VALUE, hash_alg)?,
+    );
 
     // 4. Encrypt the HMAC key and value
     let encrypted_hmac_key =
@@ -595,6 +624,7 @@ pub fn compute_and_encrypt_hmac(
     let encrypted_hmac_value =
         aes_cbc_encrypt(&hmac_value_enc_key[..key_len], key_salt, &hmac_value)?;
 
+    // All SensitiveKey fields auto-zeroize when dropped
     Ok((encrypted_hmac_key, encrypted_hmac_value))
 }
 
@@ -649,10 +679,10 @@ pub fn encrypt_file(zip_bytes: &[u8], password: &str) -> Result<Vec<u8>> {
     let hash_alg = "SHA512";
     let spin_count: u32 = 100_000;
 
-    // 1. Generate random salts and data encryption key
+    // 1. Generate random salts and data encryption key (SensitiveKey auto-zeroizes)
     let key_salt = secure_random(16)?;
     let pw_salt = secure_random(16)?;
-    let mut data_key = secure_random((key_bits / 8) as usize)?;
+    let data_key = SensitiveKey::new(secure_random((key_bits / 8) as usize)?);
 
     // 2. Encrypt the package (segment-based)
     let encrypted_package =
@@ -667,23 +697,22 @@ pub fn encrypt_file(zip_bytes: &[u8], password: &str) -> Result<Vec<u8>> {
     let verifier_hash = hash_bytes(hash_alg, &verifier_input)?;
 
     // 5. Derive password-based keys and encrypt verifier + data key
-    let input_key = derive_key(
+    let input_key = SensitiveKey::new(derive_key(
         password, &pw_salt, spin_count, key_bits, &BLOCK_KEY_VERIFIER_INPUT, hash_alg,
-    )?;
+    )?);
     let encrypted_verifier_input = aes_cbc_encrypt(&input_key, &pw_salt, &verifier_input)?;
 
-    let value_key = derive_key(
+    let value_key = SensitiveKey::new(derive_key(
         password, &pw_salt, spin_count, key_bits, &BLOCK_KEY_VERIFIER_VALUE, hash_alg,
-    )?;
+    )?);
     let encrypted_verifier_value = aes_cbc_encrypt(&value_key, &pw_salt, &verifier_hash)?;
 
-    let enc_key_key = derive_key(
+    let enc_key_key = SensitiveKey::new(derive_key(
         password, &pw_salt, spin_count, key_bits, &BLOCK_KEY_ENCRYPTED_KEY, hash_alg,
-    )?;
+    )?);
     let encrypted_key_value = aes_cbc_encrypt(&enc_key_key, &pw_salt, &data_key)?;
 
-    // 6. Zeroize the plaintext data key
-    data_key.zeroize();
+    // All SensitiveKey fields (data_key, input_key, value_key, enc_key_key) auto-zeroize on drop
 
     // 7. Build EncryptionInfo XML
     let enc_info_xml = format!(
@@ -830,24 +859,26 @@ pub fn verify_password_standard(
     info: &StandardEncryptionInfo,
 ) -> Result<Vec<u8>> {
     // 1. Derive key using the generic derive_key with SHA1
-    let derived_key = derive_key(
+    //    Wrapped in SensitiveKey so it's zeroized even on early-return error paths.
+    //    On success, we move the inner Vec out before the wrapper drops.
+    let mut derived = SensitiveKey::new(derive_key(
         password,
         &info.salt,
         STANDARD_SPIN_COUNT,
         info.key_size,
         &STANDARD_BLOCK_KEY,
         "SHA1",
-    )?;
+    )?);
 
     // 2. Decrypt the encrypted verifier (16 bytes) with AES-ECB
-    let decrypted_verifier = aes_ecb_decrypt_no_pad(&derived_key, &info.encrypted_verifier)?;
+    let decrypted_verifier = aes_ecb_decrypt_no_pad(&derived, &info.encrypted_verifier)?;
 
     // 3. Compute SHA-1 of the decrypted verifier
     let verifier_hash = hash_bytes("SHA1", &decrypted_verifier)?;
 
     // 4. Decrypt the encrypted verifier hash (32 bytes) with AES-ECB
     let decrypted_verifier_hash =
-        aes_ecb_decrypt_no_pad(&derived_key, &info.encrypted_verifier_hash)?;
+        aes_ecb_decrypt_no_pad(&derived, &info.encrypted_verifier_hash)?;
 
     // 5. Compare first verifier_hash_size bytes
     let hash_len = info.verifier_hash_size as usize;
@@ -865,8 +896,8 @@ pub fn verify_password_standard(
         ));
     }
 
-    // 6. Return the derived key for package decryption
-    Ok(derived_key)
+    // 6. Return the derived key — take ownership, replace inner with empty (zeroized on drop)
+    Ok(std::mem::take(&mut derived.0))
 }
 
 /// Decrypts the EncryptedPackage stream for Standard Encryption.
