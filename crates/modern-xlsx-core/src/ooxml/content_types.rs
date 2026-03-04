@@ -8,7 +8,7 @@ use crate::{ModernXlsxError, Result};
 // Content type constants.
 const CT_RELATIONSHIPS: &str =
     "application/vnd.openxmlformats-package.relationships+xml";
-const CT_XML: &str = "application/xml";
+pub(crate) const CT_XML: &str = "application/xml";
 const CT_WORKBOOK: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
 const CT_WORKSHEET: &str =
@@ -21,6 +21,10 @@ pub(crate) const CT_COMMENTS: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml";
 pub const CT_TABLE: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml";
+pub(crate) const CT_EXTERNAL_LINK: &str =
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml";
+pub(crate) const CT_CUSTOM_XML_PROPS: &str =
+    "application/vnd.openxmlformats-officedocument.customXmlProperties+xml";
 
 const TYPES_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-types";
 

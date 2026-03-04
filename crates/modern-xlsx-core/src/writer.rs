@@ -10,7 +10,9 @@ use log::{debug, trace};
 use crate::ooxml::{
     calc_chain,
     comments,
-    content_types::{ContentTypes, CT_COMMENTS, CT_TABLE},
+    content_types::{
+        ContentTypes, CT_COMMENTS, CT_CUSTOM_XML_PROPS, CT_EXTERNAL_LINK, CT_TABLE, CT_XML,
+    },
     relationships::{Relationships, REL_COMMENTS, REL_TABLE},
     shared_strings::SharedStringTableBuilder,
     workbook::{SheetInfo, SheetState, WorkbookXml},
@@ -296,6 +298,19 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 format!("/{path}"),
                 "application/vnd.openxmlformats-officedocument.drawingml.chart+xml",
             );
+        }
+        // External links
+        if path.starts_with("xl/externalLinks/externalLink") && path.ends_with(".xml") {
+            content_types.add_override(format!("/{path}"), CT_EXTERNAL_LINK);
+        }
+        // Custom XML items (plain XML, exclude itemProps files)
+        if path.starts_with("customXml/item") && path.ends_with(".xml") && !path.contains("Props")
+        {
+            content_types.add_override(format!("/{path}"), CT_XML);
+        }
+        // Custom XML properties
+        if path.starts_with("customXml/itemProps") && path.ends_with(".xml") {
+            content_types.add_override(format!("/{path}"), CT_CUSTOM_XML_PROPS);
         }
     }
 
@@ -1758,5 +1773,73 @@ mod tests {
         assert_eq!(wb2.sheets.len(), 2);
         assert!(wb2.sheets[0].state.is_none());
         assert_eq!(wb2.sheets[1].state.as_deref(), Some("hidden"));
+    }
+
+    #[test]
+    fn test_external_link_content_type() {
+        use crate::ooxml::content_types::{ContentTypes, CT_EXTERNAL_LINK};
+
+        let mut wb = minimal_workbook("Sheet1", Vec::new());
+        wb.preserved_entries.insert(
+            "xl/externalLinks/externalLink1.xml".to_string(),
+            b"<externalLink/>".to_vec(),
+        );
+
+        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
+
+        // Read the ZIP and inspect [Content_Types].xml for the external link override.
+        let limits = ZipSecurityLimits::default();
+        let entries = read_zip_entries(&bytes, &limits).expect("should be a valid ZIP");
+        let ct_bytes = entries.get("[Content_Types].xml").expect("missing [Content_Types].xml");
+        let ct = ContentTypes::parse(ct_bytes).expect("parse content types");
+
+        assert_eq!(
+            ct.overrides.get("/xl/externalLinks/externalLink1.xml"),
+            Some(&CT_EXTERNAL_LINK.to_string()),
+            "external link content type override should be present"
+        );
+
+        // Verify roundtrip: the preserved entry survives write -> read.
+        let wb2 = crate::reader::read_xlsx(&bytes).expect("read_xlsx should succeed");
+        assert!(wb2.preserved_entries.contains_key("xl/externalLinks/externalLink1.xml"));
+    }
+
+    #[test]
+    fn test_custom_xml_content_type() {
+        use crate::ooxml::content_types::{ContentTypes, CT_CUSTOM_XML_PROPS, CT_XML};
+
+        let mut wb = minimal_workbook("Sheet1", Vec::new());
+        wb.preserved_entries.insert(
+            "customXml/item1.xml".to_string(),
+            b"<root/>".to_vec(),
+        );
+        wb.preserved_entries.insert(
+            "customXml/itemProps1.xml".to_string(),
+            b"<ds:datastoreItem/>".to_vec(),
+        );
+
+        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
+
+        // Read the ZIP and inspect [Content_Types].xml for both custom XML overrides.
+        let limits = ZipSecurityLimits::default();
+        let entries = read_zip_entries(&bytes, &limits).expect("should be a valid ZIP");
+        let ct_bytes = entries.get("[Content_Types].xml").expect("missing [Content_Types].xml");
+        let ct = ContentTypes::parse(ct_bytes).expect("parse content types");
+
+        assert_eq!(
+            ct.overrides.get("/customXml/item1.xml"),
+            Some(&CT_XML.to_string()),
+            "custom XML item content type override should be present"
+        );
+        assert_eq!(
+            ct.overrides.get("/customXml/itemProps1.xml"),
+            Some(&CT_CUSTOM_XML_PROPS.to_string()),
+            "custom XML properties content type override should be present"
+        );
+
+        // Verify roundtrip: both preserved entries survive write -> read.
+        let wb2 = crate::reader::read_xlsx(&bytes).expect("read_xlsx should succeed");
+        assert!(wb2.preserved_entries.contains_key("customXml/item1.xml"));
+        assert!(wb2.preserved_entries.contains_key("customXml/itemProps1.xml"));
     }
 }
