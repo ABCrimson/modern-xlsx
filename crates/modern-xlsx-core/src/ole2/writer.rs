@@ -109,11 +109,15 @@ impl WriteDirEntry {
     }
 }
 
-/// Generates an OLE2 compound document containing the given streams.
+/// Write streams into an OLE2 Compound Binary File (v3, 512-byte sectors).
 ///
-/// Each entry in `streams` is a `(name, data)` pair. The output is a valid
-/// OLE2 v3 compound document (512-byte sectors) that can be read back by
-/// our existing OLE2 reader.
+/// # DIFAT Limitation
+///
+/// This writer only supports the 109-entry DIFAT array in the OLE2 header
+/// (ECMA-376 §2.2, offsets 76–511). Files requiring more than 109 FAT
+/// sectors (~3.5 GB) would need DIFAT sector chains, which are **not
+/// implemented**. In practice, encrypted XLSX files are well under this
+/// limit since the payload is a compressed ZIP archive.
 ///
 /// # Errors
 ///
