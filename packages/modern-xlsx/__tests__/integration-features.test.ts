@@ -7,7 +7,8 @@ describe('Integration: Cross-Feature Roundtrips', () => {
     const ws = wb.addSheet('Sheet1');
     ws.cell('A1').value = 'data';
     ws.frozenPane = { rows: 2, cols: 1 };
-    ws.view = { showGridLines: false, zoomScale: 150 };
+    ws.view = { showGridLines: false, zoomScale: 150, view: 'pageLayout' };
+    ws.pageSetup = { orientation: 'landscape', paperSize: 9 };
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
@@ -16,6 +17,8 @@ describe('Integration: Cross-Feature Roundtrips', () => {
     expect(ws2?.frozenPane?.cols).toBe(1);
     expect(ws2?.view?.showGridLines).toBe(false);
     expect(ws2?.view?.zoomScale).toBe(150);
+    expect(ws2?.view?.view).toBe('pageLayout');
+    expect(ws2?.pageSetup?.orientation).toBe('landscape');
   });
 
   it('split pane on one sheet + frozen on another survives roundtrip', async () => {
@@ -35,6 +38,8 @@ describe('Integration: Cross-Feature Roundtrips', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
     expect(wb2.getSheet('Split')?.splitPane?.horizontal).toBe(2400);
+    expect(wb2.getSheet('Split')?.splitPane?.topLeftCell).toBe('A5');
+    expect(wb2.getSheet('Split')?.splitPane?.activePane).toBe('bottomLeft');
     expect(wb2.getSheet('Split')?.frozenPane).toBeFalsy();
     expect(wb2.getSheet('Frozen')?.frozenPane?.rows).toBe(1);
     expect(wb2.getSheet('Frozen')?.splitPane).toBeFalsy();
@@ -70,6 +75,7 @@ describe('Integration: Cross-Feature Roundtrips', () => {
     expect(wb2.protection?.lockStructure).toBe(true);
     expect(wb2.getSheet('Hidden')?.state).toBe('hidden');
     expect(wb2.getSheet('Visible')?.sheetProtection?.sheet).toBe(true);
+    expect(wb2.getSheet('Visible')?.sheetProtection?.scenarios).toBe(true);
   });
 
   it('clone sheet preserves all features through roundtrip', async () => {
@@ -93,12 +99,17 @@ describe('Integration: Cross-Feature Roundtrips', () => {
     expect(copy?.tabColor).toBe('FF0000');
   });
 
-  it('page layout with viewMode + print titles survives roundtrip', async () => {
+  it('print-ready: margins + headers/footers + print titles survives roundtrip', async () => {
     const wb = new Workbook();
     const ws = wb.addSheet('PrintReady');
     ws.cell('A1').value = 'Title Row';
     ws.cell('A2').value = 'Data';
     ws.viewMode = 'pageBreakPreview';
+    ws.pageSetup = { orientation: 'portrait', paperSize: 9 };
+    ws.headerFooter = {
+      oddHeader: '&CPage &P of &N',
+      oddFooter: '&L&D',
+    };
 
     wb.setPrintTitles(0, 'PrintReady!$1:$1');
 
@@ -106,6 +117,10 @@ describe('Integration: Cross-Feature Roundtrips', () => {
     const wb2 = await readBuffer(buffer);
     const ws2 = wb2.getSheet('PrintReady');
     expect(ws2?.viewMode).toBe('pageBreakPreview');
+    expect(ws2?.pageSetup?.orientation).toBe('portrait');
+    expect(ws2?.pageSetup?.paperSize).toBe(9);
+    expect(ws2?.headerFooter?.oddHeader).toContain('&P');
+    expect(ws2?.headerFooter?.oddFooter).toContain('&D');
     const titles = wb2.getPrintTitles(0);
     expect(titles).toContain('$1:$1');
   });
