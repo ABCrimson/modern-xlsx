@@ -669,6 +669,15 @@ enum ParseState {
     InIconSet,
     HeaderFooter,
     HeaderFooterChild(u8), // 0=oddHeader, 1=oddFooter, 2=evenHeader, 3=evenFooter, 4=firstHeader, 5=firstFooter
+    ExtLst,
+    ExtSparklines,
+    SparklineGroups,
+    SparklineGroup,
+    Sparklines,
+    SparklineItem,
+    SparklineFormula,
+    SparklineSqref,
+    ExtOther(usize), // depth counter for skipping non-sparkline extensions
 }
 
 impl WorksheetXml {
@@ -706,6 +715,15 @@ impl WorksheetXml {
         let mut header_footer: Option<HeaderFooter> = None;
         let mut hf_text_buf = String::new();
         let mut outline_properties: Option<OutlineProperties> = None;
+
+        // Sparkline/extLst parsing state.
+        let mut sparkline_groups: Vec<SparklineGroup> = Vec::new();
+        let mut preserved_extensions: Vec<String> = Vec::new();
+        let mut current_sparkline_group: Option<SparklineGroup> = None;
+        let mut current_sparklines: Vec<Sparkline> = Vec::new();
+        let mut current_sparkline_formula = String::new();
+        let mut current_sparkline_sqref = String::new();
+        let mut ext_other_buf = String::new();
 
         let mut state = ParseState::Root;
 
@@ -1106,6 +1124,97 @@ impl WorksheetXml {
                         (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
                         (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
                         (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
+
+                        // ---- extLst / sparklines ----
+                        (ParseState::Root, b"extLst") => {
+                            state = ParseState::ExtLst;
+                        }
+                        (ParseState::ExtLst, b"ext") => {
+                            let mut is_sparkline_ext = false;
+                            for attr in e.attributes().flatten() {
+                                if attr.key.local_name().as_ref() == b"uri" {
+                                    let uri = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    if uri.contains("05C60535") {
+                                        is_sparkline_ext = true;
+                                    }
+                                }
+                            }
+                            if is_sparkline_ext {
+                                state = ParseState::ExtSparklines;
+                            } else {
+                                ext_other_buf.clear();
+                                state = ParseState::ExtOther(1);
+                            }
+                        }
+                        (ParseState::ExtSparklines, b"sparklineGroups") => {
+                            state = ParseState::SparklineGroups;
+                        }
+                        (ParseState::SparklineGroups, b"sparklineGroup") => {
+                            let mut group = SparklineGroup {
+                                sparkline_type: default_sparkline_type(),
+                                sparklines: Vec::new(),
+                                color_series: None,
+                                color_negative: None,
+                                color_axis: None,
+                                color_markers: None,
+                                color_first: None,
+                                color_last: None,
+                                color_high: None,
+                                color_low: None,
+                                line_weight: None,
+                                markers: false,
+                                high: false,
+                                low: false,
+                                first: false,
+                                last: false,
+                                negative: false,
+                                display_x_axis: false,
+                                display_empty_cells_as: None,
+                                manual_min: None,
+                                manual_max: None,
+                                right_to_left: false,
+                            };
+                            for attr in e.attributes().flatten() {
+                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                match attr.key.local_name().as_ref() {
+                                    b"type" => group.sparkline_type = val.to_owned(),
+                                    b"displayEmptyCellsAs" => group.display_empty_cells_as = Some(val.to_owned()),
+                                    b"markers" => group.markers = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"high" => group.high = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"low" => group.low = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"first" => group.first = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"last" => group.last = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"negative" => group.negative = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"displayXAxis" => group.display_x_axis = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"lineWeight" => group.line_weight = val.parse::<f64>().ok(),
+                                    b"manualMin" => group.manual_min = val.parse::<f64>().ok(),
+                                    b"manualMax" => group.manual_max = val.parse::<f64>().ok(),
+                                    b"rightToLeft" => group.right_to_left = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    _ => {}
+                                }
+                            }
+                            current_sparkline_group = Some(group);
+                            state = ParseState::SparklineGroup;
+                        }
+                        (ParseState::SparklineGroup, b"sparklines") => {
+                            state = ParseState::Sparklines;
+                        }
+                        (ParseState::Sparklines, b"sparkline") => {
+                            current_sparkline_formula.clear();
+                            current_sparkline_sqref.clear();
+                            state = ParseState::SparklineItem;
+                        }
+                        (ParseState::SparklineItem, b"f") => {
+                            state = ParseState::SparklineFormula;
+                        }
+                        (ParseState::SparklineItem, b"sqref") => {
+                            state = ParseState::SparklineSqref;
+                        }
+                        (ParseState::ExtOther(_), _) => {
+                            if let ParseState::ExtOther(ref mut depth) = state {
+                                *depth += 1;
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -1588,6 +1697,30 @@ impl WorksheetXml {
                                 }
                             }
                         }
+                        // Sparkline color elements (self-closing).
+                        (ParseState::SparklineGroup, _) => {
+                            if let Some(ref mut group) = current_sparkline_group {
+                                let mut rgb_val = None::<String>;
+                                for attr in e.attributes().flatten() {
+                                    if attr.key.local_name().as_ref() == b"rgb" {
+                                        rgb_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                }
+                                if let Some(rgb) = rgb_val {
+                                    match local.as_ref() {
+                                        b"colorSeries" => group.color_series = Some(rgb),
+                                        b"colorNegative" => group.color_negative = Some(rgb),
+                                        b"colorAxis" => group.color_axis = Some(rgb),
+                                        b"colorMarkers" => group.color_markers = Some(rgb),
+                                        b"colorFirst" => group.color_first = Some(rgb),
+                                        b"colorLast" => group.color_last = Some(rgb),
+                                        b"colorHigh" => group.color_high = Some(rgb),
+                                        b"colorLow" => group.color_low = Some(rgb),
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -1604,6 +1737,12 @@ impl WorksheetXml {
                         ParseState::HeaderFooterChild(_) => {
                             hf_text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
                         }
+                        ParseState::SparklineFormula => {
+                            current_sparkline_formula.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                        }
+                        ParseState::SparklineSqref => {
+                            current_sparkline_sqref.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                        }
                         _ => {}
                     }
                 }
@@ -1619,6 +1758,12 @@ impl WorksheetXml {
                         }
                         ParseState::HeaderFooterChild(_) => {
                             push_entity(&mut hf_text_buf, e.as_ref());
+                        }
+                        ParseState::SparklineFormula => {
+                            push_entity(&mut current_sparkline_formula, e.as_ref());
+                        }
+                        ParseState::SparklineSqref => {
+                            push_entity(&mut current_sparkline_sqref, e.as_ref());
                         }
                         _ => {}
                     }
@@ -1806,6 +1951,51 @@ impl WorksheetXml {
                         (ParseState::HeaderFooter, b"headerFooter") => {
                             state = ParseState::Root;
                         }
+
+                        // ---- extLst / sparklines end ----
+                        (ParseState::SparklineFormula, b"f") => {
+                            state = ParseState::SparklineItem;
+                        }
+                        (ParseState::SparklineSqref, b"sqref") => {
+                            state = ParseState::SparklineItem;
+                        }
+                        (ParseState::SparklineItem, b"sparkline") => {
+                            current_sparklines.push(Sparkline {
+                                formula: std::mem::take(&mut current_sparkline_formula),
+                                sqref: std::mem::take(&mut current_sparkline_sqref),
+                            });
+                            state = ParseState::Sparklines;
+                        }
+                        (ParseState::Sparklines, b"sparklines") => {
+                            state = ParseState::SparklineGroup;
+                        }
+                        (ParseState::SparklineGroup, b"sparklineGroup") => {
+                            if let Some(mut group) = current_sparkline_group.take() {
+                                group.sparklines = std::mem::take(&mut current_sparklines);
+                                sparkline_groups.push(group);
+                            }
+                            state = ParseState::SparklineGroups;
+                        }
+                        (ParseState::SparklineGroups, b"sparklineGroups") => {
+                            state = ParseState::ExtSparklines;
+                        }
+                        (ParseState::ExtSparklines, b"ext") => {
+                            state = ParseState::ExtLst;
+                        }
+                        (ParseState::ExtLst, b"extLst") => {
+                            state = ParseState::Root;
+                        }
+                        (ParseState::ExtOther(depth), _) => {
+                            if depth <= 1 {
+                                let ext_xml = std::mem::take(&mut ext_other_buf);
+                                if !ext_xml.is_empty() {
+                                    preserved_extensions.push(ext_xml);
+                                }
+                                state = ParseState::ExtLst;
+                            } else {
+                                state = ParseState::ExtOther(depth - 1);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -1840,8 +2030,8 @@ impl WorksheetXml {
             tables: Vec::new(),
             header_footer,
             outline_properties,
-            sparkline_groups: Vec::new(),
-            preserved_extensions: Vec::new(),
+            sparkline_groups,
+            preserved_extensions,
         })
     }
 
@@ -1888,6 +2078,13 @@ impl WorksheetXml {
         let mut header_footer: Option<HeaderFooter> = None;
         let mut hf_text_buf = String::new();
         let mut outline_properties: Option<OutlineProperties> = None;
+
+        // Sparkline/extLst parsing state.
+        let mut sparkline_groups: Vec<SparklineGroup> = Vec::new();
+        let mut current_sparkline_group: Option<SparklineGroup> = None;
+        let mut current_sparklines: Vec<Sparkline> = Vec::new();
+        let mut current_sparkline_formula = String::new();
+        let mut current_sparkline_sqref = String::new();
 
         // Row/cell streaming state (reused each row/cell, no accumulation).
         let mut state = ParseState::Root;
@@ -2294,6 +2491,95 @@ impl WorksheetXml {
                         (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
                         (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
 
+                        // ---- extLst / sparklines ----
+                        (ParseState::Root, b"extLst") => {
+                            state = ParseState::ExtLst;
+                        }
+                        (ParseState::ExtLst, b"ext") => {
+                            let mut is_sparkline_ext = false;
+                            for attr in e.attributes().flatten() {
+                                if attr.key.local_name().as_ref() == b"uri" {
+                                    let uri = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    if uri.contains("05C60535") {
+                                        is_sparkline_ext = true;
+                                    }
+                                }
+                            }
+                            if is_sparkline_ext {
+                                state = ParseState::ExtSparklines;
+                            } else {
+                                state = ParseState::ExtOther(1);
+                            }
+                        }
+                        (ParseState::ExtSparklines, b"sparklineGroups") => {
+                            state = ParseState::SparklineGroups;
+                        }
+                        (ParseState::SparklineGroups, b"sparklineGroup") => {
+                            let mut group = SparklineGroup {
+                                sparkline_type: default_sparkline_type(),
+                                sparklines: Vec::new(),
+                                color_series: None,
+                                color_negative: None,
+                                color_axis: None,
+                                color_markers: None,
+                                color_first: None,
+                                color_last: None,
+                                color_high: None,
+                                color_low: None,
+                                line_weight: None,
+                                markers: false,
+                                high: false,
+                                low: false,
+                                first: false,
+                                last: false,
+                                negative: false,
+                                display_x_axis: false,
+                                display_empty_cells_as: None,
+                                manual_min: None,
+                                manual_max: None,
+                                right_to_left: false,
+                            };
+                            for attr in e.attributes().flatten() {
+                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                match attr.key.local_name().as_ref() {
+                                    b"type" => group.sparkline_type = val.to_owned(),
+                                    b"displayEmptyCellsAs" => group.display_empty_cells_as = Some(val.to_owned()),
+                                    b"markers" => group.markers = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"high" => group.high = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"low" => group.low = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"first" => group.first = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"last" => group.last = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"negative" => group.negative = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"displayXAxis" => group.display_x_axis = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    b"lineWeight" => group.line_weight = val.parse::<f64>().ok(),
+                                    b"manualMin" => group.manual_min = val.parse::<f64>().ok(),
+                                    b"manualMax" => group.manual_max = val.parse::<f64>().ok(),
+                                    b"rightToLeft" => group.right_to_left = val == "1" || val.eq_ignore_ascii_case("true"),
+                                    _ => {}
+                                }
+                            }
+                            current_sparkline_group = Some(group);
+                            state = ParseState::SparklineGroup;
+                        }
+                        (ParseState::SparklineGroup, b"sparklines") => {
+                            state = ParseState::Sparklines;
+                        }
+                        (ParseState::Sparklines, b"sparkline") => {
+                            current_sparkline_formula.clear();
+                            current_sparkline_sqref.clear();
+                            state = ParseState::SparklineItem;
+                        }
+                        (ParseState::SparklineItem, b"f") => {
+                            state = ParseState::SparklineFormula;
+                        }
+                        (ParseState::SparklineItem, b"sqref") => {
+                            state = ParseState::SparklineSqref;
+                        }
+                        (ParseState::ExtOther(_), _) => {
+                            if let ParseState::ExtOther(ref mut depth) = state {
+                                *depth += 1;
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -2765,6 +3051,30 @@ impl WorksheetXml {
                                 }
                             }
                         }
+                        // Sparkline color elements (self-closing).
+                        (ParseState::SparklineGroup, _) => {
+                            if let Some(ref mut group) = current_sparkline_group {
+                                let mut rgb_val = None::<String>;
+                                for attr in e.attributes().flatten() {
+                                    if attr.key.local_name().as_ref() == b"rgb" {
+                                        rgb_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+                                    }
+                                }
+                                if let Some(rgb) = rgb_val {
+                                    match local.as_ref() {
+                                        b"colorSeries" => group.color_series = Some(rgb),
+                                        b"colorNegative" => group.color_negative = Some(rgb),
+                                        b"colorAxis" => group.color_axis = Some(rgb),
+                                        b"colorMarkers" => group.color_markers = Some(rgb),
+                                        b"colorFirst" => group.color_first = Some(rgb),
+                                        b"colorLast" => group.color_last = Some(rgb),
+                                        b"colorHigh" => group.color_high = Some(rgb),
+                                        b"colorLow" => group.color_low = Some(rgb),
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -2782,6 +3092,12 @@ impl WorksheetXml {
                         ParseState::HeaderFooterChild(_) => {
                             hf_text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
                         }
+                        ParseState::SparklineFormula => {
+                            current_sparkline_formula.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                        }
+                        ParseState::SparklineSqref => {
+                            current_sparkline_sqref.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                        }
                         _ => {}
                     }
                 }
@@ -2797,6 +3113,12 @@ impl WorksheetXml {
                         }
                         ParseState::HeaderFooterChild(_) => {
                             push_entity(&mut hf_text_buf, e.as_ref());
+                        }
+                        ParseState::SparklineFormula => {
+                            push_entity(&mut current_sparkline_formula, e.as_ref());
+                        }
+                        ParseState::SparklineSqref => {
+                            push_entity(&mut current_sparkline_sqref, e.as_ref());
                         }
                         _ => {}
                     }
@@ -3025,6 +3347,46 @@ impl WorksheetXml {
                             state = ParseState::Root;
                         }
 
+                        // ---- extLst / sparklines end ----
+                        (ParseState::SparklineFormula, b"f") => {
+                            state = ParseState::SparklineItem;
+                        }
+                        (ParseState::SparklineSqref, b"sqref") => {
+                            state = ParseState::SparklineItem;
+                        }
+                        (ParseState::SparklineItem, b"sparkline") => {
+                            current_sparklines.push(Sparkline {
+                                formula: std::mem::take(&mut current_sparkline_formula),
+                                sqref: std::mem::take(&mut current_sparkline_sqref),
+                            });
+                            state = ParseState::Sparklines;
+                        }
+                        (ParseState::Sparklines, b"sparklines") => {
+                            state = ParseState::SparklineGroup;
+                        }
+                        (ParseState::SparklineGroup, b"sparklineGroup") => {
+                            if let Some(mut group) = current_sparkline_group.take() {
+                                group.sparklines = std::mem::take(&mut current_sparklines);
+                                sparkline_groups.push(group);
+                            }
+                            state = ParseState::SparklineGroups;
+                        }
+                        (ParseState::SparklineGroups, b"sparklineGroups") => {
+                            state = ParseState::ExtSparklines;
+                        }
+                        (ParseState::ExtSparklines, b"ext") => {
+                            state = ParseState::ExtLst;
+                        }
+                        (ParseState::ExtLst, b"extLst") => {
+                            state = ParseState::Root;
+                        }
+                        (ParseState::ExtOther(depth), _) => {
+                            if depth <= 1 {
+                                state = ParseState::ExtLst;
+                            } else {
+                                state = ParseState::ExtOther(depth - 1);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -3134,8 +3496,11 @@ impl WorksheetXml {
             out.push_str(&serde_json::to_string(op)
                 .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
         }
-        // Sparkline groups and preserved extensions will be serialized here
-        // once the parser (B6-T2) populates them from extLst.
+        if !sparkline_groups.is_empty() {
+            out.push_str(",\"sparklineGroups\":");
+            out.push_str(&serde_json::to_string(&sparkline_groups)
+                .map_err(|e| ModernXlsxError::XmlParse(e.to_string()))?);
+        }
 
         // Close the worksheet JSON object.
         out.push('}');
@@ -6076,5 +6441,113 @@ mod tests {
         // But sheetViews should still be written
         assert!(xml_str.contains("sheetViews"));
         assert!(xml_str.contains("sheetView"));
+    }
+
+    // ---- Sparkline parser tests ----
+
+    #[test]
+    fn test_parse_line_sparkline() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData/>
+  <extLst>
+    <ext uri="{05C60535-1F16-4fd2-B633-F4F36011B0BD}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">
+      <x14:sparklineGroups xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main">
+        <x14:sparklineGroup>
+          <x14:sparklines>
+            <x14:sparkline>
+              <xm:f>Sheet1!A1:A10</xm:f>
+              <xm:sqref>B1</xm:sqref>
+            </x14:sparkline>
+            <x14:sparkline>
+              <xm:f>Sheet1!A1:A10</xm:f>
+              <xm:sqref>B2</xm:sqref>
+            </x14:sparkline>
+          </x14:sparklines>
+        </x14:sparklineGroup>
+      </x14:sparklineGroups>
+    </ext>
+  </extLst>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        assert_eq!(ws.sparkline_groups.len(), 1);
+        assert_eq!(ws.sparkline_groups[0].sparkline_type, "line");
+        assert_eq!(ws.sparkline_groups[0].sparklines.len(), 2);
+        assert_eq!(ws.sparkline_groups[0].sparklines[0].formula, "Sheet1!A1:A10");
+        assert_eq!(ws.sparkline_groups[0].sparklines[0].sqref, "B1");
+    }
+
+    #[test]
+    fn test_parse_column_sparkline_with_colors() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData/>
+  <extLst>
+    <ext uri="{05C60535-1F16-4fd2-B633-F4F36011B0BD}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">
+      <x14:sparklineGroups xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main">
+        <x14:sparklineGroup type="column" markers="1" high="1" low="1">
+          <x14:colorSeries rgb="FF376092"/>
+          <x14:colorNegative rgb="FFC00000"/>
+          <x14:sparklines>
+            <x14:sparkline>
+              <xm:f>Sheet1!A1:A5</xm:f>
+              <xm:sqref>C1</xm:sqref>
+            </x14:sparkline>
+          </x14:sparklines>
+        </x14:sparklineGroup>
+      </x14:sparklineGroups>
+    </ext>
+  </extLst>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        assert_eq!(ws.sparkline_groups[0].sparkline_type, "column");
+        assert!(ws.sparkline_groups[0].markers);
+        assert!(ws.sparkline_groups[0].high);
+        assert!(ws.sparkline_groups[0].low);
+        assert_eq!(ws.sparkline_groups[0].color_series.as_deref(), Some("FF376092"));
+        assert_eq!(ws.sparkline_groups[0].color_negative.as_deref(), Some("FFC00000"));
+    }
+
+    #[test]
+    fn test_parse_sparkline_with_options() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData/>
+  <extLst>
+    <ext uri="{05C60535-1F16-4fd2-B633-F4F36011B0BD}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">
+      <x14:sparklineGroups xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main">
+        <x14:sparklineGroup type="stacked" displayEmptyCellsAs="gap" lineWeight="1.25" displayXAxis="1" negative="1" first="1" last="1" manualMin="0" manualMax="100">
+          <x14:sparklines>
+            <x14:sparkline>
+              <xm:f>Sheet1!D1:D10</xm:f>
+              <xm:sqref>E1</xm:sqref>
+            </x14:sparkline>
+          </x14:sparklines>
+        </x14:sparklineGroup>
+      </x14:sparklineGroups>
+    </ext>
+  </extLst>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        let g = &ws.sparkline_groups[0];
+        assert_eq!(g.sparkline_type, "stacked");
+        assert_eq!(g.display_empty_cells_as.as_deref(), Some("gap"));
+        assert_eq!(g.line_weight, Some(1.25));
+        assert!(g.display_x_axis);
+        assert!(g.negative);
+        assert!(g.first);
+        assert!(g.last);
+        assert_eq!(g.manual_min, Some(0.0));
+        assert_eq!(g.manual_max, Some(100.0));
+    }
+
+    #[test]
+    fn test_parse_no_sparklines() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData/>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        assert!(ws.sparkline_groups.is_empty());
     }
 }
