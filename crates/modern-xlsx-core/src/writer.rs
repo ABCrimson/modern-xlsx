@@ -328,6 +328,19 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     write_zip(&entries)
 }
 
+/// Write a password-protected XLSX file using Agile Encryption (AES-256-CBC, SHA-512).
+///
+/// First writes the workbook as a normal ZIP archive, then encrypts it into
+/// an OLE2 compound document containing `EncryptionInfo` and `EncryptedPackage`
+/// streams.
+///
+/// The output is compatible with Microsoft Excel, LibreOffice, and our own
+/// `read_xlsx_json_with_password` / `readBuffer(data, { password })` read path.
+pub fn write_xlsx_with_password(workbook: &WorkbookData, password: &str) -> Result<Vec<u8>> {
+    let zip_bytes = write_xlsx(workbook)?;
+    crate::ole2::crypto::encrypt_file(&zip_bytes, password)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

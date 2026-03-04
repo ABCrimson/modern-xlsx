@@ -8,6 +8,12 @@ export interface ReadOptions {
   password?: string;
 }
 
+/** Options for writing XLSX files. */
+export interface WriteOptions {
+  /** Password to encrypt the XLSX file with Agile Encryption (AES-256-CBC, SHA-512). */
+  password?: string;
+}
+
 export type DateSystem = 'date1900' | 'date1904';
 
 export type CellType =

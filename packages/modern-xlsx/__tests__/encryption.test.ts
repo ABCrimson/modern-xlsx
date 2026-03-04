@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { ReadOptions } from '../src/index.js';
-import { readBuffer, Workbook } from '../src/index.js';
+import type { ReadOptions, WriteOptions } from '../src/index.js';
+import { readBuffer, StyleBuilder, Workbook } from '../src/index.js';
 
 /**
  * Builds a minimal OLE2 compound document with the given stream names.
@@ -515,8 +515,96 @@ describe('Encryption: Standard Encryption Edge Cases', () => {
 
     // Attempting to read with a wrong password should produce an error
     // mentioning "Incorrect password" or similar
-    await expect(readBuffer(ole2, { password: 'wrongpass' })).rejects.toThrow(
-      /password|decrypt/i,
-    );
+    await expect(readBuffer(ole2, { password: 'wrongpass' })).rejects.toThrow(/password|decrypt/i);
+  });
+});
+
+describe('Encryption: Write Path', () => {
+  it('encrypt then decrypt roundtrip', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('EncTest');
+    ws.cell('A1').value = 'hello encrypted';
+    ws.cell('B2').value = 42;
+    ws.cell('C3').value = true;
+
+    const encrypted = await wb.toBuffer({ password: 'test123' });
+
+    // Verify the output is an OLE2 file (starts with magic bytes)
+    expect(encrypted[0]).toBe(0xd0);
+    expect(encrypted[1]).toBe(0xcf);
+    expect(encrypted[2]).toBe(0x11);
+    expect(encrypted[3]).toBe(0xe0);
+
+    // Decrypt and verify data
+    const wb2 = await readBuffer(encrypted, { password: 'test123' });
+    expect(wb2.getSheet('EncTest')?.cell('A1').value).toBe('hello encrypted');
+    expect(wb2.getSheet('EncTest')?.cell('B2').value).toBe(42);
+    expect(wb2.getSheet('EncTest')?.cell('C3').value).toBe(true);
+  });
+
+  it('encrypted file with wrong password fails', async () => {
+    const wb = new Workbook();
+    wb.addSheet('Sheet1').cell('A1').value = 'secret';
+    const encrypted = await wb.toBuffer({ password: 'correct' });
+
+    await expect(readBuffer(encrypted, { password: 'wrong' })).rejects.toThrow(/password|decrypt/i);
+  });
+
+  it('encrypted file without password shows helpful error', async () => {
+    const wb = new Workbook();
+    wb.addSheet('Sheet1').cell('A1').value = 'secret';
+    const encrypted = await wb.toBuffer({ password: 'mypass' });
+
+    // Reading without password should show error mentioning password
+    await expect(readBuffer(encrypted)).rejects.toThrow(/password/i);
+  });
+
+  it('empty password produces normal unencrypted output', async () => {
+    const wb = new Workbook();
+    wb.addSheet('Sheet1').cell('A1').value = 'normal';
+
+    // Empty string password should be treated as "no encryption"
+    const buffer = await wb.toBuffer({ password: '' });
+
+    // Should be a normal ZIP (starts with PK)
+    expect(buffer[0]).toBe(0x50); // P
+    expect(buffer[1]).toBe(0x4b); // K
+
+    // Should read without password
+    const wb2 = await readBuffer(buffer);
+    expect(wb2.getSheet('Sheet1')?.cell('A1').value).toBe('normal');
+  });
+
+  it('encryption preserves styles', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('StyledSheet');
+
+    const boldStyle = new StyleBuilder().font({ bold: true, size: 14 }).build(wb.styles);
+    ws.cell('A1').value = 'Bold Text';
+    ws.cell('A1').styleIndex = boldStyle;
+
+    const encrypted = await wb.toBuffer({ password: 'styles' });
+    const wb2 = await readBuffer(encrypted, { password: 'styles' });
+
+    const cell = wb2.getSheet('StyledSheet')?.cell('A1');
+    expect(cell?.value).toBe('Bold Text');
+    expect(cell?.styleIndex).toBeGreaterThan(0);
+
+    // Verify the font is bold
+    const style = wb2.styles.cellXfs?.[cell?.styleIndex ?? 0];
+    if (style?.fontId !== undefined) {
+      const font = wb2.styles.fonts?.[style.fontId];
+      expect(font?.bold).toBe(true);
+    }
+  });
+
+  it('WriteOptions type is accepted', async () => {
+    const wb = new Workbook();
+    wb.addSheet('Test');
+
+    // TypeScript compile check: WriteOptions is valid
+    const opts: WriteOptions = { password: undefined };
+    const buffer = await wb.toBuffer(opts);
+    expect(buffer.length).toBeGreaterThan(0);
   });
 });

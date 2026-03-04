@@ -6,6 +6,7 @@ import init, {
   validate as _wasmValidateJson,
   writeBlob as _wasmWriteBlobJson,
   write as _wasmWriteJson,
+  writeWithPassword as _wasmWriteWithPasswordJson,
   version as wasmVersion,
 } from '../wasm/modern_xlsx_wasm.js';
 
@@ -131,6 +132,14 @@ function isWorkbookData(v: unknown): v is WorkbookData {
  */
 export function wasmWrite(data: WorkbookData): Uint8Array {
   return _wasmWriteJson(JSON.stringify(data));
+}
+
+/**
+ * Write WorkbookData to an encrypted XLSX (OLE2 container with Agile Encryption).
+ * Serializes to JSON string for transfer across the WASM boundary.
+ */
+export function wasmWriteWithPassword(data: WorkbookData, password: string): Uint8Array {
+  return _wasmWriteWithPasswordJson(JSON.stringify(data), password);
 }
 
 /**

@@ -134,6 +134,7 @@ export type {
   WorkbookProtectionData,
   WorkbookViewData,
   WorksheetData,
+  WriteOptions,
 } from './types.js';
 // Sheet conversion utilities
 export type {

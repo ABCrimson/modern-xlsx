@@ -38,8 +38,15 @@ import type {
   WorkbookData,
   WorkbookProtectionData,
   WorkbookViewData,
+  WriteOptions,
 } from './types.js';
-import { ensureInitialized, wasmRepair, wasmValidate, wasmWrite } from './wasm-loader.js';
+import {
+  ensureInitialized,
+  wasmRepair,
+  wasmValidate,
+  wasmWrite,
+  wasmWriteWithPassword,
+} from './wasm-loader.js';
 
 const TEXT_ENCODER = new TextEncoder();
 
@@ -429,18 +436,30 @@ export class Workbook {
 
   // --- Serialization ---
 
-  /** Serializes the workbook to an XLSX `Uint8Array` via the WASM writer. */
-  async toBuffer(): Promise<Uint8Array> {
+  /**
+   * Serializes the workbook to an XLSX `Uint8Array` via the WASM writer.
+   *
+   * @param options - Optional write options. Pass `{ password: '...' }` to encrypt
+   *   the file with Agile Encryption (AES-256-CBC, SHA-512). An empty string
+   *   password is treated as "no encryption".
+   */
+  async toBuffer(options?: WriteOptions): Promise<Uint8Array> {
     ensureInitialized();
+    if (options?.password) {
+      return wasmWriteWithPassword(this.data, options.password);
+    }
     return wasmWrite(this.data);
   }
 
   /**
    * Write the workbook to a file on disk.
    * Only available in Node.js, Bun, and Deno environments.
+   *
+   * @param path - File path to write to.
+   * @param options - Optional write options. Pass `{ password: '...' }` to encrypt.
    */
-  async toFile(path: string): Promise<void> {
-    const buffer = await this.toBuffer();
+  async toFile(path: string, options?: WriteOptions): Promise<void> {
+    const buffer = await this.toBuffer(options);
     const { writeFile } = await import('node:fs/promises');
     await writeFile(path, buffer);
   }

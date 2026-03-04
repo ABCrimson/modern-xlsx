@@ -47,6 +47,22 @@ pub fn write(json: &str) -> Result<Uint8Array, JsError> {
     Ok(arr)
 }
 
+/// Write a password-protected XLSX file using Agile Encryption (AES-256-CBC, SHA-512).
+///
+/// Accepts a JSON string describing the workbook and a password.
+/// Returns a `Uint8Array` containing the encrypted OLE2 compound document.
+#[wasm_bindgen(js_name = writeWithPassword)]
+pub fn write_with_password(json: &str, password: &str) -> Result<Uint8Array, JsError> {
+    let workbook: modern_xlsx_core::WorkbookData =
+        serde_json::from_str(json)
+            .map_err(|e| JsError::new(&format!("JSON parse error: {e}")))?;
+    let bytes = modern_xlsx_core::writer::write_xlsx_with_password(&workbook, password)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let arr = Uint8Array::new_with_length(bytes.len() as u32);
+    arr.copy_from(&bytes);
+    Ok(arr)
+}
+
 /// Write XLSX and return as a `Blob` for browser download.
 ///
 /// Accepts a JSON string describing the workbook.

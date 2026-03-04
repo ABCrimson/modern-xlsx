@@ -1,15 +1,17 @@
-//! ECMA-376 Agile + Standard Encryption key derivation and AES decryption.
+//! ECMA-376 Agile + Standard Encryption key derivation, AES decryption, and
+//! AES encryption.
 //!
 //! Implements password-based key derivation, password verification, AES-CBC/ECB
-//! decryption (segment-based for Agile, single-stream for Standard), and HMAC
-//! integrity verification for OOXML encryption (SHA-512/SHA-256/SHA-1,
-//! AES-128/AES-256).
+//! decryption/encryption (segment-based for Agile, single-stream for Standard),
+//! HMAC integrity verification, and full file encryption for OOXML encryption
+//! (SHA-512/SHA-256/SHA-1, AES-128/AES-256).
 
 use aes::{Aes128, Aes256};
-use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::{NoPadding, Pkcs7}};
+use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::{NoPadding, Pkcs7}};
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha512, digest::FixedOutputReset};
+use zeroize::Zeroize;
 
 use super::encryption_info::{AgileEncryptionInfo, StandardEncryptionInfo};
 use crate::errors::ModernXlsxError;
@@ -18,6 +20,8 @@ type Result<T> = std::result::Result<T, ModernXlsxError>;
 
 type Aes128CbcDec = cbc::Decryptor<Aes128>;
 type Aes256CbcDec = cbc::Decryptor<Aes256>;
+type Aes128CbcEnc = cbc::Encryptor<Aes128>;
+type Aes256CbcEnc = cbc::Encryptor<Aes256>;
 
 /// Segment size for ECMA-376 Agile Encryption.
 const SEGMENT_SIZE: usize = 4096;
@@ -180,6 +184,66 @@ pub fn aes_cbc_decrypt_no_pad(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<
             "Unsupported AES key length: {n} bytes (expected 16 or 32)"
         ))),
     }
+}
+
+// ---------------------------------------------------------------------------
+// AES-CBC encryption primitives
+// ---------------------------------------------------------------------------
+
+/// Encrypts data using AES-CBC with PKCS#7 padding.
+///
+/// Automatically selects AES-128 or AES-256 based on key length.
+pub fn aes_cbc_encrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    match key.len() {
+        16 => {
+            let encryptor = Aes128CbcEnc::new_from_slices(key, iv)
+                .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
+            Ok(encryptor.encrypt_padded_vec_mut::<Pkcs7>(data))
+        }
+        32 => {
+            let encryptor = Aes256CbcEnc::new_from_slices(key, iv)
+                .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
+            Ok(encryptor.encrypt_padded_vec_mut::<Pkcs7>(data))
+        }
+        n => Err(ModernXlsxError::PasswordProtected(format!(
+            "Unsupported AES key length: {n} bytes (expected 16 or 32)"
+        ))),
+    }
+}
+
+/// Encrypts data without adding padding (data must be block-aligned).
+///
+/// Automatically selects AES-128 or AES-256 based on key length.
+pub fn aes_cbc_encrypt_no_pad(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    match key.len() {
+        16 => {
+            let encryptor = Aes128CbcEnc::new_from_slices(key, iv)
+                .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
+            Ok(encryptor.encrypt_padded_vec_mut::<NoPadding>(data))
+        }
+        32 => {
+            let encryptor = Aes256CbcEnc::new_from_slices(key, iv)
+                .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
+            Ok(encryptor.encrypt_padded_vec_mut::<NoPadding>(data))
+        }
+        n => Err(ModernXlsxError::PasswordProtected(format!(
+            "Unsupported AES key length: {n} bytes (expected 16 or 32)"
+        ))),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Secure random
+// ---------------------------------------------------------------------------
+
+/// Generates cryptographically secure random bytes via `getrandom`.
+///
+/// Works in both native and WASM targets (via the `wasm_js` feature).
+pub fn secure_random(len: usize) -> Result<Vec<u8>> {
+    let mut buf = vec![0u8; len];
+    getrandom::fill(&mut buf)
+        .map_err(|e| ModernXlsxError::PasswordProtected(format!("CSPRNG error: {e}")))?;
+    Ok(buf)
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +501,224 @@ pub fn verify_hmac(
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Segment-based encryption
+// ---------------------------------------------------------------------------
+
+/// Encrypts a ZIP package using ECMA-376 Agile segment-based encryption.
+///
+/// Layout: `[8 bytes: original size LE64] [encrypted segments of 4096 bytes]`
+/// Each segment IV = `Hash(salt + LE32(segment_index))` truncated to `block_size`.
+pub fn encrypt_package(
+    data_key: &[u8],
+    salt: &[u8],
+    zip_bytes: &[u8],
+    block_size: usize,
+    hash_alg: &str,
+) -> Result<Vec<u8>> {
+    let original_size = zip_bytes.len() as u64;
+    let num_segments = zip_bytes.len().div_ceil(SEGMENT_SIZE);
+
+    // Pre-allocate: 8-byte header + segments (each padded to multiple of AES block)
+    let mut result = Vec::with_capacity(8 + num_segments * SEGMENT_SIZE);
+    result.extend_from_slice(&original_size.to_le_bytes());
+
+    for (segment_idx, chunk) in zip_bytes.chunks(SEGMENT_SIZE).enumerate() {
+        let iv = derive_segment_iv(salt, segment_idx as u32, block_size, hash_alg)?;
+
+        // Pad chunk to AES block boundary (16 bytes)
+        let mut padded = chunk.to_vec();
+        let pad_len = (16 - (padded.len() % 16)) % 16;
+        padded.resize(padded.len() + pad_len, 0);
+
+        let encrypted = aes_cbc_encrypt_no_pad(data_key, &iv, &padded)?;
+        result.extend_from_slice(&encrypted);
+    }
+
+    Ok(result)
+}
+
+/// Computes HMAC over the encrypted package and encrypts both the HMAC key and value.
+///
+/// Returns `(encrypted_hmac_key, encrypted_hmac_value)`.
+pub fn compute_and_encrypt_hmac(
+    data_key: &[u8],
+    key_salt: &[u8],
+    encrypted_package: &[u8],
+    key_bits: u32,
+    hash_alg: &str,
+) -> Result<(Vec<u8>, Vec<u8>)> {
+    let key_len = (key_bits / 8) as usize;
+    let hash_len = match hash_alg {
+        "SHA512" => 64,
+        "SHA256" => 32,
+        _ => {
+            return Err(ModernXlsxError::PasswordProtected(format!(
+                "Unsupported hash algorithm for HMAC: {hash_alg}"
+            )));
+        }
+    };
+
+    // 1. Generate random HMAC key
+    let hmac_key = secure_random(hash_len)?;
+
+    // 2. Compute HMAC of the encrypted package
+    let hmac_value = match hash_alg {
+        "SHA512" => {
+            let mut mac = Hmac::<Sha512>::new_from_slice(&hmac_key).map_err(|e| {
+                ModernXlsxError::PasswordProtected(format!("HMAC init: {e}"))
+            })?;
+            mac.update(encrypted_package);
+            mac.finalize().into_bytes().to_vec()
+        }
+        "SHA256" => {
+            let mut mac = Hmac::<Sha256>::new_from_slice(&hmac_key).map_err(|e| {
+                ModernXlsxError::PasswordProtected(format!("HMAC init: {e}"))
+            })?;
+            mac.update(encrypted_package);
+            mac.finalize().into_bytes().to_vec()
+        }
+        _ => unreachable!(),
+    };
+
+    // 3. Derive encryption keys for HMAC key and value
+    let hmac_key_enc_key =
+        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_KEY, hash_alg)?;
+    let hmac_value_enc_key =
+        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_VALUE, hash_alg)?;
+
+    // 4. Encrypt the HMAC key and value
+    let encrypted_hmac_key =
+        aes_cbc_encrypt(&hmac_key_enc_key[..key_len], key_salt, &hmac_key)?;
+    let encrypted_hmac_value =
+        aes_cbc_encrypt(&hmac_value_enc_key[..key_len], key_salt, &hmac_value)?;
+
+    Ok((encrypted_hmac_key, encrypted_hmac_value))
+}
+
+// ---------------------------------------------------------------------------
+// Full file encryption pipeline
+// ---------------------------------------------------------------------------
+
+/// Base64 encode helper (inline implementation — no external dep).
+pub fn encode_base64(data: &[u8]) -> String {
+    const CHARS: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
+
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+
+        result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+        result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+
+        if chunk.len() > 1 {
+            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(triple & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+
+    result
+}
+
+/// Encrypts a ZIP archive with Agile Encryption (AES-256-CBC, SHA-512).
+///
+/// Produces a complete OLE2 compound document containing:
+/// - `EncryptionInfo` stream (version 4.4 + Agile XML descriptor)
+/// - `EncryptedPackage` stream (segment-encrypted ZIP data)
+///
+/// The output is compatible with our `decrypt_file` read path and with
+/// Microsoft Excel's decryption.
+pub fn encrypt_file(zip_bytes: &[u8], password: &str) -> Result<Vec<u8>> {
+    // Agile Encryption parameters (AES-256-CBC, SHA-512)
+    let key_bits: u32 = 256;
+    let block_size: u32 = 16;
+    let hash_size: u32 = 64;
+    let hash_alg = "SHA512";
+    let spin_count: u32 = 100_000;
+
+    // 1. Generate random salts and data encryption key
+    let key_salt = secure_random(16)?;
+    let pw_salt = secure_random(16)?;
+    let mut data_key = secure_random((key_bits / 8) as usize)?;
+
+    // 2. Encrypt the package (segment-based)
+    let encrypted_package =
+        encrypt_package(&data_key, &key_salt, zip_bytes, block_size as usize, hash_alg)?;
+
+    // 3. Compute and encrypt HMAC
+    let (encrypted_hmac_key, encrypted_hmac_value) =
+        compute_and_encrypt_hmac(&data_key, &key_salt, &encrypted_package, key_bits, hash_alg)?;
+
+    // 4. Generate password verifier
+    let verifier_input = secure_random(16)?;
+    let verifier_hash = hash_bytes(hash_alg, &verifier_input)?;
+
+    // 5. Derive password-based keys and encrypt verifier + data key
+    let input_key = derive_key(
+        password, &pw_salt, spin_count, key_bits, &BLOCK_KEY_VERIFIER_INPUT, hash_alg,
+    )?;
+    let encrypted_verifier_input = aes_cbc_encrypt(&input_key, &pw_salt, &verifier_input)?;
+
+    let value_key = derive_key(
+        password, &pw_salt, spin_count, key_bits, &BLOCK_KEY_VERIFIER_VALUE, hash_alg,
+    )?;
+    let encrypted_verifier_value = aes_cbc_encrypt(&value_key, &pw_salt, &verifier_hash)?;
+
+    let enc_key_key = derive_key(
+        password, &pw_salt, spin_count, key_bits, &BLOCK_KEY_ENCRYPTED_KEY, hash_alg,
+    )?;
+    let encrypted_key_value = aes_cbc_encrypt(&enc_key_key, &pw_salt, &data_key)?;
+
+    // 6. Zeroize the plaintext data key
+    data_key.zeroize();
+
+    // 7. Build EncryptionInfo XML
+    let enc_info_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<encryption xmlns="http://schemas.microsoft.com/office/2006/encryption" xmlns:p="http://schemas.microsoft.com/office/2006/keyEncryptor/password">
+  <keyData saltSize="16" blockSize="{block_size}" keyBits="{key_bits}" hashSize="{hash_size}" cipherAlgorithm="AES" cipherChaining="ChainingModeCBC" hashAlgorithm="{hash_alg}" saltValue="{key_salt_b64}"/>
+  <dataIntegrity encryptedHmacKey="{hmac_key_b64}" encryptedHmacValue="{hmac_value_b64}"/>
+  <keyEncryptors>
+    <keyEncryptor uri="http://schemas.microsoft.com/office/2006/keyEncryptor/password">
+      <p:encryptedKey spinCount="{spin_count}" saltSize="16" blockSize="{block_size}" keyBits="{key_bits}" hashSize="{hash_size}" cipherAlgorithm="AES" cipherChaining="ChainingModeCBC" hashAlgorithm="{hash_alg}" saltValue="{pw_salt_b64}" encryptedKeyValue="{enc_key_b64}" encryptedVerifierHashInput="{enc_verifier_input_b64}" encryptedVerifierHashValue="{enc_verifier_value_b64}"/>
+    </keyEncryptor>
+  </keyEncryptors>
+</encryption>"#,
+        key_salt_b64 = encode_base64(&key_salt),
+        hmac_key_b64 = encode_base64(&encrypted_hmac_key),
+        hmac_value_b64 = encode_base64(&encrypted_hmac_value),
+        pw_salt_b64 = encode_base64(&pw_salt),
+        enc_key_b64 = encode_base64(&encrypted_key_value),
+        enc_verifier_input_b64 = encode_base64(&encrypted_verifier_input),
+        enc_verifier_value_b64 = encode_base64(&encrypted_verifier_value),
+    );
+
+    // 8. Build EncryptionInfo stream: version 4.4 header + XML
+    let xml_bytes = enc_info_xml.as_bytes();
+    let mut enc_info_stream = Vec::with_capacity(8 + xml_bytes.len());
+    enc_info_stream.extend_from_slice(&4u16.to_le_bytes()); // major = 4
+    enc_info_stream.extend_from_slice(&4u16.to_le_bytes()); // minor = 4
+    enc_info_stream.extend_from_slice(&0x40u32.to_le_bytes()); // flags (Agile)
+    enc_info_stream.extend_from_slice(xml_bytes);
+
+    // 9. Wrap in OLE2 compound document
+    super::writer::write_ole2(&[
+        ("EncryptionInfo", &enc_info_stream),
+        ("EncryptedPackage", &encrypted_package),
+    ])
 }
 
 // ---------------------------------------------------------------------------
@@ -1069,5 +1351,104 @@ mod tests {
         let result2 = decrypt_standard_package(&key, &info, &empty_package);
         assert!(result2.is_err());
         assert!(result2.unwrap_err().to_string().contains("no encrypted data"));
+    }
+
+    // --- Encryption write tests ---
+
+    #[test]
+    fn test_encrypt_decrypt_roundtrip() {
+        // Create a minimal ZIP-like payload, encrypt it, then decrypt and verify match.
+        let original_data = b"PK\x03\x04 This is test ZIP content for encryption roundtrip.";
+
+        let encrypted_ole2 = encrypt_file(original_data, "test_password").unwrap();
+
+        // The output should be a valid OLE2 file.
+        assert!(
+            encrypted_ole2.len() > 512,
+            "OLE2 output should be larger than a header"
+        );
+
+        // Decrypt it using our read path.
+        let enc_info_stream =
+            crate::ole2::detect::read_stream(&encrypted_ole2, "EncryptionInfo").unwrap();
+        let encrypted_package =
+            crate::ole2::detect::read_stream(&encrypted_ole2, "EncryptedPackage").unwrap();
+
+        let info = crate::ole2::encryption_info::EncryptionInfo::parse(&enc_info_stream).unwrap();
+        let agile = match info {
+            crate::ole2::encryption_info::EncryptionInfo::Agile(a) => a,
+            _ => panic!("Expected Agile encryption info"),
+        };
+
+        // Verify password and get data key.
+        let data_key = verify_password_agile("test_password", &agile).unwrap();
+
+        // Verify HMAC integrity.
+        verify_hmac(&data_key, &agile, &encrypted_package).unwrap();
+
+        // Decrypt the package.
+        let decrypted = decrypt_package(&data_key, &agile, &encrypted_package).unwrap();
+
+        assert_eq!(decrypted, original_data);
+    }
+
+    #[test]
+    fn test_encrypt_package_segment_sizes() {
+        // Verify the encrypted package has correct structure:
+        // 8-byte LE64 header + AES-block-aligned encrypted segments.
+        let data_key = [0x55u8; 32];
+        let salt = [0xAA; 16];
+        let payload = vec![0xBB; 10000]; // 2 full segments + 1 partial
+
+        let encrypted =
+            encrypt_package(&data_key, &salt, &payload, 16, "SHA512").unwrap();
+
+        // First 8 bytes = original size.
+        let original_size = u64::from_le_bytes(encrypted[..8].try_into().unwrap());
+        assert_eq!(original_size, 10000);
+
+        // Total encrypted payload (after 8-byte header):
+        // Segment 0: 4096 bytes -> already block-aligned -> 4096 encrypted
+        // Segment 1: 4096 bytes -> already block-aligned -> 4096 encrypted
+        // Segment 2: 1808 bytes -> padded to 1808 + (16 - 1808%16)%16 = 1808 + 0 = 1808
+        //   1808 % 16 = 0, so no extra padding needed
+        let encrypted_payload_len = encrypted.len() - 8;
+        // Each segment is padded to 16-byte boundary before encryption
+        let seg0 = 4096; // already aligned
+        let seg1 = 4096; // already aligned
+        let seg2_raw = 10000 - 4096 * 2; // 1808
+        let seg2 = seg2_raw + (16 - seg2_raw % 16) % 16; // pad to 16
+        assert_eq!(encrypted_payload_len, seg0 + seg1 + seg2);
+    }
+
+    #[test]
+    fn test_secure_random_uniqueness() {
+        let a = secure_random(32).unwrap();
+        let b = secure_random(32).unwrap();
+        assert_eq!(a.len(), 32);
+        assert_eq!(b.len(), 32);
+        // Two random outputs should be different (probability of collision is negligible).
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_encode_base64_known_values() {
+        // Known base64 values.
+        assert_eq!(encode_base64(b""), "");
+        assert_eq!(encode_base64(b"f"), "Zg==");
+        assert_eq!(encode_base64(b"fo"), "Zm8=");
+        assert_eq!(encode_base64(b"foo"), "Zm9v");
+        assert_eq!(encode_base64(b"foobar"), "Zm9vYmFy");
+        assert_eq!(encode_base64(b"Hello, World!"), "SGVsbG8sIFdvcmxkIQ==");
+
+        // Binary data round trip: encode then verify format.
+        let binary = vec![0u8, 1, 2, 255, 254, 128];
+        let encoded = encode_base64(&binary);
+        assert!(
+            encoded
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='),
+            "Base64 output should contain only valid characters"
+        );
     }
 }
