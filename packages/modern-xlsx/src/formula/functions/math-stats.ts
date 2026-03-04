@@ -110,13 +110,13 @@ function compareStrings(op: string, a: string, b: string): boolean {
     case '<>':
       return a !== b;
     case '>':
-      return a > b;
+      return a.localeCompare(b) > 0;
     case '<':
-      return a < b;
+      return a.localeCompare(b) < 0;
     case '>=':
-      return a >= b;
+      return a.localeCompare(b) >= 0;
     case '<=':
-      return a <= b;
+      return a.localeCompare(b) <= 0;
     default:
       return false;
   }
@@ -420,8 +420,9 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
     if (typeof nVal === 'string') return nVal;
     const dVal = toNumber(evaluate(args[1]!, ctx));
     if (typeof dVal === 'string') return dVal;
-    const factor = 10 ** Math.floor(dVal);
-    return Math.round(nVal * factor) / factor;
+    const d = Math.trunc(dVal);
+    const factor = 10 ** d;
+    return Math.round((nVal + Number.EPSILON * Math.sign(nVal)) * factor) / factor;
   });
 
   // ---- ROUNDUP -----------------------------------------------------------
@@ -431,9 +432,10 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
     if (typeof nVal === 'string') return nVal;
     const dVal = toNumber(evaluate(args[1]!, ctx));
     if (typeof dVal === 'string') return dVal;
-    const factor = 10 ** Math.floor(dVal);
-    const sign = nVal >= 0 ? 1 : -1;
-    return (sign * Math.ceil(Math.abs(nVal) * factor)) / factor;
+    const d = Math.trunc(dVal);
+    const factor = 10 ** d;
+    const shifted = nVal * factor;
+    return (nVal >= 0 ? Math.ceil(shifted) : Math.floor(shifted)) / factor;
   });
 
   // ---- ROUNDDOWN ---------------------------------------------------------
@@ -443,9 +445,10 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
     if (typeof nVal === 'string') return nVal;
     const dVal = toNumber(evaluate(args[1]!, ctx));
     if (typeof dVal === 'string') return dVal;
-    const factor = 10 ** Math.floor(dVal);
-    const sign = nVal >= 0 ? 1 : -1;
-    return (sign * Math.floor(Math.abs(nVal) * factor)) / factor;
+    const d = Math.trunc(dVal);
+    const factor = 10 ** d;
+    const shifted = nVal * factor;
+    return Math.trunc(shifted) / factor;
   });
 
   // ---- ABS ---------------------------------------------------------------

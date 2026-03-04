@@ -78,7 +78,7 @@ export function resolveRef(ref: CellRefNode, ctx: EvalContext): CellValue {
  * regardless of the order the user specified.
  */
 export function resolveRange(range: RangeNode, ctx: EvalContext): CellValue[][] {
-  const sheet = range.start.sheet ?? ctx.currentSheet;
+  const sheet = range.start.sheet ?? range.end.sheet ?? ctx.currentSheet;
   const startCol = letterToColumnIndex(range.start.col);
   const endCol = letterToColumnIndex(range.end.col);
   const startRow = range.start.row;

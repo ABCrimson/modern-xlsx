@@ -150,7 +150,7 @@ function collectRows<T extends Record<string, unknown>>(
   );
   const result: T[] = [];
   for (const row of rows) {
-    if (row.index <= dataStartRow || row.index > bounds.endRow + 1) continue;
+    if (row.index <= dataStartRow || row.index > bounds.endRow) continue;
     result.push(buildRowObject(row, headers, colLetters, bounds, defval) as T);
   }
   return result;

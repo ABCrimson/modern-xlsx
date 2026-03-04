@@ -158,12 +158,18 @@ export function tokenize(formula: string): TokenizeResult {
       }
       // Consume exponent part
       if (pos < formula.length && (at(formula, pos) === 'e' || at(formula, pos) === 'E')) {
+        const expStart = pos;
         pos++;
         if (pos < formula.length && (at(formula, pos) === '+' || at(formula, pos) === '-')) {
           pos++;
         }
+        const digitStart = pos;
         while (pos < formula.length && isDigit(at(formula, pos))) {
           pos++;
+        }
+        if (pos === digitStart) {
+          // No digits after exponent — backtrack
+          pos = expStart;
         }
       }
       tokens.push({ type: 'number', value: formula.slice(start, pos), start, end: pos });
