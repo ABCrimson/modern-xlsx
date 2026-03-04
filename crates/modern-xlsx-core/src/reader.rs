@@ -12,9 +12,10 @@ use rayon::prelude::*;
 
 use crate::ooxml::{
     calc_chain,
+    charts,
     comments,
     doc_props,
-    relationships::{Relationships, REL_COMMENTS, REL_TABLE},
+    relationships::{Relationships, REL_COMMENTS, REL_DRAWING, REL_TABLE},
     shared_strings::SharedStringTable,
     styles::Styles,
     tables::TableDefinition,
@@ -262,6 +263,73 @@ fn resolve_tables(
     Ok(sheet_tables)
 }
 
+/// Resolve chart definitions for each sheet.
+///
+/// Charts require a two-step lookup: sheet .rels → drawing rel → drawing.xml
+/// (which contains chart anchors) → drawing .rels → chart XML.
+fn resolve_charts(
+    ctx: &mut ReaderContext,
+) -> Result<Vec<Vec<charts::WorksheetChart>>> {
+    let mut sheet_charts = vec![Vec::new(); ctx.sheet_targets.len()];
+
+    for (i, (_name, sheet_path, _state)) in ctx.sheet_targets.iter().enumerate() {
+        let rels_path = derive_rels_path(sheet_path);
+
+        if let Some(rels_data) = ctx.entries.get(&rels_path) {
+            let ws_rels = Relationships::parse(rels_data)?;
+
+            // Find drawing relationships.
+            for rel in ws_rels.find_by_type(REL_DRAWING) {
+                let drawing_path = resolve_rel_target(sheet_path, &rel.target);
+
+                if let Some(drawing_data) = ctx.entries.get(&drawing_path) {
+                    debug!("parsing drawing from: {}", drawing_path);
+                    let anchors = charts::parse_drawing_anchors(drawing_data)?;
+
+                    // Resolve each chart rId via drawing .rels.
+                    let drawing_rels_path = derive_rels_path(&drawing_path);
+                    let drawing_rels =
+                        if let Some(dr) = ctx.entries.get(&drawing_rels_path) {
+                            Relationships::parse(dr)?
+                        } else {
+                            continue;
+                        };
+
+                    for (anchor, chart_r_id) in &anchors {
+                        if let Some(chart_rel) = drawing_rels
+                            .relationships
+                            .iter()
+                            .find(|r| r.id == *chart_r_id)
+                        {
+                            let chart_path =
+                                resolve_rel_target(&drawing_path, &chart_rel.target);
+
+                            if let Some(chart_data) = ctx.entries.get(&chart_path) {
+                                debug!("parsing chart from: {}", chart_path);
+                                let chart = charts::ChartData::parse(chart_data)?;
+                                sheet_charts[i].push(charts::WorksheetChart {
+                                    chart,
+                                    anchor: anchor.clone(),
+                                });
+                                ctx.known_dynamic.insert(chart_path);
+                            } else {
+                                warn!("chart file not found: {}", chart_path);
+                            }
+                        }
+                    }
+
+                    ctx.known_dynamic.insert(drawing_path);
+                    ctx.known_dynamic.insert(drawing_rels_path);
+                } else {
+                    warn!("drawing file not found: {}", drawing_path);
+                }
+            }
+        }
+    }
+
+    Ok(sheet_charts)
+}
+
 /// Collect all ZIP entries that were not parsed into preserved_entries.
 ///
 /// Takes ownership of entries via `drain()` to avoid cloning large byte
@@ -315,6 +383,7 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
     let mut ctx = parse_common(data, limits, None)?;
     let sheet_comments = resolve_comments(&mut ctx)?;
     let sheet_tables = resolve_tables(&mut ctx)?;
+    let sheet_charts = resolve_charts(&mut ctx)?;
 
     // Parse each worksheet XML.
     // When the "parallel" feature is enabled, sheets are parsed concurrently.
@@ -331,6 +400,13 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
     for (i, tables) in sheet_tables.into_iter().enumerate() {
         if !tables.is_empty() && i < sheets.len() {
             sheets[i].worksheet.tables = tables;
+        }
+    }
+
+    // Attach charts to their respective worksheets.
+    for (i, charts_vec) in sheet_charts.into_iter().enumerate() {
+        if !charts_vec.is_empty() && i < sheets.len() {
+            sheets[i].worksheet.charts = charts_vec;
         }
     }
 
@@ -388,6 +464,7 @@ pub fn read_xlsx_json_with_password(data: &[u8], password: &str) -> Result<Strin
 fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<String> {
     let sheet_comments = resolve_comments(&mut ctx)?;
     let sheet_tables = resolve_tables(&mut ctx)?;
+    let sheet_charts = resolve_charts(&mut ctx)?;
 
     // --- Build JSON output ---
     // Estimate ~80 bytes per cell × 10 cells/row × number of rows.
@@ -418,6 +495,18 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
             ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
         })?;
         WorksheetXml::parse_to_json(ws_data, Some(&ctx.sst), &sheet_comments[i], &sheet_tables[i], &mut out)?;
+
+        // Inject charts into the worksheet JSON (before the closing '}'}).
+        if !sheet_charts[i].is_empty() {
+            // Pop the closing '}' written by parse_to_json.
+            debug_assert_eq!(out.as_bytes().last(), Some(&b'}'));
+            out.pop();
+            out.push_str(",\"charts\":");
+            out.push_str(
+                &serde_json::to_string(&sheet_charts[i]).map_err(serde_err)?,
+            );
+            out.push('}');
+        }
 
         out.push('}');
     }

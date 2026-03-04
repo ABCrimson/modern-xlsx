@@ -1,9 +1,10 @@
 //! Chart definitions — `xl/charts/chart{n}.xml`.
 
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
-use quick_xml::Writer;
+use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
 
+use super::push_entity;
 use crate::{ModernXlsxError, Result};
 
 /// The type of chart.
@@ -1474,6 +1475,1336 @@ impl ChartData {
     }
 }
 
+// ---------------------------------------------------------------------------
+// XML Parser — chart XML → ChartData
+// ---------------------------------------------------------------------------
+
+/// Helper to extract `val` attribute from a `BytesStart`.
+fn attr_val(e: &BytesStart<'_>, key: &[u8]) -> Option<String> {
+    for attr in e.attributes().flatten() {
+        if attr.key.as_ref() == key {
+            return Some(
+                std::str::from_utf8(&attr.value)
+                    .unwrap_or_default()
+                    .to_owned(),
+            );
+        }
+    }
+    None
+}
+
+/// Parse the `val` attribute as `&str`.
+fn attr_val_str(e: &BytesStart<'_>) -> String {
+    attr_val(e, b"val").unwrap_or_default()
+}
+
+impl ChartGrouping {
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "clustered" => Some(Self::Clustered),
+            "stacked" => Some(Self::Stacked),
+            "percentStacked" => Some(Self::PercentStacked),
+            "standard" => Some(Self::Standard),
+            _ => None,
+        }
+    }
+}
+
+impl ScatterStyle {
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "lineMarker" => Some(Self::LineMarker),
+            "line" => Some(Self::Line),
+            "marker" => Some(Self::Marker),
+            "smooth" => Some(Self::Smooth),
+            "smoothMarker" => Some(Self::SmoothMarker),
+            _ => None,
+        }
+    }
+}
+
+impl RadarStyle {
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "standard" => Some(Self::Standard),
+            "marker" => Some(Self::Marker),
+            "filled" => Some(Self::Filled),
+            _ => None,
+        }
+    }
+}
+
+impl MarkerStyle {
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "circle" => Some(Self::Circle),
+            "square" => Some(Self::Square),
+            "diamond" => Some(Self::Diamond),
+            "triangle" => Some(Self::Triangle),
+            "star" => Some(Self::Star),
+            "x" => Some(Self::X),
+            "plus" => Some(Self::Plus),
+            "dash" => Some(Self::Dash),
+            "dot" => Some(Self::Dot),
+            "none" => Some(Self::None),
+            _ => Option::None,
+        }
+    }
+}
+
+impl LegendPosition {
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "t" => Some(Self::Top),
+            "b" => Some(Self::Bottom),
+            "l" => Some(Self::Left),
+            "r" => Some(Self::Right),
+            "tr" => Some(Self::TopRight),
+            _ => None,
+        }
+    }
+}
+
+impl AxisPosition {
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "b" => Some(Self::Bottom),
+            "t" => Some(Self::Top),
+            "l" => Some(Self::Left),
+            "r" => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
+impl TickLabelPosition {
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "high" => Some(Self::High),
+            "low" => Some(Self::Low),
+            "nextTo" => Some(Self::NextTo),
+            "none" => Some(Self::None),
+            _ => Option::None,
+        }
+    }
+}
+
+impl TickMark {
+    fn from_xml(s: &str) -> Option<Self> {
+        match s {
+            "cross" => Some(Self::Cross),
+            "in" => Some(Self::In),
+            "out" => Some(Self::Out),
+            "none" => Some(Self::None),
+            _ => Option::None,
+        }
+    }
+}
+
+/// Parser state machine context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum ParseCtx {
+    /// Top-level or unknown context.
+    Root,
+    /// Inside `<c:chart>`.
+    Chart,
+    /// Inside a chart-type element (`<c:barChart>`, etc.).
+    ChartTypeElem,
+    /// Inside `<c:ser>`.
+    Series,
+    /// Inside `<c:tx>` within a series.
+    SerTx,
+    /// Inside `<c:cat>` or `<c:val>` or `<c:xVal>` or `<c:yVal>` or `<c:bubbleSize>`.
+    SerRef(SerRefKind),
+    /// Inside `<c:spPr>` within a series.
+    SerSpPr,
+    /// Inside `<a:ln>` within `<c:spPr>`.
+    SerSpPrLn,
+    /// Inside `<a:solidFill>` within `<c:spPr>` (fill).
+    SerSpPrFill,
+    /// Inside `<a:solidFill>` within `<a:ln>` (line color).
+    SerSpPrLnFill,
+    /// Inside `<c:marker>` within a series.
+    SerMarker,
+    /// Inside `<c:dLbls>` (chart-level or series-level).
+    DataLabels,
+    /// Inside `<c:catAx>`.
+    CatAxis,
+    /// Inside `<c:valAx>`.
+    ValAxis,
+    /// Inside `<c:scaling>` within an axis.
+    AxisScaling(AxisKind),
+    /// Inside `<c:legend>`.
+    Legend,
+    /// Inside `<c:title>` — we track title context.
+    Title(TitleOwner),
+    /// Inside `<c:plotArea>`.
+    PlotArea,
+    /// Inside `<c:layout>` → `<c:manualLayout>`.
+    ManualLayoutCtx,
+    /// Inside `<c:dLbls>` within a series.
+    SerDataLabels,
+    /// Inside the title text run (`<a:r>` → `<a:t>`).
+    TitleRun(TitleOwner),
+    /// Inside `<a:rPr>` within a title run (to find solidFill for color).
+    TitleRunPr(TitleOwner),
+    /// Inside `<a:solidFill>` within `<a:rPr>` (title color).
+    TitleRunPrFill(TitleOwner),
+    /// Inside `<a:pPr>` within a title paragraph.
+    TitlePPr(TitleOwner),
+    /// Inside `<a:defRPr>` within `<a:pPr>`.
+    TitleDefRPr(TitleOwner),
+    /// Inside `<a:solidFill>` within `<a:defRPr>` (title color via pPr).
+    TitleDefRPrFill(TitleOwner),
+    /// Inside axis title.
+    AxisTitle(AxisKind),
+    /// Inside axis title text run.
+    AxisTitleRun(AxisKind),
+    /// Inside `<c:numFmt>` within an axis.
+    AxisNumFmt(AxisKind),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TitleOwner {
+    Chart,
+    CatAxis,
+    ValAxis,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AxisKind {
+    Cat,
+    Val,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SerRefKind {
+    Cat,
+    Val,
+    XVal,
+    YVal,
+    BubbleSize,
+}
+
+impl ChartData {
+    /// Parse a chart XML (`xl/charts/chart{n}.xml`) into a `ChartData`.
+    pub fn parse(data: &[u8]) -> Result<Self> {
+        let mut reader = Reader::from_reader(data);
+        reader.config_mut().trim_text(true);
+        let mut buf = Vec::with_capacity(512);
+
+        // Result fields.
+        let mut chart_type: Option<ChartType> = None;
+        let mut title: Option<ChartTitle> = None;
+        let mut series: Vec<ChartSeries> = Vec::new();
+        let mut cat_axis: Option<ChartAxis> = None;
+        let mut val_axis: Option<ChartAxis> = None;
+        let mut legend: Option<ChartLegend> = None;
+        let mut data_labels: Option<DataLabels> = None;
+        let mut grouping: Option<ChartGrouping> = None;
+        let mut scatter_style: Option<ScatterStyle> = None;
+        let mut radar_style: Option<RadarStyle> = None;
+        let mut hole_size: Option<u32> = None;
+        let mut bar_dir_horizontal: Option<bool> = None;
+        let mut style_id: Option<u32> = None;
+        let mut plot_area_layout: Option<ManualLayout> = None;
+
+        // Current series being built.
+        let mut cur_ser: Option<ChartSeries> = None;
+        // Current axis being built.
+        let mut cur_cat_axis = AxisBuilder::new();
+        let mut cur_val_axis = AxisBuilder::new();
+        // Current data labels.
+        let mut cur_dlbls = DataLabelsBuilder::new();
+        let mut cur_ser_dlbls = DataLabelsBuilder::new();
+        // Current legend.
+        let mut cur_legend = LegendBuilder::new();
+        // Current title.
+        let mut cur_title = TitleBuilder::new();
+        let mut cur_cat_axis_title = TitleBuilder::new();
+        let mut cur_val_axis_title = TitleBuilder::new();
+        // Manual layout.
+        let mut layout_x: Option<f64> = None;
+        let mut layout_y: Option<f64> = None;
+        let mut layout_w: Option<f64> = None;
+        let mut layout_h: Option<f64> = None;
+
+        // Text capture buffer.
+        let mut text_buf = String::new();
+        let mut capturing_text = false;
+        let mut text_target = TextTarget::None;
+
+        // Context stack (simple — we push on Start, pop on End).
+        let mut ctx_stack: Vec<ParseCtx> = vec![ParseCtx::Root];
+
+        fn current_ctx(stack: &[ParseCtx]) -> ParseCtx {
+            stack.last().copied().unwrap_or(ParseCtx::Root)
+        }
+
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) => {
+                    let local = e.local_name();
+                    let local = local.as_ref();
+                    let ctx = current_ctx(&ctx_stack);
+
+                    match (ctx, local) {
+                        (ParseCtx::Root, b"chart") => {
+                            ctx_stack.push(ParseCtx::Chart);
+                        }
+                        (ParseCtx::Chart, b"plotArea") => {
+                            ctx_stack.push(ParseCtx::PlotArea);
+                        }
+                        (ParseCtx::Chart, b"title") => {
+                            cur_title = TitleBuilder::new();
+                            ctx_stack.push(ParseCtx::Title(TitleOwner::Chart));
+                        }
+                        (ParseCtx::Chart, b"legend") => {
+                            cur_legend = LegendBuilder::new();
+                            ctx_stack.push(ParseCtx::Legend);
+                        }
+                        // Chart type elements inside plotArea.
+                        (ParseCtx::PlotArea, b"barChart") => {
+                            // Default to Column; barDir will refine.
+                            chart_type = Some(ChartType::Column);
+                            ctx_stack.push(ParseCtx::ChartTypeElem);
+                        }
+                        (ParseCtx::PlotArea, b"lineChart") => {
+                            chart_type = Some(ChartType::Line);
+                            ctx_stack.push(ParseCtx::ChartTypeElem);
+                        }
+                        (ParseCtx::PlotArea, b"pieChart") => {
+                            chart_type = Some(ChartType::Pie);
+                            ctx_stack.push(ParseCtx::ChartTypeElem);
+                        }
+                        (ParseCtx::PlotArea, b"doughnutChart") => {
+                            chart_type = Some(ChartType::Doughnut);
+                            ctx_stack.push(ParseCtx::ChartTypeElem);
+                        }
+                        (ParseCtx::PlotArea, b"scatterChart") => {
+                            chart_type = Some(ChartType::Scatter);
+                            ctx_stack.push(ParseCtx::ChartTypeElem);
+                        }
+                        (ParseCtx::PlotArea, b"areaChart") => {
+                            chart_type = Some(ChartType::Area);
+                            ctx_stack.push(ParseCtx::ChartTypeElem);
+                        }
+                        (ParseCtx::PlotArea, b"radarChart") => {
+                            chart_type = Some(ChartType::Radar);
+                            ctx_stack.push(ParseCtx::ChartTypeElem);
+                        }
+                        (ParseCtx::PlotArea, b"bubbleChart") => {
+                            chart_type = Some(ChartType::Bubble);
+                            ctx_stack.push(ParseCtx::ChartTypeElem);
+                        }
+                        (ParseCtx::PlotArea, b"stockChart") => {
+                            chart_type = Some(ChartType::Stock);
+                            ctx_stack.push(ParseCtx::ChartTypeElem);
+                        }
+                        (ParseCtx::PlotArea, b"layout") => {
+                            ctx_stack.push(ParseCtx::ManualLayoutCtx);
+                        }
+                        (ParseCtx::ManualLayoutCtx, b"manualLayout") => {
+                            // stay in ManualLayoutCtx
+                            ctx_stack.push(ParseCtx::ManualLayoutCtx);
+                        }
+                        // Axes inside plotArea.
+                        (ParseCtx::PlotArea, b"catAx") => {
+                            cur_cat_axis = AxisBuilder::new();
+                            ctx_stack.push(ParseCtx::CatAxis);
+                        }
+                        (ParseCtx::PlotArea, b"valAx") => {
+                            cur_val_axis = AxisBuilder::new();
+                            ctx_stack.push(ParseCtx::ValAxis);
+                        }
+                        // Series inside chart type element.
+                        (ParseCtx::ChartTypeElem, b"ser") => {
+                            cur_ser = Some(ChartSeries {
+                                idx: 0,
+                                order: 0,
+                                name: None,
+                                cat_ref: None,
+                                val_ref: String::new(),
+                                x_val_ref: None,
+                                bubble_size_ref: None,
+                                fill_color: None,
+                                line_color: None,
+                                line_width: None,
+                                marker: None,
+                                smooth: None,
+                                explosion: None,
+                                data_labels: None,
+                            });
+                            ctx_stack.push(ParseCtx::Series);
+                        }
+                        (ParseCtx::ChartTypeElem, b"dLbls") => {
+                            cur_dlbls = DataLabelsBuilder::new();
+                            ctx_stack.push(ParseCtx::DataLabels);
+                        }
+                        // Series children.
+                        (ParseCtx::Series, b"tx") => {
+                            ctx_stack.push(ParseCtx::SerTx);
+                        }
+                        (ParseCtx::Series, b"cat") => {
+                            ctx_stack.push(ParseCtx::SerRef(SerRefKind::Cat));
+                        }
+                        (ParseCtx::Series, b"val") => {
+                            ctx_stack.push(ParseCtx::SerRef(SerRefKind::Val));
+                        }
+                        (ParseCtx::Series, b"xVal") => {
+                            ctx_stack.push(ParseCtx::SerRef(SerRefKind::XVal));
+                        }
+                        (ParseCtx::Series, b"yVal") => {
+                            ctx_stack.push(ParseCtx::SerRef(SerRefKind::YVal));
+                        }
+                        (ParseCtx::Series, b"bubbleSize") => {
+                            ctx_stack.push(ParseCtx::SerRef(SerRefKind::BubbleSize));
+                        }
+                        (ParseCtx::Series, b"spPr") => {
+                            ctx_stack.push(ParseCtx::SerSpPr);
+                        }
+                        (ParseCtx::Series, b"marker") => {
+                            ctx_stack.push(ParseCtx::SerMarker);
+                        }
+                        (ParseCtx::Series, b"dLbls") => {
+                            cur_ser_dlbls = DataLabelsBuilder::new();
+                            ctx_stack.push(ParseCtx::SerDataLabels);
+                        }
+                        // spPr children.
+                        (ParseCtx::SerSpPr, b"solidFill") => {
+                            ctx_stack.push(ParseCtx::SerSpPrFill);
+                        }
+                        (ParseCtx::SerSpPr, b"ln") => {
+                            // Parse line width from `w` attribute.
+                            if let Some(ref mut ser) = cur_ser
+                                && let Some(w) = attr_val(e, b"w")
+                            {
+                                ser.line_width = w.parse().ok();
+                            }
+                            ctx_stack.push(ParseCtx::SerSpPrLn);
+                        }
+                        (ParseCtx::SerSpPrLn, b"solidFill") => {
+                            ctx_stack.push(ParseCtx::SerSpPrLnFill);
+                        }
+                        // Series text formula capture.
+                        (ParseCtx::SerTx, b"f") | (ParseCtx::SerTx, b"strRef") => {
+                            if local == b"f" {
+                                capturing_text = true;
+                                text_target = TextTarget::SerName;
+                                text_buf.clear();
+                            }
+                            ctx_stack.push(ctx); // stay in SerTx
+                        }
+                        // Ref formula capture.
+                        (ParseCtx::SerRef(kind), b"f") => {
+                            capturing_text = true;
+                            text_target = match kind {
+                                SerRefKind::Cat => TextTarget::CatRef,
+                                SerRefKind::Val | SerRefKind::YVal => TextTarget::ValRef,
+                                SerRefKind::XVal => TextTarget::XValRef,
+                                SerRefKind::BubbleSize => TextTarget::BubbleRef,
+                            };
+                            text_buf.clear();
+                            ctx_stack.push(ctx); // stay in same ref context
+                        }
+                        // Ref sub-elements (strRef, numRef) — pass through.
+                        (ParseCtx::SerRef(_), _) => {
+                            ctx_stack.push(ctx);
+                        }
+                        // Axis children.
+                        (ParseCtx::CatAxis, b"scaling") => {
+                            ctx_stack.push(ParseCtx::AxisScaling(AxisKind::Cat));
+                        }
+                        (ParseCtx::ValAxis, b"scaling") => {
+                            ctx_stack.push(ParseCtx::AxisScaling(AxisKind::Val));
+                        }
+                        (ParseCtx::CatAxis, b"title") => {
+                            cur_cat_axis_title = TitleBuilder::new();
+                            ctx_stack.push(ParseCtx::Title(TitleOwner::CatAxis));
+                        }
+                        (ParseCtx::ValAxis, b"title") => {
+                            cur_val_axis_title = TitleBuilder::new();
+                            ctx_stack.push(ParseCtx::Title(TitleOwner::ValAxis));
+                        }
+                        // Title text structure.
+                        (ParseCtx::Title(owner), b"r") => {
+                            ctx_stack.push(ParseCtx::TitleRun(owner));
+                        }
+                        (ParseCtx::Title(owner), b"pPr") => {
+                            ctx_stack.push(ParseCtx::TitlePPr(owner));
+                        }
+                        (ParseCtx::TitlePPr(owner), b"defRPr") => {
+                            // Parse font_size and bold from defRPr attributes.
+                            let title_b = match owner {
+                                TitleOwner::Chart => &mut cur_title,
+                                TitleOwner::CatAxis => &mut cur_cat_axis_title,
+                                TitleOwner::ValAxis => &mut cur_val_axis_title,
+                            };
+                            if let Some(sz) = attr_val(e, b"sz") {
+                                title_b.font_size = sz.parse().ok();
+                            }
+                            if let Some(b) = attr_val(e, b"b") {
+                                title_b.bold = Some(b == "1" || b == "true");
+                            }
+                            ctx_stack.push(ParseCtx::TitleDefRPr(owner));
+                        }
+                        (ParseCtx::TitleDefRPr(owner), b"solidFill") => {
+                            ctx_stack.push(ParseCtx::TitleDefRPrFill(owner));
+                        }
+                        (ParseCtx::TitleRun(owner), b"rPr") => {
+                            // Parse font_size and bold from rPr attributes.
+                            let title_b = match owner {
+                                TitleOwner::Chart => &mut cur_title,
+                                TitleOwner::CatAxis => &mut cur_cat_axis_title,
+                                TitleOwner::ValAxis => &mut cur_val_axis_title,
+                            };
+                            if let Some(sz) = attr_val(e, b"sz") {
+                                title_b.font_size = sz.parse().ok();
+                            }
+                            if let Some(b) = attr_val(e, b"b") {
+                                title_b.bold = Some(b == "1" || b == "true");
+                            }
+                            ctx_stack.push(ParseCtx::TitleRunPr(owner));
+                        }
+                        (ParseCtx::TitleRunPr(owner), b"solidFill") => {
+                            ctx_stack.push(ParseCtx::TitleRunPrFill(owner));
+                        }
+                        (ParseCtx::TitleRun(owner), b"t") => {
+                            capturing_text = true;
+                            text_target = match owner {
+                                TitleOwner::Chart => TextTarget::TitleText,
+                                TitleOwner::CatAxis => TextTarget::CatAxisTitleText,
+                                TitleOwner::ValAxis => TextTarget::ValAxisTitleText,
+                            };
+                            text_buf.clear();
+                            ctx_stack.push(ParseCtx::TitleRun(owner));
+                        }
+                        // Generic: push same context to track depth.
+                        _ => {
+                            ctx_stack.push(ctx);
+                        }
+                    }
+                }
+                Ok(Event::Empty(ref e)) => {
+                    let local = e.local_name();
+                    let local = local.as_ref();
+                    let ctx = current_ctx(&ctx_stack);
+
+                    match (ctx, local) {
+                        // Chart-type element attributes.
+                        (ParseCtx::ChartTypeElem, b"barDir") => {
+                            let val = attr_val_str(e);
+                            if val == "bar" {
+                                chart_type = Some(ChartType::Bar);
+                                bar_dir_horizontal = Some(true);
+                            } else {
+                                chart_type = Some(ChartType::Column);
+                                bar_dir_horizontal = Some(false);
+                            }
+                        }
+                        (ParseCtx::ChartTypeElem, b"grouping") => {
+                            grouping = ChartGrouping::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::ChartTypeElem, b"scatterStyle") => {
+                            scatter_style = ScatterStyle::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::ChartTypeElem, b"radarStyle") => {
+                            radar_style = RadarStyle::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::ChartTypeElem, b"holeSize") => {
+                            hole_size = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::ChartTypeElem, b"axId") => {
+                            // Axis IDs inside chart type elem — ignored (parsed from axis elements).
+                        }
+                        // Series attributes.
+                        (ParseCtx::Series, b"idx") => {
+                            if let Some(ref mut ser) = cur_ser {
+                                ser.idx = attr_val_str(e).parse().unwrap_or(0);
+                            }
+                        }
+                        (ParseCtx::Series, b"order") => {
+                            if let Some(ref mut ser) = cur_ser {
+                                ser.order = attr_val_str(e).parse().unwrap_or(0);
+                            }
+                        }
+                        (ParseCtx::Series, b"smooth") => {
+                            if let Some(ref mut ser) = cur_ser {
+                                let val = attr_val_str(e);
+                                ser.smooth = Some(val == "1" || val == "true");
+                            }
+                        }
+                        (ParseCtx::Series, b"explosion") => {
+                            if let Some(ref mut ser) = cur_ser {
+                                ser.explosion = attr_val_str(e).parse().ok();
+                            }
+                        }
+                        // Fill color in spPr.
+                        (ParseCtx::SerSpPrFill, b"srgbClr") => {
+                            if let Some(ref mut ser) = cur_ser {
+                                ser.fill_color = attr_val(e, b"val");
+                            }
+                        }
+                        // Line color in spPr > ln.
+                        (ParseCtx::SerSpPrLnFill, b"srgbClr") => {
+                            if let Some(ref mut ser) = cur_ser {
+                                ser.line_color = attr_val(e, b"val");
+                            }
+                        }
+                        // Line width from ln element.
+                        (ParseCtx::SerSpPrLn, b"ln") => {
+                            // This shouldn't happen (ln is usually Start), but handle anyway.
+                        }
+                        // Marker symbol.
+                        (ParseCtx::SerMarker, b"symbol") => {
+                            if let Some(ref mut ser) = cur_ser {
+                                ser.marker = MarkerStyle::from_xml(&attr_val_str(e));
+                            }
+                        }
+                        // Data labels (chart-level).
+                        (ParseCtx::DataLabels, b"showVal") => {
+                            cur_dlbls.show_val = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::DataLabels, b"showCatName") => {
+                            cur_dlbls.show_cat_name = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::DataLabels, b"showSerName") => {
+                            cur_dlbls.show_ser_name = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::DataLabels, b"showPercent") => {
+                            cur_dlbls.show_percent = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::DataLabels, b"showLeaderLines") => {
+                            cur_dlbls.show_leader_lines = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::DataLabels, b"numFmt") => {
+                            cur_dlbls.num_fmt = attr_val(e, b"formatCode");
+                        }
+                        // Data labels (series-level).
+                        (ParseCtx::SerDataLabels, b"showVal") => {
+                            cur_ser_dlbls.show_val = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::SerDataLabels, b"showCatName") => {
+                            cur_ser_dlbls.show_cat_name = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::SerDataLabels, b"showSerName") => {
+                            cur_ser_dlbls.show_ser_name = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::SerDataLabels, b"showPercent") => {
+                            cur_ser_dlbls.show_percent = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::SerDataLabels, b"showLeaderLines") => {
+                            cur_ser_dlbls.show_leader_lines = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::SerDataLabels, b"numFmt") => {
+                            cur_ser_dlbls.num_fmt = attr_val(e, b"formatCode");
+                        }
+                        // Axis attributes.
+                        (ParseCtx::CatAxis, b"axId") => {
+                            cur_cat_axis.id = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::CatAxis, b"delete") => {
+                            cur_cat_axis.delete = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::CatAxis, b"axPos") => {
+                            cur_cat_axis.position = AxisPosition::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::CatAxis, b"majorGridlines") => {
+                            cur_cat_axis.major_gridlines = true;
+                        }
+                        (ParseCtx::CatAxis, b"minorGridlines") => {
+                            cur_cat_axis.minor_gridlines = true;
+                        }
+                        (ParseCtx::CatAxis, b"numFmt") => {
+                            cur_cat_axis.num_fmt = attr_val(e, b"formatCode");
+                            if let Some(sl) = attr_val(e, b"sourceLinked") {
+                                cur_cat_axis.source_linked = sl == "1";
+                            }
+                        }
+                        (ParseCtx::CatAxis, b"majorTickMark") => {
+                            cur_cat_axis.major_tick_mark = TickMark::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::CatAxis, b"minorTickMark") => {
+                            cur_cat_axis.minor_tick_mark = TickMark::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::CatAxis, b"tickLblPos") => {
+                            cur_cat_axis.tick_lbl_pos = TickLabelPosition::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::CatAxis, b"crossAx") => {
+                            cur_cat_axis.cross_ax = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::CatAxis, b"crossesAt") => {
+                            cur_cat_axis.crosses_at = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::CatAxis, b"crosses") => {
+                            // autoZero → None (default).
+                        }
+                        (ParseCtx::CatAxis, b"majorUnit") => {
+                            cur_cat_axis.major_unit = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::CatAxis, b"minorUnit") => {
+                            cur_cat_axis.minor_unit = attr_val_str(e).parse().ok();
+                        }
+                        // ValAxis.
+                        (ParseCtx::ValAxis, b"axId") => {
+                            cur_val_axis.id = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::ValAxis, b"delete") => {
+                            cur_val_axis.delete = attr_val_str(e) == "1";
+                        }
+                        (ParseCtx::ValAxis, b"axPos") => {
+                            cur_val_axis.position = AxisPosition::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::ValAxis, b"majorGridlines") => {
+                            cur_val_axis.major_gridlines = true;
+                        }
+                        (ParseCtx::ValAxis, b"minorGridlines") => {
+                            cur_val_axis.minor_gridlines = true;
+                        }
+                        (ParseCtx::ValAxis, b"numFmt") => {
+                            cur_val_axis.num_fmt = attr_val(e, b"formatCode");
+                            if let Some(sl) = attr_val(e, b"sourceLinked") {
+                                cur_val_axis.source_linked = sl == "1";
+                            }
+                        }
+                        (ParseCtx::ValAxis, b"majorTickMark") => {
+                            cur_val_axis.major_tick_mark = TickMark::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::ValAxis, b"minorTickMark") => {
+                            cur_val_axis.minor_tick_mark = TickMark::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::ValAxis, b"tickLblPos") => {
+                            cur_val_axis.tick_lbl_pos = TickLabelPosition::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::ValAxis, b"crossAx") => {
+                            cur_val_axis.cross_ax = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::ValAxis, b"crossesAt") => {
+                            cur_val_axis.crosses_at = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::ValAxis, b"crosses") => {
+                            // autoZero → None.
+                        }
+                        (ParseCtx::ValAxis, b"majorUnit") => {
+                            cur_val_axis.major_unit = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::ValAxis, b"minorUnit") => {
+                            cur_val_axis.minor_unit = attr_val_str(e).parse().ok();
+                        }
+                        // Axis scaling.
+                        (ParseCtx::AxisScaling(AxisKind::Cat), b"orientation") => {
+                            cur_cat_axis.reversed = attr_val_str(e) == "maxMin";
+                        }
+                        (ParseCtx::AxisScaling(AxisKind::Cat), b"min") => {
+                            cur_cat_axis.min = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::AxisScaling(AxisKind::Cat), b"max") => {
+                            cur_cat_axis.max = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::AxisScaling(AxisKind::Cat), b"logBase") => {
+                            cur_cat_axis.log_base = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::AxisScaling(AxisKind::Val), b"orientation") => {
+                            cur_val_axis.reversed = attr_val_str(e) == "maxMin";
+                        }
+                        (ParseCtx::AxisScaling(AxisKind::Val), b"min") => {
+                            cur_val_axis.min = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::AxisScaling(AxisKind::Val), b"max") => {
+                            cur_val_axis.max = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::AxisScaling(AxisKind::Val), b"logBase") => {
+                            cur_val_axis.log_base = attr_val_str(e).parse().ok();
+                        }
+                        // Legend.
+                        (ParseCtx::Legend, b"legendPos") => {
+                            cur_legend.position = LegendPosition::from_xml(&attr_val_str(e));
+                        }
+                        (ParseCtx::Legend, b"overlay") => {
+                            cur_legend.overlay = attr_val_str(e) == "1";
+                        }
+                        // Title overlay.
+                        (ParseCtx::Title(owner), b"overlay") => {
+                            let val = attr_val_str(e) == "1";
+                            match owner {
+                                TitleOwner::Chart => cur_title.overlay = val,
+                                TitleOwner::CatAxis => cur_cat_axis_title.overlay = val,
+                                TitleOwner::ValAxis => cur_val_axis_title.overlay = val,
+                            }
+                        }
+                        // Title defRPr (Empty variant).
+                        (ParseCtx::TitlePPr(owner), b"defRPr") => {
+                            let title_b = match owner {
+                                TitleOwner::Chart => &mut cur_title,
+                                TitleOwner::CatAxis => &mut cur_cat_axis_title,
+                                TitleOwner::ValAxis => &mut cur_val_axis_title,
+                            };
+                            if let Some(sz) = attr_val(e, b"sz") {
+                                title_b.font_size = sz.parse().ok();
+                            }
+                            if let Some(b) = attr_val(e, b"b") {
+                                title_b.bold = Some(b == "1" || b == "true");
+                            }
+                        }
+                        // Title rPr (Empty variant).
+                        (ParseCtx::TitleRun(owner), b"rPr") => {
+                            let title_b = match owner {
+                                TitleOwner::Chart => &mut cur_title,
+                                TitleOwner::CatAxis => &mut cur_cat_axis_title,
+                                TitleOwner::ValAxis => &mut cur_val_axis_title,
+                            };
+                            if let Some(sz) = attr_val(e, b"sz") {
+                                title_b.font_size = sz.parse().ok();
+                            }
+                            if let Some(b) = attr_val(e, b"b") {
+                                title_b.bold = Some(b == "1" || b == "true");
+                            }
+                        }
+                        // Color in title defRPr fill.
+                        (ParseCtx::TitleDefRPrFill(owner), b"srgbClr") => {
+                            let title_b = match owner {
+                                TitleOwner::Chart => &mut cur_title,
+                                TitleOwner::CatAxis => &mut cur_cat_axis_title,
+                                TitleOwner::ValAxis => &mut cur_val_axis_title,
+                            };
+                            title_b.color = attr_val(e, b"val");
+                        }
+                        // Color in title rPr fill.
+                        (ParseCtx::TitleRunPrFill(owner), b"srgbClr") => {
+                            let title_b = match owner {
+                                TitleOwner::Chart => &mut cur_title,
+                                TitleOwner::CatAxis => &mut cur_cat_axis_title,
+                                TitleOwner::ValAxis => &mut cur_val_axis_title,
+                            };
+                            title_b.color = attr_val(e, b"val");
+                        }
+                        // Manual layout values.
+                        (ParseCtx::ManualLayoutCtx, b"x") => {
+                            layout_x = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::ManualLayoutCtx, b"y") => {
+                            layout_y = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::ManualLayoutCtx, b"w") => {
+                            layout_w = attr_val_str(e).parse().ok();
+                        }
+                        (ParseCtx::ManualLayoutCtx, b"h") => {
+                            layout_h = attr_val_str(e).parse().ok();
+                        }
+                        // Style ID (on chartSpace level).
+                        (_, b"style") => {
+                            style_id = attr_val_str(e).parse().ok();
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Event::End(ref e)) => {
+                    let local = e.local_name();
+                    let local = local.as_ref();
+                    let ctx = current_ctx(&ctx_stack);
+
+                    match (ctx, local) {
+                        (ParseCtx::Series, b"ser") => {
+                            if let Some(ser) = cur_ser.take() {
+                                series.push(ser);
+                            }
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::DataLabels, b"dLbls") => {
+                            data_labels = Some(cur_dlbls.build());
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::SerDataLabels, b"dLbls") => {
+                            if let Some(ref mut ser) = cur_ser {
+                                ser.data_labels = Some(cur_ser_dlbls.build());
+                            }
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::CatAxis, b"catAx") => {
+                            let builder = std::mem::replace(&mut cur_cat_axis, AxisBuilder::new());
+                            cat_axis = Some(builder.build_with_title(
+                                cur_cat_axis_title.build_option(),
+                            ));
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::ValAxis, b"valAx") => {
+                            let builder = std::mem::replace(&mut cur_val_axis, AxisBuilder::new());
+                            val_axis = Some(builder.build_with_title(
+                                cur_val_axis_title.build_option(),
+                            ));
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::Legend, b"legend") => {
+                            legend = Some(cur_legend.build());
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::Title(TitleOwner::Chart), b"title") => {
+                            title = cur_title.build_option();
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::Title(TitleOwner::CatAxis), b"title") => {
+                            // Title is stored in axis builder on close.
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::Title(TitleOwner::ValAxis), b"title") => {
+                            ctx_stack.pop();
+                        }
+                        // Text capture end.
+                        (_, b"f") if capturing_text && matches!(text_target, TextTarget::SerName | TextTarget::CatRef | TextTarget::ValRef | TextTarget::XValRef | TextTarget::BubbleRef) => {
+                            if let Some(ref mut ser) = cur_ser {
+                                let val = std::mem::take(&mut text_buf);
+                                match text_target {
+                                    TextTarget::SerName => ser.name = Some(val),
+                                    TextTarget::CatRef => ser.cat_ref = Some(val),
+                                    TextTarget::ValRef => ser.val_ref = val,
+                                    TextTarget::XValRef => ser.x_val_ref = Some(val),
+                                    TextTarget::BubbleRef => ser.bubble_size_ref = Some(val),
+                                    _ => {}
+                                }
+                            }
+                            capturing_text = false;
+                            text_target = TextTarget::None;
+                            ctx_stack.pop();
+                        }
+                        (_, b"t") if capturing_text && matches!(text_target, TextTarget::TitleText | TextTarget::CatAxisTitleText | TextTarget::ValAxisTitleText) => {
+                            let val = std::mem::take(&mut text_buf);
+                            match text_target {
+                                TextTarget::TitleText => cur_title.text = val,
+                                TextTarget::CatAxisTitleText => cur_cat_axis_title.text = val,
+                                TextTarget::ValAxisTitleText => cur_val_axis_title.text = val,
+                                _ => {}
+                            }
+                            capturing_text = false;
+                            text_target = TextTarget::None;
+                            ctx_stack.pop();
+                        }
+                        // Manual layout end.
+                        (ParseCtx::ManualLayoutCtx, b"layout") => {
+                            if let (Some(x), Some(y), Some(w), Some(h)) =
+                                (layout_x, layout_y, layout_w, layout_h)
+                            {
+                                plot_area_layout = Some(ManualLayout { x, y, w, h });
+                            }
+                            ctx_stack.pop();
+                        }
+                        _ => {
+                            // Pop context for any End that matches the depth.
+                            ctx_stack.pop();
+                        }
+                    }
+                }
+                Ok(Event::Text(ref e)) => {
+                    if capturing_text {
+                        text_buf.push_str(
+                            std::str::from_utf8(e.as_ref()).unwrap_or_default(),
+                        );
+                    }
+                }
+                Ok(Event::GeneralRef(ref e)) => {
+                    if capturing_text {
+                        push_entity(&mut text_buf, e.as_ref());
+                    }
+                }
+                Ok(Event::Eof) => break,
+                Err(err) => {
+                    return Err(ModernXlsxError::XmlParse(format!(
+                        "chart parse error: {err}"
+                    )));
+                }
+                _ => {}
+            }
+            buf.clear();
+        }
+
+        Ok(ChartData {
+            chart_type: chart_type.unwrap_or(ChartType::Bar),
+            title,
+            series,
+            cat_axis,
+            val_axis,
+            legend,
+            data_labels,
+            grouping,
+            scatter_style,
+            radar_style,
+            hole_size,
+            bar_dir_horizontal,
+            style_id,
+            plot_area_layout,
+        })
+    }
+}
+
+/// What text we are currently capturing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextTarget {
+    None,
+    SerName,
+    CatRef,
+    ValRef,
+    XValRef,
+    BubbleRef,
+    TitleText,
+    CatAxisTitleText,
+    ValAxisTitleText,
+}
+
+/// Builder for accumulating axis data during parsing.
+struct AxisBuilder {
+    id: Option<u32>,
+    cross_ax: Option<u32>,
+    num_fmt: Option<String>,
+    source_linked: bool,
+    min: Option<f64>,
+    max: Option<f64>,
+    major_unit: Option<f64>,
+    minor_unit: Option<f64>,
+    log_base: Option<f64>,
+    reversed: bool,
+    tick_lbl_pos: Option<TickLabelPosition>,
+    major_tick_mark: Option<TickMark>,
+    minor_tick_mark: Option<TickMark>,
+    major_gridlines: bool,
+    minor_gridlines: bool,
+    delete: bool,
+    position: Option<AxisPosition>,
+    crosses_at: Option<f64>,
+}
+
+impl AxisBuilder {
+    fn new() -> Self {
+        Self {
+            id: None,
+            cross_ax: None,
+            num_fmt: None,
+            source_linked: false,
+            min: None,
+            max: None,
+            major_unit: None,
+            minor_unit: None,
+            log_base: None,
+            reversed: false,
+            tick_lbl_pos: None,
+            major_tick_mark: None,
+            minor_tick_mark: None,
+            major_gridlines: false,
+            minor_gridlines: false,
+            delete: false,
+            position: None,
+            crosses_at: None,
+        }
+    }
+
+    fn build_with_title(self, title: Option<ChartTitle>) -> ChartAxis {
+        ChartAxis {
+            id: self.id.unwrap_or(0),
+            cross_ax: self.cross_ax.unwrap_or(0),
+            title,
+            num_fmt: self.num_fmt,
+            source_linked: self.source_linked,
+            min: self.min,
+            max: self.max,
+            major_unit: self.major_unit,
+            minor_unit: self.minor_unit,
+            log_base: self.log_base,
+            reversed: self.reversed,
+            tick_lbl_pos: self.tick_lbl_pos,
+            major_tick_mark: self.major_tick_mark,
+            minor_tick_mark: self.minor_tick_mark,
+            major_gridlines: self.major_gridlines,
+            minor_gridlines: self.minor_gridlines,
+            delete: self.delete,
+            position: self.position,
+            crosses_at: self.crosses_at,
+            font_size: None,
+        }
+    }
+}
+
+/// Builder for accumulating data labels during parsing.
+struct DataLabelsBuilder {
+    show_val: bool,
+    show_cat_name: bool,
+    show_ser_name: bool,
+    show_percent: bool,
+    num_fmt: Option<String>,
+    show_leader_lines: bool,
+}
+
+impl DataLabelsBuilder {
+    fn new() -> Self {
+        Self {
+            show_val: false,
+            show_cat_name: false,
+            show_ser_name: false,
+            show_percent: false,
+            num_fmt: None,
+            show_leader_lines: false,
+        }
+    }
+
+    fn build(&self) -> DataLabels {
+        DataLabels {
+            show_val: self.show_val,
+            show_cat_name: self.show_cat_name,
+            show_ser_name: self.show_ser_name,
+            show_percent: self.show_percent,
+            num_fmt: self.num_fmt.clone(),
+            show_leader_lines: self.show_leader_lines,
+        }
+    }
+}
+
+/// Builder for accumulating legend during parsing.
+struct LegendBuilder {
+    position: Option<LegendPosition>,
+    overlay: bool,
+}
+
+impl LegendBuilder {
+    fn new() -> Self {
+        Self {
+            position: None,
+            overlay: false,
+        }
+    }
+
+    fn build(&self) -> ChartLegend {
+        ChartLegend {
+            position: self.position.unwrap_or(LegendPosition::Right),
+            overlay: self.overlay,
+        }
+    }
+}
+
+/// Builder for accumulating title text during parsing.
+struct TitleBuilder {
+    text: String,
+    overlay: bool,
+    font_size: Option<u32>,
+    bold: Option<bool>,
+    color: Option<String>,
+}
+
+impl TitleBuilder {
+    fn new() -> Self {
+        Self {
+            text: String::new(),
+            overlay: false,
+            font_size: None,
+            bold: None,
+            color: None,
+        }
+    }
+
+    fn build_option(&self) -> Option<ChartTitle> {
+        if self.text.is_empty() {
+            return None;
+        }
+        Some(ChartTitle {
+            text: self.text.clone(),
+            overlay: self.overlay,
+            font_size: self.font_size,
+            bold: self.bold,
+            color: self.color.clone(),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Drawing XML Parser — parse drawing anchors for chart references
+// ---------------------------------------------------------------------------
+
+/// Parse `xl/drawings/drawing{n}.xml` to extract chart anchors and chart rIds.
+///
+/// Returns a vec of `(ChartAnchor, rId)` pairs for each `<xdr:twoCellAnchor>`
+/// that contains a chart reference.
+pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> {
+    let mut reader = Reader::from_reader(data);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::with_capacity(512);
+
+    let mut result: Vec<(ChartAnchor, String)> = Vec::new();
+
+    // State tracking.
+    let mut in_anchor = false;
+    let mut in_from = false;
+    let mut in_to = false;
+    let mut from_col: u32 = 0;
+    let mut from_col_off: u64 = 0;
+    let mut from_row: u32 = 0;
+    let mut from_row_off: u64 = 0;
+    let mut to_col: u32 = 0;
+    let mut to_col_off: u64 = 0;
+    let mut to_row: u32 = 0;
+    let mut to_row_off: u64 = 0;
+    let mut chart_r_id: Option<String> = None;
+
+    // Text capture for position elements.
+    let mut text_buf = String::new();
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum DrawingTextTarget {
+        None,
+        FromCol,
+        FromColOff,
+        FromRow,
+        FromRowOff,
+        ToCol,
+        ToColOff,
+        ToRow,
+        ToRowOff,
+    }
+    let mut text_target = DrawingTextTarget::None;
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                let local = e.local_name();
+                let local = local.as_ref();
+                match local {
+                    b"twoCellAnchor" => {
+                        in_anchor = true;
+                        from_col = 0;
+                        from_col_off = 0;
+                        from_row = 0;
+                        from_row_off = 0;
+                        to_col = 0;
+                        to_col_off = 0;
+                        to_row = 0;
+                        to_row_off = 0;
+                        chart_r_id = None;
+                    }
+                    b"from" if in_anchor => {
+                        in_from = true;
+                    }
+                    b"to" if in_anchor => {
+                        in_to = true;
+                    }
+                    b"col" if in_anchor && (in_from || in_to) => {
+                        text_buf.clear();
+                        text_target = if in_from {
+                            DrawingTextTarget::FromCol
+                        } else {
+                            DrawingTextTarget::ToCol
+                        };
+                    }
+                    b"colOff" if in_anchor && (in_from || in_to) => {
+                        text_buf.clear();
+                        text_target = if in_from {
+                            DrawingTextTarget::FromColOff
+                        } else {
+                            DrawingTextTarget::ToColOff
+                        };
+                    }
+                    b"row" if in_anchor && (in_from || in_to) => {
+                        text_buf.clear();
+                        text_target = if in_from {
+                            DrawingTextTarget::FromRow
+                        } else {
+                            DrawingTextTarget::ToRow
+                        };
+                    }
+                    b"rowOff" if in_anchor && (in_from || in_to) => {
+                        text_buf.clear();
+                        text_target = if in_from {
+                            DrawingTextTarget::FromRowOff
+                        } else {
+                            DrawingTextTarget::ToRowOff
+                        };
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Empty(ref e)) => {
+                let local = e.local_name();
+                let local = local.as_ref();
+                // <c:chart r:id="rId1"/> — may also appear as just `chart`.
+                if local == b"chart" && in_anchor {
+                    // Extract r:id attribute.
+                    for attr in e.attributes().flatten() {
+                        let key = attr.key.as_ref();
+                        // Match both `r:id` and bare `id` with namespace prefix.
+                        if key == b"r:id" || key.ends_with(b":id") {
+                            chart_r_id = Some(
+                                std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                let local = e.local_name();
+                let local = local.as_ref();
+                match local {
+                    b"twoCellAnchor" => {
+                        if let Some(r_id) = chart_r_id.take() {
+                            result.push((
+                                ChartAnchor {
+                                    from_col,
+                                    from_row,
+                                    from_col_off,
+                                    from_row_off,
+                                    to_col,
+                                    to_row,
+                                    to_col_off,
+                                    to_row_off,
+                                },
+                                r_id,
+                            ));
+                        }
+                        in_anchor = false;
+                        in_from = false;
+                        in_to = false;
+                    }
+                    b"from" => {
+                        in_from = false;
+                    }
+                    b"to" => {
+                        in_to = false;
+                    }
+                    b"col" | b"colOff" | b"row" | b"rowOff" => {
+                        let val_str = std::mem::take(&mut text_buf);
+                        match text_target {
+                            DrawingTextTarget::FromCol => from_col = val_str.parse().unwrap_or(0),
+                            DrawingTextTarget::FromColOff => from_col_off = val_str.parse().unwrap_or(0),
+                            DrawingTextTarget::FromRow => from_row = val_str.parse().unwrap_or(0),
+                            DrawingTextTarget::FromRowOff => from_row_off = val_str.parse().unwrap_or(0),
+                            DrawingTextTarget::ToCol => to_col = val_str.parse().unwrap_or(0),
+                            DrawingTextTarget::ToColOff => to_col_off = val_str.parse().unwrap_or(0),
+                            DrawingTextTarget::ToRow => to_row = val_str.parse().unwrap_or(0),
+                            DrawingTextTarget::ToRowOff => to_row_off = val_str.parse().unwrap_or(0),
+                            DrawingTextTarget::None => {}
+                        }
+                        text_target = DrawingTextTarget::None;
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Text(ref e)) => {
+                if text_target != DrawingTextTarget::None {
+                    text_buf.push_str(
+                        std::str::from_utf8(e.as_ref()).unwrap_or_default(),
+                    );
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(err) => {
+                return Err(ModernXlsxError::XmlParse(format!(
+                    "drawing parse error: {err}"
+                )));
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2049,5 +3380,341 @@ mod tests {
         assert!(xml_str.contains("<xdr:col>10</xdr:col>"));
         assert!(xml_str.contains("<xdr:colOff>100</xdr:colOff>"));
         assert!(xml_str.contains("<xdr:rowOff>200</xdr:rowOff>"));
+    }
+
+    // =======================================================================
+    // XML Parse roundtrip tests
+    // =======================================================================
+
+    #[test]
+    fn test_chart_parse_roundtrip_bar() {
+        let original = ChartData {
+            chart_type: ChartType::Bar,
+            title: Some(ChartTitle { text: "Sales".into(), overlay: false, font_size: None, bold: None, color: None }),
+            series: vec![ChartSeries {
+                idx: 0, order: 0,
+                name: Some("Revenue".into()),
+                cat_ref: Some("Sheet1!$A$2:$A$5".into()),
+                val_ref: "Sheet1!$B$2:$B$5".into(),
+                x_val_ref: None, bubble_size_ref: None,
+                fill_color: Some("4472C4".into()),
+                line_color: None, line_width: None,
+                marker: None, smooth: None, explosion: None,
+                data_labels: None,
+            }],
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            legend: Some(ChartLegend { position: LegendPosition::Bottom, overlay: false }),
+            data_labels: None,
+            grouping: Some(ChartGrouping::Clustered),
+            scatter_style: None, radar_style: None, hole_size: None,
+            bar_dir_horizontal: Some(true),
+            style_id: Some(2),
+            plot_area_layout: None,
+        };
+        let xml = original.to_xml().unwrap();
+        let parsed = ChartData::parse(&xml).unwrap();
+        assert_eq!(parsed.chart_type, ChartType::Bar);
+        assert_eq!(parsed.series.len(), 1);
+        assert_eq!(parsed.series[0].val_ref, "Sheet1!$B$2:$B$5");
+        assert_eq!(parsed.series[0].name.as_deref(), Some("Revenue"));
+        assert_eq!(parsed.series[0].fill_color.as_deref(), Some("4472C4"));
+        assert_eq!(parsed.grouping, Some(ChartGrouping::Clustered));
+        assert_eq!(parsed.bar_dir_horizontal, Some(true));
+        assert!(parsed.cat_axis.is_some());
+        assert!(parsed.val_axis.is_some());
+        assert_eq!(parsed.legend.as_ref().unwrap().position, LegendPosition::Bottom);
+        assert_eq!(parsed.style_id, Some(2));
+    }
+
+    #[test]
+    fn test_pie_chart_parse_roundtrip() {
+        let original = ChartData {
+            chart_type: ChartType::Pie,
+            title: Some(ChartTitle { text: "Distribution".into(), overlay: false, font_size: Some(1400), bold: Some(true), color: None }),
+            series: vec![ChartSeries {
+                idx: 0, order: 0, name: None,
+                cat_ref: Some("Sheet1!$A$2:$A$5".into()),
+                val_ref: "Sheet1!$B$2:$B$5".into(),
+                x_val_ref: None, bubble_size_ref: None,
+                fill_color: None, line_color: None, line_width: None,
+                marker: None, smooth: None,
+                explosion: Some(25),
+                data_labels: None,
+            }],
+            cat_axis: None, val_axis: None,
+            legend: None,
+            data_labels: Some(DataLabels { show_val: true, show_cat_name: false, show_ser_name: false, show_percent: true, num_fmt: None, show_leader_lines: true }),
+            grouping: None, scatter_style: None, radar_style: None, hole_size: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+        };
+        let xml = original.to_xml().unwrap();
+        let parsed = ChartData::parse(&xml).unwrap();
+        assert_eq!(parsed.chart_type, ChartType::Pie);
+        assert!(parsed.cat_axis.is_none());
+        assert!(parsed.val_axis.is_none());
+        assert_eq!(parsed.series[0].explosion, Some(25));
+        assert!(parsed.data_labels.as_ref().unwrap().show_val);
+        assert!(parsed.data_labels.as_ref().unwrap().show_percent);
+    }
+
+    #[test]
+    fn test_scatter_chart_parse_roundtrip() {
+        let original = ChartData {
+            chart_type: ChartType::Scatter,
+            title: None,
+            series: vec![ChartSeries {
+                idx: 0, order: 0, name: None, cat_ref: None,
+                val_ref: "Sheet1!$B$2:$B$5".into(),
+                x_val_ref: Some("Sheet1!$A$2:$A$5".into()),
+                bubble_size_ref: None,
+                fill_color: None, line_color: None, line_width: None,
+                marker: Some(MarkerStyle::Diamond), smooth: None, explosion: None,
+                data_labels: None,
+            }],
+            cat_axis: None,
+            val_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            legend: None, data_labels: None, grouping: None,
+            scatter_style: Some(ScatterStyle::LineMarker),
+            radar_style: None, hole_size: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+        };
+        let xml = original.to_xml().unwrap();
+        let parsed = ChartData::parse(&xml).unwrap();
+        assert_eq!(parsed.chart_type, ChartType::Scatter);
+        assert_eq!(parsed.scatter_style, Some(ScatterStyle::LineMarker));
+        assert_eq!(parsed.series[0].x_val_ref.as_deref(), Some("Sheet1!$A$2:$A$5"));
+        assert_eq!(parsed.series[0].marker, Some(MarkerStyle::Diamond));
+    }
+
+    #[test]
+    fn test_drawing_anchors_parse_roundtrip() {
+        let charts = vec![
+            WorksheetChart {
+                chart: ChartData {
+                    chart_type: ChartType::Line,
+                    title: None, series: vec![], cat_axis: None, val_axis: None,
+                    legend: None, data_labels: None, grouping: None,
+                    scatter_style: None, radar_style: None, hole_size: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                },
+                anchor: ChartAnchor {
+                    from_col: 2, from_row: 5, from_col_off: 100, from_row_off: 200,
+                    to_col: 12, to_row: 25, to_col_off: 300, to_row_off: 400,
+                },
+            },
+        ];
+        let r_ids = vec!["rId1".into()];
+        let drawing_xml = ChartAnchor::generate_drawing_xml(&charts, &r_ids).unwrap();
+        let anchors = parse_drawing_anchors(&drawing_xml).unwrap();
+        assert_eq!(anchors.len(), 1);
+        assert_eq!(anchors[0].0.from_col, 2);
+        assert_eq!(anchors[0].0.from_row, 5);
+        assert_eq!(anchors[0].0.from_col_off, 100);
+        assert_eq!(anchors[0].0.from_row_off, 200);
+        assert_eq!(anchors[0].0.to_col, 12);
+        assert_eq!(anchors[0].0.to_row, 25);
+        assert_eq!(anchors[0].0.to_col_off, 300);
+        assert_eq!(anchors[0].0.to_row_off, 400);
+        assert_eq!(anchors[0].1, "rId1");
+    }
+
+    #[test]
+    fn test_column_chart_parse_roundtrip() {
+        let original = ChartData {
+            chart_type: ChartType::Column,
+            title: None,
+            series: vec![ChartSeries {
+                idx: 0, order: 0, name: None, cat_ref: None,
+                val_ref: "Sheet1!$B$2:$B$5".into(),
+                x_val_ref: None, bubble_size_ref: None,
+                fill_color: None, line_color: None, line_width: None,
+                marker: None, smooth: None, explosion: None,
+                data_labels: None,
+            }],
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            legend: None, data_labels: None,
+            grouping: Some(ChartGrouping::Clustered),
+            scatter_style: None, radar_style: None, hole_size: None,
+            bar_dir_horizontal: None,
+            style_id: None, plot_area_layout: None,
+        };
+        let xml = original.to_xml().unwrap();
+        let parsed = ChartData::parse(&xml).unwrap();
+        assert_eq!(parsed.chart_type, ChartType::Column);
+        assert_eq!(parsed.bar_dir_horizontal, Some(false));
+    }
+
+    #[test]
+    fn test_doughnut_chart_parse_roundtrip() {
+        let original = ChartData {
+            chart_type: ChartType::Doughnut,
+            title: None,
+            series: vec![ChartSeries {
+                idx: 0, order: 0, name: None,
+                cat_ref: Some("Sheet1!$A$2:$A$5".into()),
+                val_ref: "Sheet1!$B$2:$B$5".into(),
+                x_val_ref: None, bubble_size_ref: None,
+                fill_color: None, line_color: None, line_width: None,
+                marker: None, smooth: None, explosion: None,
+                data_labels: None,
+            }],
+            cat_axis: None, val_axis: None,
+            legend: None, data_labels: None,
+            grouping: None, scatter_style: None, radar_style: None,
+            hole_size: Some(50),
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+        };
+        let xml = original.to_xml().unwrap();
+        let parsed = ChartData::parse(&xml).unwrap();
+        assert_eq!(parsed.chart_type, ChartType::Doughnut);
+        assert_eq!(parsed.hole_size, Some(50));
+    }
+
+    #[test]
+    fn test_line_chart_with_markers_parse_roundtrip() {
+        let original = ChartData {
+            chart_type: ChartType::Line,
+            title: None,
+            series: vec![ChartSeries {
+                idx: 0, order: 0, name: None, cat_ref: None,
+                val_ref: "Sheet1!$B$2:$B$5".into(),
+                x_val_ref: None, bubble_size_ref: None,
+                fill_color: None, line_color: Some("FF0000".into()), line_width: Some(25400),
+                marker: Some(MarkerStyle::Circle), smooth: Some(true), explosion: None,
+                data_labels: None,
+            }],
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            legend: None, data_labels: None,
+            grouping: Some(ChartGrouping::Standard),
+            scatter_style: None, radar_style: None, hole_size: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+        };
+        let xml = original.to_xml().unwrap();
+        let parsed = ChartData::parse(&xml).unwrap();
+        assert_eq!(parsed.chart_type, ChartType::Line);
+        assert_eq!(parsed.series[0].line_color.as_deref(), Some("FF0000"));
+        assert_eq!(parsed.series[0].line_width, Some(25400));
+        assert_eq!(parsed.series[0].marker, Some(MarkerStyle::Circle));
+        assert_eq!(parsed.series[0].smooth, Some(true));
+    }
+
+    #[test]
+    fn test_chart_with_axis_title_parse_roundtrip() {
+        let original = ChartData {
+            chart_type: ChartType::Line,
+            title: Some(ChartTitle { text: "My Chart".into(), overlay: false, font_size: Some(1400), bold: Some(true), color: Some("333333".into()) }),
+            series: vec![],
+            cat_axis: Some(ChartAxis {
+                id: 0, cross_ax: 1,
+                title: Some(ChartTitle { text: "Month".into(), overlay: false, font_size: None, bold: None, color: None }),
+                num_fmt: None, source_linked: false,
+                min: None, max: None, major_unit: None, minor_unit: None,
+                log_base: None, reversed: false,
+                tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None,
+                major_gridlines: true, minor_gridlines: false,
+                delete: false, position: Some(AxisPosition::Bottom), crosses_at: None, font_size: None,
+            }),
+            val_axis: Some(ChartAxis {
+                id: 1, cross_ax: 0,
+                title: Some(ChartTitle { text: "Sales ($)".into(), overlay: false, font_size: Some(1200), bold: Some(true), color: Some("333333".into()) }),
+                num_fmt: Some("#,##0".into()), source_linked: false,
+                min: Some(0.0), max: Some(1000.0),
+                major_unit: Some(200.0), minor_unit: None,
+                log_base: None, reversed: false,
+                tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None,
+                major_gridlines: true, minor_gridlines: false,
+                delete: false, position: Some(AxisPosition::Left), crosses_at: None, font_size: None,
+            }),
+            legend: None, data_labels: None, grouping: None,
+            scatter_style: None, radar_style: None, hole_size: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+        };
+        let xml = original.to_xml().unwrap();
+        let parsed = ChartData::parse(&xml).unwrap();
+        // Chart title.
+        assert_eq!(parsed.title.as_ref().unwrap().text, "My Chart");
+        assert_eq!(parsed.title.as_ref().unwrap().color.as_deref(), Some("333333"));
+        // Cat axis title.
+        let cat_ax = parsed.cat_axis.as_ref().unwrap();
+        assert_eq!(cat_ax.title.as_ref().unwrap().text, "Month");
+        assert_eq!(cat_ax.position, Some(AxisPosition::Bottom));
+        assert!(cat_ax.major_gridlines);
+        // Val axis title + scale.
+        let val_ax = parsed.val_axis.as_ref().unwrap();
+        assert_eq!(val_ax.title.as_ref().unwrap().text, "Sales ($)");
+        assert_eq!(val_ax.title.as_ref().unwrap().color.as_deref(), Some("333333"));
+        assert_eq!(val_ax.min, Some(0.0));
+        assert_eq!(val_ax.max, Some(1000.0));
+        assert_eq!(val_ax.major_unit, Some(200.0));
+    }
+
+    #[test]
+    fn test_radar_chart_parse_roundtrip() {
+        let original = ChartData {
+            chart_type: ChartType::Radar,
+            title: None,
+            series: vec![ChartSeries {
+                idx: 0, order: 0, name: None, cat_ref: None,
+                val_ref: "Sheet1!$B$2:$B$5".into(),
+                x_val_ref: None, bubble_size_ref: None,
+                fill_color: None, line_color: None, line_width: None,
+                marker: None, smooth: None, explosion: None,
+                data_labels: None,
+            }],
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            legend: None, data_labels: None,
+            grouping: None, scatter_style: None,
+            radar_style: Some(RadarStyle::Filled),
+            hole_size: None,
+            bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+        };
+        let xml = original.to_xml().unwrap();
+        let parsed = ChartData::parse(&xml).unwrap();
+        assert_eq!(parsed.chart_type, ChartType::Radar);
+        assert_eq!(parsed.radar_style, Some(RadarStyle::Filled));
+    }
+
+    #[test]
+    fn test_drawing_anchors_multiple_parse_roundtrip() {
+        let charts = vec![
+            WorksheetChart {
+                chart: ChartData {
+                    chart_type: ChartType::Bar,
+                    title: None, series: vec![], cat_axis: None, val_axis: None,
+                    legend: None, data_labels: None, grouping: None,
+                    scatter_style: None, radar_style: None, hole_size: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                },
+                anchor: ChartAnchor {
+                    from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
+                    to_col: 8, to_row: 15, to_col_off: 0, to_row_off: 0,
+                },
+            },
+            WorksheetChart {
+                chart: ChartData {
+                    chart_type: ChartType::Line,
+                    title: None, series: vec![], cat_axis: None, val_axis: None,
+                    legend: None, data_labels: None, grouping: None,
+                    scatter_style: None, radar_style: None, hole_size: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                },
+                anchor: ChartAnchor {
+                    from_col: 10, from_row: 0, from_col_off: 100, from_row_off: 200,
+                    to_col: 18, to_row: 20, to_col_off: 300, to_row_off: 400,
+                },
+            },
+        ];
+        let r_ids = vec!["rId1".into(), "rId2".into()];
+        let drawing_xml = ChartAnchor::generate_drawing_xml(&charts, &r_ids).unwrap();
+        let anchors = parse_drawing_anchors(&drawing_xml).unwrap();
+        assert_eq!(anchors.len(), 2);
+        assert_eq!(anchors[0].1, "rId1");
+        assert_eq!(anchors[1].1, "rId2");
+        assert_eq!(anchors[1].0.from_col, 10);
+        assert_eq!(anchors[1].0.to_row, 20);
     }
 }
