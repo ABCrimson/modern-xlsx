@@ -51,6 +51,27 @@ export {
   loadFormat,
   loadFormatTable,
 } from './format-cell.js';
+// Formula engine
+export type {
+  ArrayNode,
+  ASTNode,
+  BinaryOpNode,
+  BooleanNode,
+  CellRefNode,
+  ErrorNode,
+  FunctionCallNode,
+  NameNode,
+  NumberNode,
+  ParseResult,
+  PercentNode,
+  RangeNode,
+  StringNode,
+  Token,
+  TokenizeResult,
+  TokenType,
+  UnaryOpNode,
+} from './formula/index.js';
+export { parseCellRefValue, parseFormula, tokenize } from './formula/index.js';
 // Builders
 export { HeaderFooterBuilder } from './header-footer.js';
 export { RichTextBuilder } from './rich-text.js';
@@ -158,9 +179,6 @@ export {
   sheetToJson,
   sheetToTxt,
 } from './utils.js';
-// Formula engine
-export type { Token, TokenizeResult, TokenType } from './formula/index.js';
-export { tokenize } from './formula/index.js';
 // WASM initialization
 export { ensureReady, initWasm, initWasmSync } from './wasm-loader.js';
 // Core classes
