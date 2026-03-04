@@ -300,6 +300,24 @@ pub fn read_and_parse_encryption_info(ole2_data: &[u8]) -> Result<EncryptionInfo
     EncryptionInfo::parse(&stream)
 }
 
+/// Builds the error message for an encrypted XLSX file.
+///
+/// Tries to parse the `EncryptionInfo` stream for a detailed description;
+/// falls back to the generic constant when parsing fails.
+pub fn build_encrypted_error(ole2_data: &[u8]) -> crate::ModernXlsxError {
+    let msg = match read_and_parse_encryption_info(ole2_data) {
+        Ok(info) => {
+            let desc = describe_encryption(&info);
+            format!(
+                "Password-protected XLSX ({desc}). \
+                 Provide password via readBuffer(data, {{ password: '...' }})."
+            )
+        }
+        Err(_) => crate::ole2::detect::ERR_ENCRYPTED.into(),
+    };
+    crate::ModernXlsxError::PasswordProtected(msg)
+}
+
 /// Base64 decode helper (inline implementation — no external dep).
 /// Task 3 will switch to the `base64` crate.
 fn decode_base64(input: &str) -> Result<Vec<u8>> {

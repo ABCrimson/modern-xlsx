@@ -77,20 +77,12 @@ struct ReaderContext {
 /// Parse all shared XLSX metadata from the ZIP entries.
 fn parse_common(data: &[u8], limits: &ZipSecurityLimits) -> Result<ReaderContext> {
     // Format detection: reject OLE2 (encrypted/legacy) and unknown formats early.
-    use crate::ole2::detect::{ERR_ENCRYPTED, ERR_LEGACY_XLS, ERR_NOT_XLSX, ERR_OLE2_UNKNOWN};
+    use crate::ole2::detect::{ERR_LEGACY_XLS, ERR_NOT_XLSX, ERR_OLE2_UNKNOWN};
     match detect_format(data) {
         FileFormat::Zip => {} // continue with existing ZIP path
         FileFormat::Ole2 => match classify_ole2(data)? {
             Ole2Kind::EncryptedXlsx => {
-                // Try to parse EncryptionInfo for better error message
-                let msg = match crate::ole2::encryption_info::read_and_parse_encryption_info(data) {
-                    Ok(info) => {
-                        let desc = crate::ole2::encryption_info::describe_encryption(&info);
-                        format!("Password-protected XLSX ({desc}). Provide password via readBuffer(data, {{ password: '...' }}).")
-                    }
-                    Err(_) => ERR_ENCRYPTED.into(),
-                };
-                return Err(ModernXlsxError::PasswordProtected(msg));
+                return Err(crate::ole2::encryption_info::build_encrypted_error(data));
             }
             Ole2Kind::LegacyXls => {
                 return Err(ModernXlsxError::LegacyFormat(ERR_LEGACY_XLS.into()));
