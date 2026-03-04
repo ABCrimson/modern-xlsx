@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Worksheet } from '../src/index.js';
 import { readBuffer, Workbook } from '../src/index.js';
 
 describe('Chart roundtrip', () => {
@@ -39,7 +40,7 @@ describe('Chart roundtrip', () => {
     const ws2 = wb2.getSheet('Sheet1');
     expect(ws2).toBeDefined();
 
-    const charts = ws2!.charts;
+    const charts = ws2?.charts;
     expect(charts).toHaveLength(1);
     expect(charts[0].chart.chartType).toBe('bar');
     expect(charts[0].chart.title?.text).toBe('Sales');
@@ -75,7 +76,7 @@ describe('Chart roundtrip', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1') as Worksheet;
 
     expect(ws2.charts).toHaveLength(1);
     expect(ws2.charts[0].chart.chartType).toBe('pie');
@@ -100,7 +101,7 @@ describe('Chart roundtrip', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Data')!;
+    const ws2 = wb2.getSheet('Data') as Worksheet;
 
     expect(ws2.charts).toHaveLength(1);
     expect(ws2.charts[0].chart.chartType).toBe('scatter');
@@ -123,7 +124,7 @@ describe('Chart roundtrip', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1') as Worksheet;
 
     expect(ws2.charts).toHaveLength(2);
     expect(ws2.charts[0].chart.chartType).toBe('line');
@@ -142,7 +143,7 @@ describe('Chart roundtrip', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1') as Worksheet;
 
     expect(ws2.charts[0].chart.styleId).toBe(26);
     expect(ws2.charts[0].chart.series[0].lineColor).toBe('FF0000');
@@ -160,7 +161,7 @@ describe('Chart roundtrip', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1') as Worksheet;
 
     // Cell data preserved
     expect(ws2.cell('A1').value).toBe('Hello');

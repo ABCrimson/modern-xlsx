@@ -1372,14 +1372,15 @@ describe('25. Performance Comparison', () => {
       const row = data[r];
       if (!row) continue;
       for (let c = 0; c < row.length; c++) {
-        const val = row[c];
-        if (val !== undefined && val !== null) {
-          const cell = ws.cell(`${cols[c]}${r + 1}`);
-          if (typeof val === 'number' || typeof val === 'string' || typeof val === 'boolean') {
-            cell.value = val;
-          }
-        }
+        setCellIfPrimitive(ws, `${cols[c]}${r + 1}`, row[c]);
       }
+    }
+  }
+
+  function setCellIfPrimitive(ws: Worksheet, ref: string, val: unknown): void {
+    if (val == null) return;
+    if (typeof val === 'number' || typeof val === 'string' || typeof val === 'boolean') {
+      ws.cell(ref).value = val;
     }
   }
 

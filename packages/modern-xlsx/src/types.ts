@@ -378,17 +378,43 @@ export interface SparklineGroupData {
 // Chart definitions
 // ---------------------------------------------------------------------------
 
-export type ChartType = 'bar' | 'column' | 'line' | 'pie' | 'doughnut' | 'scatter' | 'area' | 'radar' | 'bubble' | 'stock';
+export type ChartType =
+  | 'bar'
+  | 'column'
+  | 'line'
+  | 'pie'
+  | 'doughnut'
+  | 'scatter'
+  | 'area'
+  | 'radar'
+  | 'bubble'
+  | 'stock';
 export type ChartGrouping = 'clustered' | 'stacked' | 'percentStacked' | 'standard';
 export type ScatterStyle = 'lineMarker' | 'line' | 'marker' | 'smooth' | 'smoothMarker';
 export type RadarStyle = 'standard' | 'marker' | 'filled';
-export type MarkerStyleType = 'circle' | 'square' | 'diamond' | 'triangle' | 'star' | 'x' | 'plus' | 'dash' | 'dot' | 'none';
+export type MarkerStyleType =
+  | 'circle'
+  | 'square'
+  | 'diamond'
+  | 'triangle'
+  | 'star'
+  | 'x'
+  | 'plus'
+  | 'dash'
+  | 'dot'
+  | 'none';
 export type TickLabelPosition = 'high' | 'low' | 'nextTo' | 'none';
 export type TickMark = 'cross' | 'in' | 'out' | 'none';
 export type AxisPosition = 'bottom' | 'top' | 'left' | 'right';
 export type LegendPosition = 'top' | 'bottom' | 'left' | 'right' | 'topRight';
 
-export type TrendlineType = 'linear' | 'exponential' | 'logarithmic' | 'polynomial' | 'power' | 'movingAverage';
+export type TrendlineType =
+  | 'linear'
+  | 'exponential'
+  | 'logarithmic'
+  | 'polynomial'
+  | 'power'
+  | 'movingAverage';
 export type ErrorBarType = 'fixedVal' | 'percentage' | 'stdDev' | 'stdErr' | 'custom';
 export type ErrorBarDirection = 'both' | 'plus' | 'minus';
 
