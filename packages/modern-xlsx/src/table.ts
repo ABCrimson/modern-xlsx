@@ -225,7 +225,7 @@ function estimateWidth(value: string | number | boolean | null | undefined): num
   const str = String(value);
   let len = 0;
   for (const ch of str) {
-    const code = ch.codePointAt(0)!;
+    const code = ch.codePointAt(0) ?? 0;
     len += code > 0x2e7f ? 2 : 1;
   }
   return Math.max(8, Math.ceil(len * 1.2) + 2);
@@ -239,7 +239,8 @@ function computeAutoWidths(
   for (const row of rows) {
     for (let c = 0; c < widths.length; c++) {
       const w = estimateWidth(row[c]);
-      if (w > widths[c]!) widths[c] = w;
+      const cur = widths[c];
+      if (cur !== undefined && w > cur) widths[c] = w;
     }
   }
   return widths;
@@ -338,7 +339,8 @@ export function drawTable(wb: Workbook, ws: Worksheet, opts: DrawTableOptions): 
 
   // --- Data rows ---
   for (let r = 0; r < rows.length; r++) {
-    const row = rows[r]!;
+    const row = rows[r];
+    if (!row) continue;
     const wsRowIdx = origin.row + r + 2; // 1-based, after header
 
     const isOdd = r % 2 === 1;
@@ -357,8 +359,9 @@ export function drawTable(wb: Workbook, ws: Worksheet, opts: DrawTableOptions): 
 
       // Per-cell override
       const overrideKey = `${r},${c}`;
-      if (opts.cellStyles?.[overrideKey]) {
-        styleIdx = buildCellOverrideStyle(wb, styleIdx, opts.cellStyles[overrideKey]!);
+      const cellOverride = opts.cellStyles?.[overrideKey];
+      if (cellOverride) {
+        styleIdx = buildCellOverrideStyle(wb, styleIdx, cellOverride);
       }
 
       cell.styleIndex = styleIdx;
@@ -433,7 +436,9 @@ export function drawTableFromData(
     return drawTable(wb, ws, { headers: [], rows: [], ...opts });
   }
 
-  const keys = opts?.headers ?? Object.keys(data[0]!);
+  const firstRow = data[0];
+  if (!firstRow) throw new Error('data[0] is undefined');
+  const keys = opts?.headers ?? Object.keys(firstRow);
   const headers = keys.map((k) => opts?.headerMap?.[k] ?? k);
 
   const rows: (string | number | boolean | null)[][] = data.map((item) =>

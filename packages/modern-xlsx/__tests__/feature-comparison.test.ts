@@ -106,7 +106,8 @@ describe('1. File I/O', () => {
     const wb = XLSX.read(modernBuf, { type: 'buffer' });
     expect(wb.SheetNames).toContain('Sheet1');
 
-    const ws = wb.Sheets.Sheet1!;
+    const ws = wb.Sheets.Sheet1;
+    if (!ws) throw new Error('Sheet1 not found');
     expect(ws.A1?.v).toBe('Name');
     expect(ws.B2?.v).toBe(30);
   });
@@ -274,7 +275,8 @@ describe('3. Cell Operations', () => {
     const wb = new Workbook();
     const ws = wb.addSheet('X');
     for (let i = 0; i < specials.length; i++) {
-      ws.cell(`A${i + 1}`).value = specials[i]!;
+      const val = specials[i];
+      if (val !== undefined) ws.cell(`A${i + 1}`).value = val;
     }
     const buf = await wb.toBuffer();
     const wb2 = await readBuffer(buf);
@@ -294,7 +296,10 @@ describe('3. Cell Operations', () => {
     // modern-xlsx
     const wb = new Workbook();
     const ws = wb.addSheet('U');
-    for (let i = 0; i < unicodes.length; i++) ws.cell(`A${i + 1}`).value = unicodes[i]!;
+    for (let i = 0; i < unicodes.length; i++) {
+      const val = unicodes[i];
+      if (val !== undefined) ws.cell(`A${i + 1}`).value = val;
+    }
     const buf = await wb.toBuffer();
     const wb2 = await readBuffer(buf);
     for (let i = 0; i < unicodes.length; i++) {
@@ -1364,7 +1369,8 @@ describe('25. Performance Comparison', () => {
   /** Populate a Worksheet with AoA data (cell-by-cell). */
   function populateSheet(ws: Worksheet, data: unknown[][], cols: string[]): void {
     for (let r = 0; r < data.length; r++) {
-      const row = data[r]!;
+      const row = data[r];
+      if (!row) continue;
       for (let c = 0; c < row.length; c++) {
         const val = row[c];
         if (val !== undefined && val !== null) {

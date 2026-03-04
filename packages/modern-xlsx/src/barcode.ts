@@ -100,23 +100,23 @@ const GF_LOG = new Uint8Array(256);
     if (v >= 256) v ^= 0x11d;
   }
   for (let i = 255; i < 512; i++) {
-    GF_EXP[i] = GF_EXP[i - 255]!;
+    GF_EXP[i] = GF_EXP[i - 255] ?? 0;
   }
 }
 
 function gfMul(a: number, b: number): number {
   if (a === 0 || b === 0) return 0;
-  return GF_EXP[GF_LOG[a]! + GF_LOG[b]!]!;
+  return GF_EXP[(GF_LOG[a] ?? 0) + (GF_LOG[b] ?? 0)] ?? 0;
 }
 
 function rsGeneratorPoly(nsym: number): Uint8Array {
   let g = new Uint8Array([1]);
   for (let i = 0; i < nsym; i++) {
     const next = new Uint8Array(g.length + 1);
-    const factor = GF_EXP[i]!;
+    const factor = GF_EXP[i] ?? 0;
     for (let j = 0; j < g.length; j++) {
-      next[j] = next[j]! ^ g[j]!;
-      next[j + 1] = next[j + 1]! ^ gfMul(g[j]!, factor);
+      next[j] = (next[j] ?? 0) ^ (g[j] ?? 0);
+      next[j + 1] = (next[j + 1] ?? 0) ^ gfMul(g[j] ?? 0, factor);
     }
     g = next;
   }
@@ -128,10 +128,10 @@ function rsEncode(data: Uint8Array, nsym: number): Uint8Array {
   const out = new Uint8Array(data.length + nsym);
   out.set(data);
   for (let i = 0; i < data.length; i++) {
-    const coef = out[i]!;
+    const coef = out[i] ?? 0;
     if (coef !== 0) {
       for (let j = 0; j < gen.length; j++) {
-        out[i + j] = out[i + j]! ^ gfMul(gen[j]!, coef);
+        out[i + j] = (out[i + j] ?? 0) ^ gfMul(gen[j] ?? 0, coef);
       }
     }
   }
@@ -266,8 +266,8 @@ function qrEncData(
   } else if (mode === 'alphanumeric') {
     const u = data.toUpperCase();
     for (let i = 0; i < u.length; i += 2) {
-      const a = QR_ALNUM.indexOf(u[i]!);
-      if (i + 1 < u.length) push(a * 45 + QR_ALNUM.indexOf(u[i + 1]!), 11);
+      const a = QR_ALNUM.indexOf(u[i] ?? '');
+      if (i + 1 < u.length) push(a * 45 + QR_ALNUM.indexOf(u[i + 1] ?? ''), 11);
       else push(a, 6);
     }
   } else {
@@ -347,12 +347,12 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
   const maxDL = Math.max(...blocks.map((b) => b.length));
   for (let i = 0; i < maxDL; i++) {
     for (const bl of blocks) {
-      if (i < bl.length) interleaved.push(bl[i]!);
+      if (i < bl.length) interleaved.push(bl[i] ?? 0);
     }
   }
   for (let i = 0; i < ecPB; i++) {
     for (const ecb of ecBlocks) {
-      if (i < ecb.length) interleaved.push(ecb[i]!);
+      if (i < ecb.length) interleaved.push(ecb[i] ?? 0);
     }
   }
 
@@ -583,7 +583,7 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
       for (let c = 0; c < sz; c++) {
         if (!getCell(funcP, r, c) && at(maskFns, mask)(r, c)) {
           const row = at(masked, r);
-          row[c] = row[c]! ^ 1;
+          row[c] = (row[c] ?? 0) ^ 1;
         }
       }
     }
@@ -599,7 +599,7 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
     for (let c = 0; c < sz; c++) {
       if (!getCell(funcP, r, c) && at(maskFns, bestMask)(r, c)) {
         const row = at(grid, r);
-        row[c] = row[c]! ^ 1;
+        row[c] = (row[c] ?? 0) ^ 1;
       }
     }
   }
@@ -1346,31 +1346,31 @@ const DM_GF_LOG = new Uint8Array(256);
     v <<= 1;
     if (v >= 256) v ^= 0x12d;
   }
-  for (let i = 255; i < 512; i++) DM_GF_EXP[i] = DM_GF_EXP[i - 255]!;
+  for (let i = 255; i < 512; i++) DM_GF_EXP[i] = DM_GF_EXP[i - 255] ?? 0;
 }
 
 function dmEC(data: number[], numEc: number): number[] {
   const mul = (a: number, b: number): number => {
     if (a === 0 || b === 0) return 0;
-    return DM_GF_EXP[DM_GF_LOG[a]! + DM_GF_LOG[b]!]!;
+    return DM_GF_EXP[(DM_GF_LOG[a] ?? 0) + (DM_GF_LOG[b] ?? 0)] ?? 0;
   };
 
   let g = new Uint8Array([1]);
   for (let i = 0; i < numEc; i++) {
     const next = new Uint8Array(g.length + 1);
-    const factor = DM_GF_EXP[i + 1]!;
+    const factor = DM_GF_EXP[i + 1] ?? 0;
     for (let j = 0; j < g.length; j++) {
-      next[j] = next[j]! ^ g[j]!;
-      next[j + 1] = next[j + 1]! ^ mul(g[j]!, factor);
+      next[j] = (next[j] ?? 0) ^ (g[j] ?? 0);
+      next[j + 1] = (next[j + 1] ?? 0) ^ mul(g[j] ?? 0, factor);
     }
     g = next;
   }
 
   const result = new Uint8Array(numEc);
   for (const cw of data) {
-    const coef = cw ^ result[0]!;
-    for (let j = 0; j < numEc - 1; j++) result[j] = result[j + 1]! ^ mul(g[j + 1]!, coef);
-    result[numEc - 1] = mul(g[numEc]!, coef);
+    const coef = cw ^ (result[0] ?? 0);
+    for (let j = 0; j < numEc - 1; j++) result[j] = (result[j + 1] ?? 0) ^ mul(g[j + 1] ?? 0, coef);
+    result[numEc - 1] = mul(g[numEc] ?? 0, coef);
   }
   return Array.from(result);
 }
@@ -1473,7 +1473,7 @@ function renderText(text: string): boolean[][] {
   const grid = createGrid(FH, tw, false);
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]?.toUpperCase() ?? ' ';
-    const d = FONT[ch] ?? FONT[' ']!;
+    const d = FONT[ch] ?? FONT[' '] ?? [];
     const xo = i * cw;
     for (let r = 0; r < FH; r++) {
       for (let c = 0; c < FW; c++) {
@@ -1500,7 +1500,8 @@ const CRC_TBL: Uint32Array = (() => {
 
 function crc32(data: Uint8Array): number {
   let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i++) crc = CRC_TBL[(crc ^ data[i]!) & 0xff]! ^ (crc >>> 8);
+  for (let i = 0; i < data.length; i++)
+    crc = (CRC_TBL[(crc ^ (data[i] ?? 0)) & 0xff] ?? 0) ^ (crc >>> 8);
   return (crc ^ 0xffffffff) >>> 0;
 }
 
@@ -1508,7 +1509,7 @@ function adler32(data: Uint8Array): number {
   let a = 1;
   let b = 0;
   for (let i = 0; i < data.length; i++) {
-    a = (a + data[i]!) % 65521;
+    a = (a + (data[i] ?? 0)) % 65521;
     b = (b + a) % 65521;
   }
   return ((b << 16) | a) >>> 0;
@@ -1764,7 +1765,8 @@ export function generateDrawingXml(anchors: { anchor: ImageAnchor; imageIndex: n
   p.push(`<xdr:wsDr xmlns:xdr="${XDR_NS}" xmlns:a="${A_NS}" xmlns:r="${R_NS}">`);
 
   for (let i = 0; i < anchors.length; i++) {
-    const entry = anchors[i]!;
+    const entry = anchors[i];
+    if (!entry) continue;
     const a = entry.anchor;
     const rId = `rId${entry.imageIndex}`;
 

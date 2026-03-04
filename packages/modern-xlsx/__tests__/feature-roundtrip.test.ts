@@ -405,7 +405,8 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     const ws2Sheet = wb.addSheet('Sheet2');
     ws2Sheet.cell('A1').value = 'Target';
 
-    const ws1 = wb.getSheet('Sheet1')!;
+    const ws1 = wb.getSheet('Sheet1');
+    if (!ws1) throw new Error('Sheet1 not found');
     ws1.cell('B1').value = 'Go to Sheet2';
     ws1.addHyperlink('B1', 'Sheet2!A1', { display: 'Go to Sheet2' });
 

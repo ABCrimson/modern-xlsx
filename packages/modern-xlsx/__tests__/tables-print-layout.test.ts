@@ -1,15 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import type { HeaderFooterData, OutlinePropertiesData, TableDefinitionData } from '../src/index.js';
 import {
   HeaderFooterBuilder,
   readBuffer,
   TABLE_STYLES,
   VALID_TABLE_STYLES,
   Workbook,
-} from '../src/index.js';
-import type {
-  HeaderFooterData,
-  OutlinePropertiesData,
-  TableDefinitionData,
 } from '../src/index.js';
 
 // ---------------------------------------------------------------------------
@@ -193,14 +189,10 @@ describe('HeaderFooterBuilder', () => {
     const hf = new HeaderFooterBuilder()
       .left(`Printed: ${HeaderFooterBuilder.date()}`)
       .center(HeaderFooterBuilder.bold('Confidential'))
-      .right(
-        `Page ${HeaderFooterBuilder.pageNumber()} of ${HeaderFooterBuilder.totalPages()}`,
-      )
+      .right(`Page ${HeaderFooterBuilder.pageNumber()} of ${HeaderFooterBuilder.totalPages()}`)
       .build();
 
-    expect(hf).toBe(
-      '&LPrinted: &D&C&BConfidential&B&RPage &P of &N',
-    );
+    expect(hf).toBe('&LPrinted: &D&C&BConfidential&B&RPage &P of &N');
   });
 });
 

@@ -23,11 +23,11 @@ import type {
   PageSetupData,
   PaneSelectionData,
   RepairResult,
-  SheetViewData,
   RowData,
   SheetData,
   SheetProtectionData,
   SheetState,
+  SheetViewData,
   SparklineGroupData,
   SplitPaneData,
   StylesData,
@@ -244,9 +244,7 @@ export class Workbook {
     const target = this.data.sheets[idx];
     if (!target) throw new Error(`Sheet not found: ${nameOrIndex}`);
     if (target.state === 'hidden' || target.state === 'veryHidden') return;
-    const visibleCount = this.data.sheets.filter(
-      (s) => !s.state || s.state === 'visible',
-    ).length;
+    const visibleCount = this.data.sheets.filter((s) => !s.state || s.state === 'visible').length;
     if (visibleCount <= 1) {
       throw new Error('Cannot hide the last visible sheet');
     }
@@ -332,7 +330,8 @@ export class Workbook {
     if (value === null) {
       if (idx !== -1) this.data.definedNames.splice(idx, 1);
     } else if (idx !== -1) {
-      this.data.definedNames[idx]!.value = value;
+      const entry = this.data.definedNames[idx];
+      if (entry) entry.value = value;
     } else {
       this.data.definedNames.push({
         name: '_xlnm.Print_Titles',
@@ -367,7 +366,8 @@ export class Workbook {
     if (value === null) {
       if (idx !== -1) this.data.definedNames.splice(idx, 1);
     } else if (idx !== -1) {
-      this.data.definedNames[idx]!.value = value;
+      const entry = this.data.definedNames[idx];
+      if (entry) entry.value = value;
     } else {
       this.data.definedNames.push({
         name: '_xlnm.Print_Area',
@@ -1071,9 +1071,7 @@ export class Worksheet {
     const clamped = Math.min(Math.max(level, 0), 7);
     const clampedLevel = clamped > 0 ? clamped : null;
     for (let col = startCol; col <= endCol; col++) {
-      const existing = this.data.worksheet.columns.find(
-        (c) => c.min === col && c.max === col,
-      );
+      const existing = this.data.worksheet.columns.find((c) => c.min === col && c.max === col);
       if (existing) {
         existing.outlineLevel = clampedLevel;
       } else {
@@ -1096,9 +1094,7 @@ export class Worksheet {
    */
   ungroupColumns(startCol: number, endCol: number): void {
     for (let col = startCol; col <= endCol; col++) {
-      const existing = this.data.worksheet.columns.find(
-        (c) => c.min === col && c.max === col,
-      );
+      const existing = this.data.worksheet.columns.find((c) => c.min === col && c.max === col);
       if (existing) {
         existing.outlineLevel = null;
         existing.collapsed = false;

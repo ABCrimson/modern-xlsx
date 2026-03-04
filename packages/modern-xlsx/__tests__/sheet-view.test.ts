@@ -44,7 +44,8 @@ describe('Sheet View', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1');
+    if (!ws2) throw new Error('Sheet1 not found');
     expect(ws2.view?.showGridLines).toBe(false);
     expect(ws2.view?.zoomScale).toBe(150);
   });
@@ -57,7 +58,8 @@ describe('Sheet View', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1');
+    if (!ws2) throw new Error('Sheet1 not found');
     expect(ws2.view?.rightToLeft).toBe(true);
     expect(ws2.view?.showRowColHeaders).toBe(false);
   });
@@ -74,7 +76,8 @@ describe('Sheet View', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1');
+    if (!ws2) throw new Error('Sheet1 not found');
     expect(ws2.view?.view).toBe('pageBreakPreview');
     expect(ws2.view?.zoomScale).toBe(60);
     expect(ws2.view?.zoomScaleNormal).toBe(100);
@@ -93,7 +96,8 @@ describe('Sheet View', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1');
+    if (!ws2) throw new Error('Sheet1 not found');
     expect(ws2.view?.view).toBe('pageLayout');
     expect(ws2.view?.showRuler).toBe(false);
     expect(ws2.view?.showWhiteSpace).toBe(false);
@@ -109,7 +113,8 @@ describe('Sheet View', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1');
+    if (!ws2) throw new Error('Sheet1 not found');
     expect(ws2.view?.showGridLines).toBe(false);
     expect(ws2.view?.zoomScale).toBe(120);
     expect(ws2.frozenPane).toEqual({ rows: 1, cols: 0 });

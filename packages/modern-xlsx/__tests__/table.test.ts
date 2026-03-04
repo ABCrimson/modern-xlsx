@@ -39,7 +39,9 @@ describe('drawTable', () => {
     expect(headerCell.styleIndex).not.toBeNull();
     expect(headerCell.styleIndex).toBeGreaterThan(0);
 
-    const xf = wb.styles.cellXfs[headerCell.styleIndex!];
+    const headerStyleIndex = headerCell.styleIndex;
+    if (headerStyleIndex == null) throw new Error('headerCell styleIndex not found');
+    const xf = wb.styles.cellXfs[headerStyleIndex];
     expect(wb.styles.fonts[xf.fontId].bold).toBe(true);
     expect(wb.styles.fills[xf.fillId].patternType).toBe('solid');
     expect(xf.alignment?.horizontal).toBe('center');
@@ -55,7 +57,9 @@ describe('drawTable', () => {
     });
 
     const cell = ws.cell('A1');
-    const xf = wb.styles.cellXfs[cell.styleIndex!];
+    const cellStyleIndex = cell.styleIndex;
+    if (cellStyleIndex == null) throw new Error('cell styleIndex not found');
+    const xf = wb.styles.cellXfs[cellStyleIndex];
     const border = wb.styles.borders[xf.borderId];
     expect(border.top?.style).toBe('thin');
     expect(border.bottom?.style).toBe('thin');
@@ -156,7 +160,9 @@ describe('per-cell styling', () => {
 
     const cell = ws.cell('B3');
     expect(cell.styleIndex).not.toBeNull();
-    const xf = wb.styles.cellXfs[cell.styleIndex!];
+    const cellStyleIndex = cell.styleIndex;
+    if (cellStyleIndex == null) throw new Error('cell styleIndex not found');
+    const xf = wb.styles.cellXfs[cellStyleIndex];
     const font = wb.styles.fonts[xf.fontId];
     expect(font.color).toBe('FF0000');
     expect(font.bold).toBe(true);
@@ -175,7 +181,9 @@ describe('per-cell styling', () => {
     });
 
     const cell = ws.cell('A2');
-    const xf = wb.styles.cellXfs[cell.styleIndex!];
+    const cellStyleIndex = cell.styleIndex;
+    if (cellStyleIndex == null) throw new Error('cell styleIndex not found');
+    const xf = wb.styles.cellXfs[cellStyleIndex];
     const border = wb.styles.borders[xf.borderId];
     expect(border.top?.style).toBe('thin');
     const fill = wb.styles.fills[xf.fillId];
@@ -237,21 +245,29 @@ describe('zebra striping', () => {
     });
 
     // Even rows (0, 2) should NOT have fill
-    const evenXf = wb.styles.cellXfs[ws.cell('A2').styleIndex!];
+    const evenStyleIndex = ws.cell('A2').styleIndex;
+    if (evenStyleIndex == null) throw new Error('A2 styleIndex not found');
+    const evenXf = wb.styles.cellXfs[evenStyleIndex];
     const evenFill = wb.styles.fills[evenXf.fillId];
     expect(evenFill.patternType).toBe('none');
 
     // Odd rows (1, 3) should have the alternate color
-    const oddXf = wb.styles.cellXfs[ws.cell('A3').styleIndex!];
+    const oddStyleIndex = ws.cell('A3').styleIndex;
+    if (oddStyleIndex == null) throw new Error('A3 styleIndex not found');
+    const oddXf = wb.styles.cellXfs[oddStyleIndex];
     const oddFill = wb.styles.fills[oddXf.fillId];
     expect(oddFill.patternType).toBe('solid');
     expect(oddFill.fgColor).toBe('E8EDF3');
 
-    const even2Xf = wb.styles.cellXfs[ws.cell('A4').styleIndex!];
+    const even2StyleIndex = ws.cell('A4').styleIndex;
+    if (even2StyleIndex == null) throw new Error('A4 styleIndex not found');
+    const even2Xf = wb.styles.cellXfs[even2StyleIndex];
     const even2Fill = wb.styles.fills[even2Xf.fillId];
     expect(even2Fill.patternType).toBe('none');
 
-    const odd2Xf = wb.styles.cellXfs[ws.cell('A5').styleIndex!];
+    const odd2StyleIndex = ws.cell('A5').styleIndex;
+    if (odd2StyleIndex == null) throw new Error('A5 styleIndex not found');
+    const odd2Xf = wb.styles.cellXfs[odd2StyleIndex];
     const odd2Fill = wb.styles.fills[odd2Xf.fillId];
     expect(odd2Fill.fgColor).toBe('E8EDF3');
   });
@@ -268,13 +284,19 @@ describe('cell alignment', () => {
       columns: [{ align: 'left' }, { align: 'center' }, { align: 'right' }],
     });
 
-    const leftXf = wb.styles.cellXfs[ws.cell('A2').styleIndex!];
+    const leftStyleIndex = ws.cell('A2').styleIndex;
+    if (leftStyleIndex == null) throw new Error('A2 styleIndex not found');
+    const leftXf = wb.styles.cellXfs[leftStyleIndex];
     expect(leftXf.alignment?.horizontal).toBe('left');
 
-    const centerXf = wb.styles.cellXfs[ws.cell('B2').styleIndex!];
+    const centerStyleIndex = ws.cell('B2').styleIndex;
+    if (centerStyleIndex == null) throw new Error('B2 styleIndex not found');
+    const centerXf = wb.styles.cellXfs[centerStyleIndex];
     expect(centerXf.alignment?.horizontal).toBe('center');
 
-    const rightXf = wb.styles.cellXfs[ws.cell('C2').styleIndex!];
+    const rightStyleIndex = ws.cell('C2').styleIndex;
+    if (rightStyleIndex == null) throw new Error('C2 styleIndex not found');
+    const rightXf = wb.styles.cellXfs[rightStyleIndex];
     expect(rightXf.alignment?.horizontal).toBe('right');
   });
 
@@ -288,10 +310,14 @@ describe('cell alignment', () => {
       verticalAlign: 'center',
     });
 
-    const headerXf = wb.styles.cellXfs[ws.cell('A1').styleIndex!];
+    const headerStyleIndex = ws.cell('A1').styleIndex;
+    if (headerStyleIndex == null) throw new Error('A1 styleIndex not found');
+    const headerXf = wb.styles.cellXfs[headerStyleIndex];
     expect(headerXf.alignment?.vertical).toBe('center');
 
-    const bodyXf = wb.styles.cellXfs[ws.cell('A2').styleIndex!];
+    const bodyStyleIndex = ws.cell('A2').styleIndex;
+    if (bodyStyleIndex == null) throw new Error('A2 styleIndex not found');
+    const bodyXf = wb.styles.cellXfs[bodyStyleIndex];
     expect(bodyXf.alignment?.vertical).toBe('center');
   });
 });
@@ -307,7 +333,9 @@ describe('content wrapping', () => {
       wrapText: true,
     });
 
-    const bodyXf = wb.styles.cellXfs[ws.cell('A2').styleIndex!];
+    const wrapStyleIndex = ws.cell('A2').styleIndex;
+    if (wrapStyleIndex == null) throw new Error('A2 styleIndex not found');
+    const bodyXf = wb.styles.cellXfs[wrapStyleIndex];
     expect(bodyXf.alignment?.wrapText).toBe(true);
   });
 });
@@ -442,7 +470,9 @@ describe('drawTableFromData', () => {
       },
     );
 
-    const oddXf = wb.styles.cellXfs[ws.cell('A3').styleIndex!];
+    const oddStyleIdx = ws.cell('A3').styleIndex;
+    if (oddStyleIdx == null) throw new Error('A3 styleIndex not found');
+    const oddXf = wb.styles.cellXfs[oddStyleIdx];
     const oddFill = wb.styles.fills[oddXf.fillId];
     expect(oddFill.fgColor).toBe('F0F0F0');
 

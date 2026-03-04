@@ -211,7 +211,9 @@ describe('0.1.4 — Streaming & Performance Tests', () => {
 
     for (let r = 1; r <= ROWS; r++) {
       // Column A: repeating string from pool of 100
-      ws.cell(`A${r}`).value = uniqueStrings[r % UNIQUE_COUNT]!;
+      const str = uniqueStrings[r % UNIQUE_COUNT];
+      if (!str) throw new Error(`uniqueStrings[${r % UNIQUE_COUNT}] not found`);
+      ws.cell(`A${r}`).value = str;
       // Column B: row number for verification
       ws.cell(`B${r}`).value = r;
     }
@@ -226,7 +228,8 @@ describe('0.1.4 — Streaming & Performance Tests', () => {
 
     // Verify values are correctly deduplicated and resolved
     for (const sampleRow of [1, 50, 100, 500, 1000, 5000, 9999, 10_000]) {
-      const expectedStr = uniqueStrings[sampleRow % UNIQUE_COUNT]!;
+      const expectedStr = uniqueStrings[sampleRow % UNIQUE_COUNT];
+      if (!expectedStr) throw new Error(`uniqueStrings[${sampleRow % UNIQUE_COUNT}] not found`);
       expect(ws2?.cell(`A${sampleRow}`).value).toBe(expectedStr);
       expect(ws2?.cell(`A${sampleRow}`).type).toBe('sharedString');
       expect(ws2?.cell(`B${sampleRow}`).value).toBe(sampleRow);

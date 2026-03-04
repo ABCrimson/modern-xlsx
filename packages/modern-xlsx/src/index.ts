@@ -55,9 +55,6 @@ export {
 export { HeaderFooterBuilder } from './header-footer.js';
 export { RichTextBuilder } from './rich-text.js';
 export { StyleBuilder } from './style-builder.js';
-// Table styles
-export type { TotalsRowFunction } from './table-styles.js';
-export { TABLE_STYLES, VALID_TABLE_STYLES } from './table-styles.js';
 // Table layout engine
 export type {
   CellStyle,
@@ -67,6 +64,9 @@ export type {
   TableResult,
 } from './table.js';
 export { drawTable, drawTableFromData } from './table.js';
+// Table styles
+export type { TotalsRowFunction } from './table-styles.js';
+export { TABLE_STYLES, VALID_TABLE_STYLES } from './table-styles.js';
 // Types
 export type {
   AlignmentData,

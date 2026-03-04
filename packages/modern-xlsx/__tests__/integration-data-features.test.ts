@@ -184,7 +184,8 @@ describe('Integration: Data Feature Roundtrips', () => {
     const readData = wb3.toJSON();
     const entry = readData.preservedEntries?.['xl/externalLinks/externalLink1.xml'];
     expect(entry).toBeDefined();
-    const decoded = new TextDecoder().decode(new Uint8Array(entry!));
+    if (!entry) throw new Error('missing entry');
+    const decoded = new TextDecoder().decode(new Uint8Array(entry));
     expect(decoded).toBe('<externalLink/>');
   });
 
@@ -253,9 +254,7 @@ describe('Integration: Data Feature Roundtrips', () => {
 
     // External link preserved entry
     wbData.preservedEntries = {
-      'xl/externalLinks/externalLink1.xml': Array.from(
-        new TextEncoder().encode('<externalLink/>'),
-      ),
+      'xl/externalLinks/externalLink1.xml': Array.from(new TextEncoder().encode('<externalLink/>')),
     };
 
     const wb2 = new Workbook(wbData);
@@ -277,7 +276,8 @@ describe('Integration: Data Feature Roundtrips', () => {
     // External link survived
     const entry = readData.preservedEntries?.['xl/externalLinks/externalLink1.xml'];
     expect(entry).toBeDefined();
-    const decoded = new TextDecoder().decode(new Uint8Array(entry!));
+    if (!entry) throw new Error('missing entry');
+    const decoded = new TextDecoder().decode(new Uint8Array(entry));
     expect(decoded).toBe('<externalLink/>');
   });
 
@@ -329,7 +329,9 @@ describe('Integration: Data Feature Roundtrips', () => {
     expect(wb2.getSheet('Sheet1')?.sparklineGroups[0].sparklines[0].formula).toBe('Sheet1!A1:A10');
     expect(wb2.getSheet('Sheet25')?.sparklineGroups).toHaveLength(1);
     expect(wb2.getSheet('Sheet50')?.sparklineGroups).toHaveLength(1);
-    expect(wb2.getSheet('Sheet50')?.sparklineGroups[0].sparklines[0].formula).toBe('Sheet50!A1:A10');
+    expect(wb2.getSheet('Sheet50')?.sparklineGroups[0].sparklines[0].formula).toBe(
+      'Sheet50!A1:A10',
+    );
     // Should complete well within 10 seconds
     expect(elapsed).toBeLessThan(10000);
   });

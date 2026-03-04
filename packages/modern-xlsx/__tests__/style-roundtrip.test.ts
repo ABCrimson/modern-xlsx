@@ -350,7 +350,8 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     const wb2 = await readBuffer(buffer);
 
     expect(wb2.styles.dxfs).toBeDefined();
-    expect(wb2.styles.dxfs!).toHaveLength(1);
+    if (!wb2.styles.dxfs) throw new Error('dxfs not found');
+    expect(wb2.styles.dxfs).toHaveLength(1);
 
     const dxf = wb2.styles.dxfs?.[0];
 
@@ -461,7 +462,8 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     // Verify A1 — font + fill
     const a1Style = ws2?.cell('A1').styleIndex;
     expect(a1Style).toBe(style1);
-    const xf1 = wb2.styles.cellXfs[a1Style!];
+    if (a1Style == null) throw new Error('A1 styleIndex not found');
+    const xf1 = wb2.styles.cellXfs[a1Style];
     expect(xf1).toBeDefined();
     const font1 = wb2.styles.fonts[xf1?.fontId];
     expect(font1?.bold).toBe(true);
@@ -475,7 +477,8 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     // Verify B1 — border + alignment
     const b1Style = ws2?.cell('B1').styleIndex;
     expect(b1Style).toBe(style2);
-    const xf2 = wb2.styles.cellXfs[b1Style!];
+    if (b1Style == null) throw new Error('B1 styleIndex not found');
+    const xf2 = wb2.styles.cellXfs[b1Style];
     expect(xf2).toBeDefined();
     const border2 = wb2.styles.borders[xf2?.borderId];
     expect(border2?.left?.style).toBe('medium');
@@ -490,7 +493,8 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     // Verify C1 — number format + protection
     const c1Style = ws2?.cell('C1').styleIndex;
     expect(c1Style).toBe(style3);
-    const xf3 = wb2.styles.cellXfs[c1Style!];
+    if (c1Style == null) throw new Error('C1 styleIndex not found');
+    const xf3 = wb2.styles.cellXfs[c1Style];
     expect(xf3).toBeDefined();
     const numFmt = wb2.styles.numFmts.find((f) => f.id === xf3?.numFmtId);
     expect(numFmt).toBeDefined();

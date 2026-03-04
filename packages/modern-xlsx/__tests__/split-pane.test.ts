@@ -78,7 +78,8 @@ describe('Split Pane', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1');
+    if (!ws2) throw new Error('Sheet1 not found');
     expect(ws2.splitPane?.horizontal).toBe(2400);
     expect(ws2.splitPane?.topLeftCell).toBe('A5');
     expect(ws2.paneSelections).toHaveLength(1);
@@ -96,7 +97,8 @@ describe('Split Pane', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1');
+    if (!ws2) throw new Error('Sheet1 not found');
     expect(ws2.splitPane?.vertical).toBe(3000);
     expect(ws2.splitPane?.topLeftCell).toBe('D1');
   });
@@ -119,7 +121,8 @@ describe('Split Pane', () => {
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
-    const ws2 = wb2.getSheet('Sheet1')!;
+    const ws2 = wb2.getSheet('Sheet1');
+    if (!ws2) throw new Error('Sheet1 not found');
     expect(ws2.splitPane?.horizontal).toBe(2400);
     expect(ws2.splitPane?.vertical).toBe(3000);
     expect(ws2.paneSelections).toHaveLength(3);

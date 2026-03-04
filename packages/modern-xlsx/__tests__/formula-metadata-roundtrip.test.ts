@@ -68,7 +68,9 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
 
     const data = wb.toJSON();
     // Ensure there's a row and cell for the array formula
-    data.sheets[0]!.worksheet.rows = [
+    const arrSheet = data.sheets[0];
+    if (!arrSheet) throw new Error('Sheet not found');
+    arrSheet.worksheet.rows = [
       {
         index: 1,
         cells: [
@@ -94,7 +96,8 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     const wb3 = await readBuffer(buffer);
 
     const readData = wb3.toJSON();
-    const sheet = readData.sheets[0]!;
+    const sheet = readData.sheets[0];
+    if (!sheet) throw new Error('Sheet not found');
     const row = sheet.worksheet.rows.find((r) => r.index === 1);
     expect(row).toBeDefined();
 
@@ -113,7 +116,9 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     wb.addSheet('Sheet1');
 
     const data = wb.toJSON();
-    data.sheets[0]!.worksheet.rows = [
+    const sharedSheet = data.sheets[0];
+    if (!sharedSheet) throw new Error('Sheet not found');
+    sharedSheet.worksheet.rows = [
       {
         index: 1,
         cells: [
@@ -211,7 +216,8 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     const wb3 = await readBuffer(buffer);
 
     const readData = wb3.toJSON();
-    const sheet = readData.sheets[0]!;
+    const sheet = readData.sheets[0];
+    if (!sheet) throw new Error('Sheet not found');
 
     // Master cell (B1) — should have formula, sharedIndex, and formulaRef
     const row1 = sheet.worksheet.rows.find((r) => r.index === 1);
@@ -259,7 +265,9 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
       sharedIndex: null,
       inlineString: 'Hello inline',
     };
-    data.sheets[0]!.worksheet.rows = [
+    const inlineSheet = data.sheets[0];
+    if (!inlineSheet) throw new Error('Sheet not found');
+    inlineSheet.worksheet.rows = [
       {
         index: 1,
         cells: [cell],
@@ -273,7 +281,8 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     const wb3 = await readBuffer(buffer);
 
     const readData = wb3.toJSON();
-    const sheet = readData.sheets[0]!;
+    const sheet = readData.sheets[0];
+    if (!sheet) throw new Error('Sheet not found');
     const row = sheet.worksheet.rows.find((r) => r.index === 1);
     expect(row).toBeDefined();
 
@@ -420,13 +429,13 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
 
     // Verify image entry preserved
     const img = readData.preservedEntries?.['xl/media/image1.png'];
-    expect(img).toBeDefined();
-    expect(Array.from(img!)).toEqual(pngBytes);
+    if (!img) throw new Error('Image entry not found');
+    expect(Array.from(img)).toEqual(pngBytes);
 
     // Verify drawing XML entry preserved
     const drawing = readData.preservedEntries?.['xl/drawings/drawing1.xml'];
-    expect(drawing).toBeDefined();
-    const decodedXml = new TextDecoder().decode(new Uint8Array(drawing!));
+    if (!drawing) throw new Error('Drawing entry not found');
+    const decodedXml = new TextDecoder().decode(new Uint8Array(drawing));
     expect(decodedXml).toBe('<xml>test</xml>');
   });
 
@@ -476,7 +485,9 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     wb.addSheet('Sheet1');
 
     const data = wb.toJSON();
-    data.sheets[0]!.worksheet.rows = [
+    const multiSheet = data.sheets[0];
+    if (!multiSheet) throw new Error('Sheet not found');
+    multiSheet.worksheet.rows = [
       {
         index: 1,
         cells: [
@@ -587,7 +598,8 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     const wb3 = await readBuffer(buffer);
 
     const readData = wb3.toJSON();
-    const sheet = readData.sheets[0]!;
+    const sheet = readData.sheets[0];
+    if (!sheet) throw new Error('Sheet not found');
 
     // Normal formula (A1)
     const row1 = sheet.worksheet.rows.find((r) => r.index === 1);
