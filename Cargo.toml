@@ -44,6 +44,10 @@ serde-wasm-bindgen = "0.6"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "console", "Performance"] }
 
+# Cryptography — ECMA-376 Agile Encryption key derivation
+sha2 = "0.10"
+zeroize = { version = "1.8", features = ["derive"] }
+
 # Dev
 wasm-bindgen-test = "0.3"
 pretty_assertions = "1.4"

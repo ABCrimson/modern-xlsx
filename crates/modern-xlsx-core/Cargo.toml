@@ -17,6 +17,8 @@ thiserror.workspace = true
 log.workspace = true
 itoa.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
 rayon = { version = "1.10", optional = true }
 
 [features]
