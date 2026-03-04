@@ -59,6 +59,11 @@ export interface CellData {
   sharedIndex?: number | null;
   inlineString?: string | null;
   dynamicArray?: boolean | null;
+  formulaR1?: string | null;
+  formulaR2?: string | null;
+  formulaDt2d?: boolean | null;
+  formulaDtr1?: boolean | null;
+  formulaDtr2?: boolean | null;
 }
 
 export interface RowData {
