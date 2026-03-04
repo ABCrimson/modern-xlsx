@@ -19,6 +19,10 @@ itoa.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 zeroize.workspace = true
+aes.workspace = true
+cbc.workspace = true
+hmac.workspace = true
+constant_time_eq.workspace = true
 rayon = { version = "1.10", optional = true }
 
 [features]

@@ -1,14 +1,24 @@
-//! ECMA-376 SS2.3.6.2 Agile Encryption key derivation.
+//! ECMA-376 SS2.3.6.2 Agile Encryption key derivation and AES-CBC decryption.
 //!
-//! Implements password-based key derivation for OOXML Agile Encryption using
-//! SHA-512 or SHA-256. The derived key is used to decrypt the encrypted package
-//! key, HMAC key, and verifier values.
+//! Implements password-based key derivation, password verification, AES-CBC
+//! decryption (segment-based), and HMAC integrity verification for OOXML
+//! Agile Encryption (SHA-512/SHA-256, AES-128/AES-256).
 
+use aes::{Aes128, Aes256};
+use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::{NoPadding, Pkcs7}};
+use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256, Sha512, digest::FixedOutputReset};
 
+use super::encryption_info::AgileEncryptionInfo;
 use crate::errors::ModernXlsxError;
 
 type Result<T> = std::result::Result<T, ModernXlsxError>;
+
+type Aes128CbcDec = cbc::Decryptor<Aes128>;
+type Aes256CbcDec = cbc::Decryptor<Aes256>;
+
+/// Segment size for ECMA-376 Agile Encryption.
+const SEGMENT_SIZE: usize = 4096;
 
 /// Block key constants per ECMA-376 SS2.3.6.2.
 pub const BLOCK_KEY_VERIFIER_INPUT: [u8; 8] = [0xFE, 0xA7, 0xD2, 0x76, 0x3B, 0x4B, 0x9E, 0x79];
@@ -16,6 +26,10 @@ pub const BLOCK_KEY_VERIFIER_VALUE: [u8; 8] = [0xD7, 0xAA, 0x0F, 0x6D, 0x30, 0x6
 pub const BLOCK_KEY_ENCRYPTED_KEY: [u8; 8] = [0x14, 0x6E, 0x0B, 0xE7, 0xAB, 0xAC, 0xD0, 0xD6];
 pub const BLOCK_KEY_HMAC_KEY: [u8; 8] = [0x5F, 0xB2, 0xAD, 0x01, 0x0C, 0xB9, 0xE1, 0xF6];
 pub const BLOCK_KEY_HMAC_VALUE: [u8; 8] = [0xA0, 0x67, 0x7F, 0x02, 0xB2, 0x2C, 0x84, 0x33];
+
+// ---------------------------------------------------------------------------
+// Key derivation
+// ---------------------------------------------------------------------------
 
 /// Derives a key from a password per ECMA-376 Agile Encryption SS2.3.6.2.
 ///
@@ -86,6 +100,328 @@ fn derive_key_impl<D: Digest + Default + FixedOutputReset>(
 
     Ok(key)
 }
+
+// ---------------------------------------------------------------------------
+// AES-CBC primitives
+// ---------------------------------------------------------------------------
+
+/// Decrypts data using AES-CBC with PKCS#7 padding removal.
+///
+/// Automatically selects AES-128 or AES-256 based on key length.
+pub fn aes_cbc_decrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    let mut buf = data.to_vec();
+    match key.len() {
+        16 => {
+            let decryptor = Aes128CbcDec::new_from_slices(key, iv)
+                .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
+            let plaintext = decryptor
+                .decrypt_padded_mut::<Pkcs7>(&mut buf)
+                .map_err(|_| {
+                    ModernXlsxError::PasswordProtected(
+                        "AES decryption failed (bad padding)".into(),
+                    )
+                })?;
+            Ok(plaintext.to_vec())
+        }
+        32 => {
+            let decryptor = Aes256CbcDec::new_from_slices(key, iv)
+                .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
+            let plaintext = decryptor
+                .decrypt_padded_mut::<Pkcs7>(&mut buf)
+                .map_err(|_| {
+                    ModernXlsxError::PasswordProtected(
+                        "AES decryption failed (bad padding)".into(),
+                    )
+                })?;
+            Ok(plaintext.to_vec())
+        }
+        n => Err(ModernXlsxError::PasswordProtected(format!(
+            "Unsupported AES key length: {n} bytes (expected 16 or 32)"
+        ))),
+    }
+}
+
+/// Decrypts data without removing padding (for raw segment blocks).
+///
+/// Automatically selects AES-128 or AES-256 based on key length.
+pub fn aes_cbc_decrypt_no_pad(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    let mut buf = data.to_vec();
+    match key.len() {
+        16 => {
+            let decryptor = Aes128CbcDec::new_from_slices(key, iv)
+                .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
+            decryptor
+                .decrypt_padded_mut::<NoPadding>(&mut buf)
+                .map_err(|_| {
+                    ModernXlsxError::PasswordProtected("AES decryption failed".into())
+                })?;
+            Ok(buf)
+        }
+        32 => {
+            let decryptor = Aes256CbcDec::new_from_slices(key, iv)
+                .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
+            decryptor
+                .decrypt_padded_mut::<NoPadding>(&mut buf)
+                .map_err(|_| {
+                    ModernXlsxError::PasswordProtected("AES decryption failed".into())
+                })?;
+            Ok(buf)
+        }
+        n => Err(ModernXlsxError::PasswordProtected(format!(
+            "Unsupported AES key length: {n} bytes (expected 16 or 32)"
+        ))),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Hashing helpers
+// ---------------------------------------------------------------------------
+
+/// Hash bytes with the named algorithm.
+fn hash_bytes(alg: &str, data: &[u8]) -> Result<Vec<u8>> {
+    match alg {
+        "SHA512" => {
+            let mut h = Sha512::new();
+            Digest::update(&mut h, data);
+            Ok(h.finalize().to_vec())
+        }
+        "SHA256" => {
+            let mut h = Sha256::new();
+            Digest::update(&mut h, data);
+            Ok(h.finalize().to_vec())
+        }
+        _ => Err(ModernXlsxError::PasswordProtected(format!(
+            "Unsupported hash algorithm: {alg}"
+        ))),
+    }
+}
+
+/// Hash the concatenation of two byte slices: H(prefix || data).
+fn hash_bytes_with_prefix(prefix: &[u8], data: &[u8], alg: &str) -> Result<Vec<u8>> {
+    match alg {
+        "SHA512" => {
+            let mut h = Sha512::new();
+            Digest::update(&mut h, prefix);
+            Digest::update(&mut h, data);
+            Ok(h.finalize().to_vec())
+        }
+        "SHA256" => {
+            let mut h = Sha256::new();
+            Digest::update(&mut h, prefix);
+            Digest::update(&mut h, data);
+            Ok(h.finalize().to_vec())
+        }
+        _ => Err(ModernXlsxError::PasswordProtected(format!(
+            "Unsupported hash algorithm: {alg}"
+        ))),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Password verification
+// ---------------------------------------------------------------------------
+
+/// Verifies a password against Agile encryption info.
+/// Returns the decrypted data encryption key if password is correct.
+pub fn verify_password_agile(
+    password: &str,
+    info: &AgileEncryptionInfo,
+) -> Result<Vec<u8>> {
+    // 1. Derive verifier hash input key
+    let input_key = derive_key(
+        password,
+        &info.pw_salt,
+        info.pw_spin_count,
+        info.pw_key_bits,
+        &BLOCK_KEY_VERIFIER_INPUT,
+        &info.pw_hash_alg,
+    )?;
+
+    // 2. Decrypt verifier hash input
+    let verifier_input = aes_cbc_decrypt(
+        &input_key,
+        &info.pw_salt,
+        &info.pw_encrypted_verifier_hash_input,
+    )?;
+
+    // 3. Derive verifier hash value key
+    let value_key = derive_key(
+        password,
+        &info.pw_salt,
+        info.pw_spin_count,
+        info.pw_key_bits,
+        &BLOCK_KEY_VERIFIER_VALUE,
+        &info.pw_hash_alg,
+    )?;
+
+    // 4. Decrypt verifier hash value
+    let verifier_hash = aes_cbc_decrypt(
+        &value_key,
+        &info.pw_salt,
+        &info.pw_encrypted_verifier_hash_value,
+    )?;
+
+    // 5. Hash the decrypted verifier input
+    let computed = hash_bytes(&info.pw_hash_alg, &verifier_input)?;
+
+    // 6. Constant-time comparison (truncate to hash_size)
+    let hash_len = info.pw_hash_size as usize;
+    if computed.len() < hash_len || verifier_hash.len() < hash_len {
+        return Err(ModernXlsxError::PasswordProtected(
+            "Incorrect password.".into(),
+        ));
+    }
+    if !constant_time_eq::constant_time_eq(&computed[..hash_len], &verifier_hash[..hash_len]) {
+        return Err(ModernXlsxError::PasswordProtected(
+            "Incorrect password.".into(),
+        ));
+    }
+
+    // 7. Derive data encryption key
+    let enc_key_key = derive_key(
+        password,
+        &info.pw_salt,
+        info.pw_spin_count,
+        info.pw_key_bits,
+        &BLOCK_KEY_ENCRYPTED_KEY,
+        &info.pw_hash_alg,
+    )?;
+
+    // 8. Decrypt the actual data encryption key
+    let data_key = aes_cbc_decrypt(&enc_key_key, &info.pw_salt, &info.pw_encrypted_key_value)?;
+
+    let key_len = (info.pw_key_bits / 8) as usize;
+    Ok(data_key[..key_len.min(data_key.len())].to_vec())
+}
+
+// ---------------------------------------------------------------------------
+// Segment-based decryption
+// ---------------------------------------------------------------------------
+
+/// Decrypts the EncryptedPackage stream.
+///
+/// Layout: `[8 bytes: original size LE64] [encrypted segments of 4096 bytes each]`
+/// Each segment IV = `Hash(salt + LE32(segment_index))` truncated to `block_size`.
+pub fn decrypt_package(
+    data_key: &[u8],
+    info: &AgileEncryptionInfo,
+    encrypted_package: &[u8],
+) -> Result<Vec<u8>> {
+    if encrypted_package.len() < 8 {
+        return Err(ModernXlsxError::PasswordProtected(
+            "EncryptedPackage too short".into(),
+        ));
+    }
+
+    let original_size =
+        u64::from_le_bytes(encrypted_package[..8].try_into().unwrap()) as usize;
+    let payload = &encrypted_package[8..];
+
+    let block_size = info.key_block_size as usize;
+    let mut result = Vec::with_capacity(original_size);
+
+    for (segment_idx, chunk) in payload.chunks(SEGMENT_SIZE).enumerate() {
+        let iv = derive_segment_iv(
+            &info.key_salt,
+            segment_idx as u32,
+            block_size,
+            &info.key_hash_alg,
+        )?;
+        let decrypted = aes_cbc_decrypt_no_pad(data_key, &iv, chunk)?;
+        result.extend_from_slice(&decrypted);
+    }
+
+    result.truncate(original_size);
+    Ok(result)
+}
+
+/// Derives the IV for a given segment index.
+fn derive_segment_iv(
+    salt: &[u8],
+    segment_index: u32,
+    block_size: usize,
+    hash_alg: &str,
+) -> Result<Vec<u8>> {
+    let hash =
+        hash_bytes_with_prefix(salt, &segment_index.to_le_bytes(), hash_alg)?;
+    Ok(hash[..block_size].to_vec())
+}
+
+// ---------------------------------------------------------------------------
+// HMAC integrity verification
+// ---------------------------------------------------------------------------
+
+/// Verifies HMAC integrity of the encrypted package.
+pub fn verify_hmac(
+    data_key: &[u8],
+    info: &AgileEncryptionInfo,
+    encrypted_package: &[u8],
+) -> Result<()> {
+    let key_len = (info.key_bits / 8) as usize;
+
+    // 1. Derive HMAC key: Hash(dataKey + blockKeyHmacKey), decrypt encrypted HMAC key
+    let hmac_key_derivation =
+        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_KEY, &info.key_hash_alg)?;
+    let hmac_key = aes_cbc_decrypt(
+        &hmac_key_derivation[..key_len],
+        &info.key_salt,
+        &info.encrypted_hmac_key,
+    )?;
+
+    // 2. Derive HMAC value key and decrypt expected HMAC
+    let hmac_value_derivation =
+        hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_VALUE, &info.key_hash_alg)?;
+    let expected_hmac = aes_cbc_decrypt(
+        &hmac_value_derivation[..key_len],
+        &info.key_salt,
+        &info.encrypted_hmac_value,
+    )?;
+
+    // 3. Compute HMAC of encrypted package (entire encrypted stream including size prefix)
+    let hash_len = info.key_hash_size as usize;
+    let computed = match info.key_hash_alg.as_str() {
+        "SHA512" => {
+            let mut mac = Hmac::<Sha512>::new_from_slice(&hmac_key[..hash_len])
+                .map_err(|e| {
+                    ModernXlsxError::PasswordProtected(format!("HMAC init: {e}"))
+                })?;
+            mac.update(encrypted_package);
+            mac.finalize().into_bytes().to_vec()
+        }
+        "SHA256" => {
+            let mut mac = Hmac::<Sha256>::new_from_slice(&hmac_key[..hash_len])
+                .map_err(|e| {
+                    ModernXlsxError::PasswordProtected(format!("HMAC init: {e}"))
+                })?;
+            mac.update(encrypted_package);
+            mac.finalize().into_bytes().to_vec()
+        }
+        _ => {
+            return Err(ModernXlsxError::PasswordProtected(format!(
+                "Unsupported hash algorithm for HMAC: {}",
+                info.key_hash_alg
+            )));
+        }
+    };
+
+    // 4. Constant-time compare
+    if computed.len() < hash_len || expected_hmac.len() < hash_len {
+        return Err(ModernXlsxError::PasswordProtected(
+            "HMAC verification failed — truncated hash".into(),
+        ));
+    }
+    if !constant_time_eq::constant_time_eq(&computed[..hash_len], &expected_hmac[..hash_len]) {
+        return Err(ModernXlsxError::PasswordProtected(
+            "HMAC verification failed — file may be corrupted or tampered with.".into(),
+        ));
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -175,5 +511,189 @@ mod tests {
         assert_ne!(key_256, key_512);
         assert_eq!(key_256.len(), 16);
         assert_eq!(key_512.len(), 16);
+    }
+
+    // --- AES-CBC tests ---
+
+    #[test]
+    fn test_aes_cbc_decrypt_known_vector() {
+        // AES-256-CBC encrypt-then-decrypt roundtrip
+        use cbc::cipher::{BlockEncryptMut, block_padding::Pkcs7 as Pkcs7Pad};
+        type Aes256CbcEnc = cbc::Encryptor<Aes256>;
+
+        let key = [0x60u8; 32];
+        let iv = [0x00u8; 16];
+
+        let plaintext = b"Hello AES-256-CBC Test!";
+        let encryptor = Aes256CbcEnc::new_from_slices(&key, &iv).unwrap();
+        let ciphertext = encryptor.encrypt_padded_vec_mut::<Pkcs7Pad>(plaintext);
+
+        let decrypted = aes_cbc_decrypt(&key, &iv, &ciphertext).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_aes_cbc_decrypt_no_pad_roundtrip() {
+        use cbc::cipher::{BlockEncryptMut, block_padding::NoPadding as NoPad};
+        type Aes256CbcEnc = cbc::Encryptor<Aes256>;
+
+        let key = [0x42u8; 32];
+        let iv = [0x01u8; 16];
+
+        // Must be exact multiple of block size (16)
+        let plaintext = [0xAA; 32]; // 2 blocks
+        let encryptor = Aes256CbcEnc::new_from_slices(&key, &iv).unwrap();
+        let ciphertext = encryptor.encrypt_padded_vec_mut::<NoPad>(&plaintext);
+
+        let decrypted = aes_cbc_decrypt_no_pad(&key, &iv, &ciphertext).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_decrypt_single_segment() {
+        // Create a fake encrypted package: 8-byte size + 1 segment of encrypted data
+        use cbc::cipher::{BlockEncryptMut, block_padding::NoPadding as NoPad};
+
+        let key = [0x33u8; 32];
+        let salt = [0x11u8; 16];
+        let original = vec![0xBB; 100]; // 100 bytes original data
+
+        // Encrypt one segment: pad original to 4096, encrypt with segment IV
+        let mut padded = original.clone();
+        padded.resize(4096, 0); // Pad to segment size
+
+        // Derive segment 0 IV: SHA-512(salt + LE32(0)), truncated to 16
+        let mut hasher = Sha512::new();
+        Digest::update(&mut hasher, &salt);
+        Digest::update(&mut hasher, &0u32.to_le_bytes());
+        let hash = hasher.finalize();
+        let iv: Vec<u8> = hash[..16].to_vec();
+
+        let encryptor = cbc::Encryptor::<Aes256>::new_from_slices(&key, &iv).unwrap();
+        let ciphertext = encryptor.encrypt_padded_vec_mut::<NoPad>(&padded);
+
+        // Build encrypted package: size(8) + ciphertext
+        let mut package = Vec::new();
+        package.extend_from_slice(&(100u64).to_le_bytes());
+        package.extend_from_slice(&ciphertext);
+
+        // Build minimal AgileEncryptionInfo
+        let info = AgileEncryptionInfo {
+            key_salt: salt.to_vec(),
+            key_block_size: 16,
+            key_bits: 256,
+            key_hash_size: 64,
+            key_cipher: "AES".into(),
+            key_chaining: "ChainingModeCBC".into(),
+            key_hash_alg: "SHA512".into(),
+            encrypted_hmac_key: vec![],
+            encrypted_hmac_value: vec![],
+            pw_spin_count: 100000,
+            pw_salt: vec![],
+            pw_block_size: 16,
+            pw_key_bits: 256,
+            pw_hash_size: 64,
+            pw_cipher: "AES".into(),
+            pw_chaining: "ChainingModeCBC".into(),
+            pw_hash_alg: "SHA512".into(),
+            pw_encrypted_key_value: vec![],
+            pw_encrypted_verifier_hash_input: vec![],
+            pw_encrypted_verifier_hash_value: vec![],
+        };
+
+        let result = decrypt_package(&key, &info, &package).unwrap();
+        assert_eq!(result.len(), 100);
+        assert_eq!(result, original);
+    }
+
+    #[test]
+    fn test_decrypt_multi_segment() {
+        // 3 segments = 12288 bytes encrypted + last partial
+        use cbc::cipher::{BlockEncryptMut, block_padding::NoPadding as NoPad};
+
+        let key = [0x44u8; 32];
+        let salt = [0x22u8; 16];
+        let original = vec![0xCC; 10000]; // 10000 bytes = 2 full segments + 1 partial
+
+        let mut package = Vec::new();
+        package.extend_from_slice(&(10000u64).to_le_bytes());
+
+        // Encrypt each segment
+        let padded_size = if original.len() % 4096 == 0 {
+            original.len()
+        } else {
+            ((original.len() / 4096) + 1) * 4096
+        };
+        let mut padded = original.clone();
+        padded.resize(padded_size, 0);
+
+        for (seg_idx, chunk) in padded.chunks(4096).enumerate() {
+            let mut hasher = Sha512::new();
+            Digest::update(&mut hasher, &salt);
+            Digest::update(&mut hasher, &(seg_idx as u32).to_le_bytes());
+            let hash = hasher.finalize();
+            let iv: Vec<u8> = hash[..16].to_vec();
+
+            let encryptor = cbc::Encryptor::<Aes256>::new_from_slices(&key, &iv).unwrap();
+            let ct = encryptor.encrypt_padded_vec_mut::<NoPad>(chunk);
+            package.extend_from_slice(&ct);
+        }
+
+        let info = AgileEncryptionInfo {
+            key_salt: salt.to_vec(),
+            key_block_size: 16,
+            key_bits: 256,
+            key_hash_size: 64,
+            key_cipher: "AES".into(),
+            key_chaining: "ChainingModeCBC".into(),
+            key_hash_alg: "SHA512".into(),
+            encrypted_hmac_key: vec![],
+            encrypted_hmac_value: vec![],
+            pw_spin_count: 100000,
+            pw_salt: vec![],
+            pw_block_size: 16,
+            pw_key_bits: 256,
+            pw_hash_size: 64,
+            pw_cipher: "AES".into(),
+            pw_chaining: "ChainingModeCBC".into(),
+            pw_hash_alg: "SHA512".into(),
+            pw_encrypted_key_value: vec![],
+            pw_encrypted_verifier_hash_input: vec![],
+            pw_encrypted_verifier_hash_value: vec![],
+        };
+
+        let result = decrypt_package(&key, &info, &package).unwrap();
+        assert_eq!(result.len(), 10000);
+        assert_eq!(result, original);
+    }
+
+    #[test]
+    fn test_encrypted_package_too_short() {
+        let key = [0u8; 32];
+        let info = AgileEncryptionInfo {
+            key_salt: vec![0; 16],
+            key_block_size: 16,
+            key_bits: 256,
+            key_hash_size: 64,
+            key_cipher: "AES".into(),
+            key_chaining: "ChainingModeCBC".into(),
+            key_hash_alg: "SHA512".into(),
+            encrypted_hmac_key: vec![],
+            encrypted_hmac_value: vec![],
+            pw_spin_count: 100000,
+            pw_salt: vec![],
+            pw_block_size: 16,
+            pw_key_bits: 256,
+            pw_hash_size: 64,
+            pw_cipher: "AES".into(),
+            pw_chaining: "ChainingModeCBC".into(),
+            pw_hash_alg: "SHA512".into(),
+            pw_encrypted_key_value: vec![],
+            pw_encrypted_verifier_hash_input: vec![],
+            pw_encrypted_verifier_hash_value: vec![],
+        };
+        let result = decrypt_package(&key, &info, &[0u8; 4]); // too short
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too short"));
     }
 }

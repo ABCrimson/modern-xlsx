@@ -47,6 +47,10 @@ web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "console", "
 # Cryptography — ECMA-376 Agile Encryption key derivation
 sha2 = "0.10"
 zeroize = { version = "1.8", features = ["derive"] }
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+hmac = "0.12"
+constant_time_eq = "0.3"
 
 # Dev
 wasm-bindgen-test = "0.3"
