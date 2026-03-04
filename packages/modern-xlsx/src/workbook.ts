@@ -1,6 +1,7 @@
 import type { DrawBarcodeOptions, ImageAnchor } from './barcode.js';
 import { generateBarcode, generateDrawingRels, generateDrawingXml } from './barcode.js';
 import { columnToLetter, decodeCellRef } from './cell-ref.js';
+import { ChartBuilder } from './chart-builder.js';
 import { isDateFormatCode, serialToDate } from './dates.js';
 import { getBuiltinFormat } from './format-cell.js';
 import { StyleBuilder } from './style-builder.js';
@@ -9,6 +10,7 @@ import type {
   CalcChainEntryData,
   CellData,
   CellType,
+  ChartType,
   ColumnInfo,
   CommentData,
   DataValidationData,
@@ -38,6 +40,7 @@ import type {
   WorkbookData,
   WorkbookProtectionData,
   WorkbookViewData,
+  WorksheetChartData,
   WriteOptions,
 } from './types.js';
 import {
@@ -1022,6 +1025,55 @@ export class Worksheet {
     const idx = this.data.worksheet.tables.findIndex((t) => t.displayName === displayName);
     if (idx === -1) return false;
     this.data.worksheet.tables.splice(idx, 1);
+    return true;
+  }
+
+  // --- Charts ---
+
+  /** Returns all charts on this sheet. */
+  get charts(): readonly WorksheetChartData[] {
+    return this.data.worksheet.charts ?? [];
+  }
+
+  /**
+   * Adds a chart to this worksheet using a builder callback.
+   *
+   * @example
+   * ```ts
+   * ws.addChart('bar', (b) => {
+   *   b.title('Sales')
+   *    .addSeries({ valRef: 'Sheet1!$B$2:$B$5' })
+   *    .legend('bottom');
+   * });
+   * ```
+   */
+  addChart(type: ChartType, configure: (builder: ChartBuilder) => void): void {
+    const builder = new ChartBuilder(type);
+    configure(builder);
+    if (!this.data.worksheet.charts) {
+      this.data.worksheet.charts = [];
+    }
+    this.data.worksheet.charts.push(builder.build());
+  }
+
+  /**
+   * Adds a pre-built chart definition to this worksheet.
+   */
+  addChartData(chart: WorksheetChartData): void {
+    if (!this.data.worksheet.charts) {
+      this.data.worksheet.charts = [];
+    }
+    this.data.worksheet.charts.push(chart);
+  }
+
+  /**
+   * Removes a chart by index.
+   * @returns `true` if removed, `false` if index out of range.
+   */
+  removeChart(index: number): boolean {
+    if (!this.data.worksheet.charts || index < 0 || index >= this.data.worksheet.charts.length)
+      return false;
+    this.data.worksheet.charts.splice(index, 1);
     return true;
   }
 

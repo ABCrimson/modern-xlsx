@@ -34,6 +34,9 @@ export {
   letterToColumn,
   splitCellRef,
 } from './cell-ref.js';
+// Builders
+export type { AddSeriesOptions, AxisOptions } from './chart-builder.js';
+export { ChartBuilder } from './chart-builder.js';
 // Date utilities
 export {
   dateToSerial,
@@ -88,7 +91,6 @@ export {
   serializeFormula,
   tokenize,
 } from './formula/index.js';
-// Builders
 export { HeaderFooterBuilder } from './header-footer.js';
 export { RichTextBuilder } from './rich-text.js';
 export { StyleBuilder } from './style-builder.js';
