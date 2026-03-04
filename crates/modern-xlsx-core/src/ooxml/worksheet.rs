@@ -3685,7 +3685,7 @@ impl WorksheetXml {
 
     /// Serialize this worksheet to valid XML bytes.
     pub fn to_xml(&self) -> Result<Vec<u8>> {
-        self.to_xml_with_sst(None, &[])
+        self.to_xml_with_sst(None, &[], None)
     }
 
     /// Serialize to worksheet XML bytes, optionally remapping SharedString
@@ -3694,10 +3694,14 @@ impl WorksheetXml {
     ///
     /// `table_r_ids` are the relationship IDs for `<tableParts>` elements;
     /// pass an empty slice when no tables are attached to this sheet.
+    ///
+    /// `drawing_r_id` is the relationship ID for the `<drawing>` element
+    /// referencing the drawing XML that contains chart anchors.
     pub fn to_xml_with_sst(
         &self,
         sst: Option<&super::shared_strings::SharedStringTableBuilder>,
         table_r_ids: &[String],
+        drawing_r_id: Option<&str>,
     ) -> Result<Vec<u8>> {
         let mut buf: Vec<u8> = Vec::with_capacity(1024 + self.rows.len() * 128);
         let mut writer = Writer::new(&mut buf);
@@ -4511,6 +4515,13 @@ impl WorksheetXml {
             writer
                 .write_event(Event::End(BytesEnd::new("tableParts")))
                 .map_err(map_err)?;
+        }
+
+        // <drawing r:id="..."/> — if a drawing relationship ID is provided (charts).
+        if let Some(rid) = drawing_r_id {
+            let mut drawing_elem = BytesStart::new("drawing");
+            drawing_elem.push_attribute(("r:id", rid));
+            writer.write_event(Event::Empty(drawing_elem)).map_err(map_err)?;
         }
 
         // <extLst> — sparkline groups and/or preserved extensions.
@@ -6323,7 +6334,7 @@ mod tests {
             charts: vec![],
             preserved_extensions: vec![],
         };
-        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
         let hf = ws2.header_footer.as_ref().unwrap();
         assert_eq!(hf.odd_header.as_deref(), Some("&CPage &P of &N"));
@@ -6361,7 +6372,7 @@ mod tests {
             charts: vec![],
             preserved_extensions: vec![],
         };
-        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
         assert_eq!(ws2.rows[1].outline_level, Some(1));
         assert_eq!(ws2.rows[2].outline_level, Some(1));
@@ -6382,7 +6393,7 @@ mod tests {
         assert!(ws.rows[0].hidden);
         assert!(ws.rows[2].collapsed);
 
-        let xml2 = ws.to_xml_with_sst(None, &[]).unwrap();
+        let xml2 = ws.to_xml_with_sst(None, &[], None).unwrap();
         let ws2 = WorksheetXml::parse(&xml2).unwrap();
         assert_eq!(ws2.rows[0].outline_level, Some(1));
         assert!(ws2.rows[0].hidden);
@@ -6419,7 +6430,7 @@ mod tests {
             charts: vec![],
             preserved_extensions: vec![],
         };
-        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
         assert!(ws2.columns[0].outline_level.is_none());
         assert_eq!(ws2.columns[1].outline_level, Some(1));
@@ -6454,7 +6465,7 @@ mod tests {
             charts: vec![],
             preserved_extensions: vec![],
         };
-        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
         let op = ws2.outline_properties.as_ref().unwrap();
         assert!(!op.summary_below);
@@ -6908,7 +6919,7 @@ mod tests {
             ],
             ..Default::default()
         }];
-        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
         assert_eq!(ws2.sparkline_groups.len(), 1);
         assert_eq!(ws2.sparkline_groups[0].sparklines.len(), 2);
@@ -6933,7 +6944,7 @@ mod tests {
             low: true,
             ..Default::default()
         }];
-        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
         assert_eq!(ws2.sparkline_groups[0].sparkline_type, "column");
         assert_eq!(ws2.sparkline_groups[0].color_series.as_deref(), Some("FF376092"));
@@ -6964,7 +6975,7 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
         assert_eq!(ws2.sparkline_groups.len(), 2);
         assert_eq!(ws2.sparkline_groups[0].sparkline_type, "line");
@@ -7005,7 +7016,7 @@ mod tests {
             manual_max: Some(100.0),
             right_to_left: true,
         }];
-        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
         let g = &ws2.sparkline_groups[0];
         assert_eq!(g.sparkline_type, "stacked");
@@ -7092,7 +7103,7 @@ mod tests {
             outline_level: None,
             collapsed: false,
         });
-        let xml = ws.to_xml_with_sst(None, &[]).unwrap();
+        let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
         let ws2 = WorksheetXml::parse(&xml).unwrap();
         let cell = &ws2.rows[0].cells[0];
         assert_eq!(cell.formula_type.as_deref(), Some("dataTable"));

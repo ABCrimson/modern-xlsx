@@ -21,6 +21,10 @@ pub(crate) const CT_COMMENTS: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml";
 pub const CT_TABLE: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml";
+pub(crate) const CT_CHART: &str =
+    "application/vnd.openxmlformats-officedocument.drawingml.chart+xml";
+pub(crate) const CT_DRAWING: &str =
+    "application/vnd.openxmlformats-officedocument.drawing+xml";
 pub(crate) const CT_EXTERNAL_LINK: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml";
 pub(crate) const CT_CUSTOM_XML_PROPS: &str =

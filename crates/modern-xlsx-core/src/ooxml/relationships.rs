@@ -18,6 +18,10 @@ pub(crate) const REL_COMMENTS: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments";
 pub const REL_TABLE: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table";
+pub(crate) const REL_CHART: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart";
+pub(crate) const REL_DRAWING: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";
 
 const RELS_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
 

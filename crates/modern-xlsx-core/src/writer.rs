@@ -9,11 +9,13 @@ use log::{debug, trace};
 
 use crate::ooxml::{
     calc_chain,
+    charts::ChartAnchor,
     comments,
     content_types::{
-        ContentTypes, CT_COMMENTS, CT_CUSTOM_XML_PROPS, CT_EXTERNAL_LINK, CT_TABLE, CT_XML,
+        ContentTypes, CT_CHART, CT_COMMENTS, CT_CUSTOM_XML_PROPS, CT_DRAWING, CT_EXTERNAL_LINK,
+        CT_TABLE, CT_XML,
     },
-    relationships::{Relationships, REL_COMMENTS, REL_TABLE},
+    relationships::{Relationships, REL_CHART, REL_COMMENTS, REL_DRAWING, REL_TABLE},
     shared_strings::SharedStringTableBuilder,
     workbook::{SheetInfo, SheetState, WorkbookXml},
     worksheet::CellType,
@@ -150,13 +152,15 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     // serialization (avoids cloning the entire worksheet).
     // Also write comments XML, table XML, and worksheet .rels files.
     let mut global_table_id: u32 = 0;
+    let mut global_chart_id: u32 = 0;
     let mut generated_rels: HashSet<String> = HashSet::new();
 
     for (i, sheet) in workbook.sheets.iter().enumerate() {
         let sheet_num = i + 1;
         let has_comments = !sheet.worksheet.comments.is_empty();
         let has_tables = !sheet.worksheet.tables.is_empty();
-        let needs_rels = has_comments || has_tables;
+        let has_charts = !sheet.worksheet.charts.is_empty();
+        let needs_rels = has_comments || has_tables || has_charts;
 
         // Build (or merge) the worksheet .rels when we need to add relationships.
         let rels_path = format!("xl/worksheets/_rels/sheet{sheet_num}.xml.rels");
@@ -211,8 +215,79 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             }
         }
 
-        // --- Worksheet XML (must come after table rIds are computed) ---
-        let ws_xml = sheet.worksheet.to_xml_with_sst(Some(&sst_builder), &table_r_ids)?;
+        // --- Charts ---
+        let mut drawing_r_id_str: Option<String> = None;
+        if has_charts {
+            debug!(
+                "writing {} charts for sheet {}",
+                sheet.worksheet.charts.len(),
+                sheet_num
+            );
+
+            // Create drawing .rels for this sheet's charts.
+            let mut drawing_rels = Relationships::new();
+            let mut chart_r_ids: Vec<String> = Vec::new();
+
+            for (ci, wsc) in sheet.worksheet.charts.iter().enumerate() {
+                global_chart_id += 1;
+                let chart_xml = wsc.chart.to_xml()?;
+                let chart_path = format!("xl/charts/chart{global_chart_id}.xml");
+
+                content_types.add_override(format!("/{chart_path}"), CT_CHART);
+
+                entries.push(ZipEntry {
+                    name: chart_path,
+                    data: chart_xml,
+                });
+
+                let rid = format!("rId{}", ci + 1);
+                drawing_rels.add(
+                    rid.clone(),
+                    REL_CHART,
+                    format!("../charts/chart{global_chart_id}.xml"),
+                );
+                chart_r_ids.push(rid);
+            }
+
+            // Generate drawing XML.
+            let drawing_xml =
+                ChartAnchor::generate_drawing_xml(&sheet.worksheet.charts, &chart_r_ids)?;
+            let drawing_path = format!("xl/drawings/drawing{sheet_num}.xml");
+            let drawing_rels_path =
+                format!("xl/drawings/_rels/drawing{sheet_num}.xml.rels");
+
+            content_types.add_override(format!("/{drawing_path}"), CT_DRAWING);
+
+            entries.push(ZipEntry {
+                name: drawing_path.clone(),
+                data: drawing_xml,
+            });
+            entries.push(ZipEntry {
+                name: drawing_rels_path.clone(),
+                data: drawing_rels.to_xml()?,
+            });
+
+            // Track generated paths to skip in preserved entries.
+            generated_rels.insert(drawing_path);
+            generated_rels.insert(drawing_rels_path);
+
+            // Add drawing relationship to worksheet .rels.
+            let rid_num = next_r_id(&ws_rels);
+            let rid_str = format!("rId{rid_num}");
+            ws_rels.add(
+                rid_str.clone(),
+                REL_DRAWING,
+                format!("../drawings/drawing{sheet_num}.xml"),
+            );
+            drawing_r_id_str = Some(rid_str);
+        }
+
+        // --- Worksheet XML (must come after table/chart rIds are computed) ---
+        let ws_xml = sheet.worksheet.to_xml_with_sst(
+            Some(&sst_builder),
+            &table_r_ids,
+            drawing_r_id_str.as_deref(),
+        )?;
         entries.push(ZipEntry {
             name: format!("xl/worksheets/sheet{sheet_num}.xml"),
             data: ws_xml,
@@ -1006,7 +1081,7 @@ mod tests {
         sst.insert("Alpha"); // index 7
 
         // Generate XML with inline SST remapping (no clone needed).
-        let xml_bytes = ws.to_xml_with_sst(Some(&sst), &[]).expect("to_xml_with_sst should succeed");
+        let xml_bytes = ws.to_xml_with_sst(Some(&sst), &[], None).expect("to_xml_with_sst should succeed");
         let xml_str = std::str::from_utf8(&xml_bytes).unwrap();
 
         // The SharedString cell's <v> should contain the SST index "7", not "Alpha".
@@ -1871,5 +1946,343 @@ mod tests {
         let wb2 = crate::reader::read_xlsx(&bytes).expect("read_xlsx should succeed");
         assert!(wb2.preserved_entries.contains_key("customXml/item1.xml"));
         assert!(wb2.preserved_entries.contains_key("customXml/itemProps1.xml"));
+    }
+
+    /// Helper: build a single-sheet workbook with chart(s).
+    fn make_workbook_with_charts(
+        charts: Vec<crate::ooxml::charts::WorksheetChart>,
+    ) -> WorkbookData {
+        WorkbookData {
+            sheets: vec![SheetData {
+                name: "Sheet1".to_string(),
+                state: None,
+                worksheet: WorksheetXml {
+                    dimension: Some("A1:B5".to_string()),
+                    rows: vec![Row {
+                        index: 1,
+                        cells: vec![
+                            Cell {
+                                reference: "A1".to_string(),
+                                cell_type: CellType::SharedString,
+                                value: Some("Category".to_string()),
+                                ..Default::default()
+                            },
+                            Cell {
+                                reference: "B1".to_string(),
+                                cell_type: CellType::SharedString,
+                                value: Some("Value".to_string()),
+                                ..Default::default()
+                            },
+                        ],
+                        height: None,
+                        hidden: false,
+                        outline_level: None,
+                        collapsed: false,
+                    }],
+                    merge_cells: Vec::new(),
+                    auto_filter: None,
+                    frozen_pane: None,
+                    split_pane: None,
+                    pane_selections: vec![],
+                    sheet_view: None,
+                    columns: Vec::new(),
+                    data_validations: Vec::new(),
+                    conditional_formatting: Vec::new(),
+                    hyperlinks: Vec::new(),
+                    page_setup: None,
+                    sheet_protection: None,
+                    comments: Vec::new(),
+                    tab_color: None,
+                    tables: Vec::new(),
+                    header_footer: None,
+                    outline_properties: None,
+                    sparkline_groups: Vec::new(),
+                    charts,
+                    preserved_extensions: Vec::new(),
+                },
+            }],
+            date_system: DateSystem::Date1900,
+            styles: Styles::default_styles(),
+            defined_names: Vec::new(),
+            shared_strings: None,
+            doc_properties: None,
+            theme_colors: None,
+            calc_chain: Vec::new(),
+            workbook_views: Vec::new(),
+            protection: None,
+            preserved_entries: std::collections::BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_write_workbook_with_charts() {
+        use crate::ooxml::charts::*;
+
+        let chart = WorksheetChart {
+            chart: ChartData {
+                chart_type: ChartType::Bar,
+                title: Some(ChartTitle {
+                    text: "Sales".into(),
+                    overlay: false,
+                    font_size: None,
+                    bold: None,
+                    color: None,
+                }),
+                series: vec![ChartSeries {
+                    idx: 0,
+                    order: 0,
+                    name: Some("Revenue".into()),
+                    cat_ref: Some("Sheet1!$A$2:$A$5".into()),
+                    val_ref: "Sheet1!$B$2:$B$5".into(),
+                    x_val_ref: None,
+                    bubble_size_ref: None,
+                    fill_color: None,
+                    line_color: None,
+                    line_width: None,
+                    marker: None,
+                    smooth: None,
+                    explosion: None,
+                    data_labels: None,
+                }],
+                cat_axis: Some(ChartAxis {
+                    id: 0,
+                    cross_ax: 1,
+                    title: None,
+                    num_fmt: None,
+                    source_linked: false,
+                    min: None,
+                    max: None,
+                    major_unit: None,
+                    minor_unit: None,
+                    log_base: None,
+                    reversed: false,
+                    tick_lbl_pos: None,
+                    major_tick_mark: None,
+                    minor_tick_mark: None,
+                    major_gridlines: false,
+                    minor_gridlines: false,
+                    delete: false,
+                    position: None,
+                    crosses_at: None,
+                    font_size: None,
+                }),
+                val_axis: Some(ChartAxis {
+                    id: 1,
+                    cross_ax: 0,
+                    title: None,
+                    num_fmt: None,
+                    source_linked: false,
+                    min: None,
+                    max: None,
+                    major_unit: None,
+                    minor_unit: None,
+                    log_base: None,
+                    reversed: false,
+                    tick_lbl_pos: None,
+                    major_tick_mark: None,
+                    minor_tick_mark: None,
+                    major_gridlines: true,
+                    minor_gridlines: false,
+                    delete: false,
+                    position: None,
+                    crosses_at: None,
+                    font_size: None,
+                }),
+                legend: None,
+                data_labels: None,
+                grouping: Some(ChartGrouping::Clustered),
+                scatter_style: None,
+                radar_style: None,
+                hole_size: None,
+                bar_dir_horizontal: None,
+                style_id: None,
+                plot_area_layout: None,
+            },
+            anchor: ChartAnchor {
+                from_col: 0,
+                from_row: 0,
+                from_col_off: 0,
+                from_row_off: 0,
+                to_col: 8,
+                to_row: 15,
+                to_col_off: 0,
+                to_row_off: 0,
+            },
+        };
+
+        let wb = make_workbook_with_charts(vec![chart]);
+        let bytes = write_xlsx(&wb).unwrap();
+
+        // Parse ZIP and verify contents.
+        let limits = ZipSecurityLimits::default();
+        let zip_entries = read_zip_entries(&bytes, &limits).unwrap();
+
+        // Should contain chart XML.
+        assert!(
+            zip_entries.contains_key("xl/charts/chart1.xml"),
+            "should contain chart XML"
+        );
+
+        // Should contain drawing XML.
+        assert!(
+            zip_entries.contains_key("xl/drawings/drawing1.xml"),
+            "should contain drawing XML"
+        );
+
+        // Should contain drawing rels.
+        assert!(
+            zip_entries.contains_key("xl/drawings/_rels/drawing1.xml.rels"),
+            "should contain drawing rels"
+        );
+
+        // Check content types.
+        let ct_xml =
+            std::str::from_utf8(zip_entries.get("[Content_Types].xml").unwrap()).unwrap();
+        assert!(
+            ct_xml.contains("drawingml.chart+xml"),
+            "content types should include chart type"
+        );
+        assert!(
+            ct_xml.contains("drawing+xml"),
+            "content types should include drawing type"
+        );
+
+        // Check worksheet has drawing reference.
+        let ws_xml =
+            std::str::from_utf8(zip_entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
+        assert!(
+            ws_xml.contains("<drawing"),
+            "worksheet should reference drawing"
+        );
+
+        // Check drawing XML has anchor.
+        let drawing_xml =
+            std::str::from_utf8(zip_entries.get("xl/drawings/drawing1.xml").unwrap()).unwrap();
+        assert!(
+            drawing_xml.contains("<xdr:twoCellAnchor>"),
+            "drawing should have anchor"
+        );
+        assert!(
+            drawing_xml.contains("<xdr:col>8</xdr:col>"),
+            "drawing anchor should reference col 8"
+        );
+
+        // Check chart XML.
+        let chart_xml =
+            std::str::from_utf8(zip_entries.get("xl/charts/chart1.xml").unwrap()).unwrap();
+        assert!(
+            chart_xml.contains("<c:barChart>"),
+            "chart should be bar chart"
+        );
+
+        // Check drawing rels references the chart.
+        let drawing_rels = std::str::from_utf8(
+            zip_entries
+                .get("xl/drawings/_rels/drawing1.xml.rels")
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            drawing_rels.contains("chart1.xml"),
+            "drawing rels should reference chart1.xml"
+        );
+
+        // Check worksheet rels references the drawing.
+        let ws_rels = std::str::from_utf8(
+            zip_entries
+                .get("xl/worksheets/_rels/sheet1.xml.rels")
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            ws_rels.contains("drawing1.xml"),
+            "worksheet rels should reference drawing1.xml"
+        );
+    }
+
+    #[test]
+    fn test_multiple_charts_on_one_sheet() {
+        use crate::ooxml::charts::*;
+
+        let make_chart = |chart_type, from_col, to_col| WorksheetChart {
+            chart: ChartData {
+                chart_type,
+                title: None,
+                series: vec![ChartSeries {
+                    idx: 0,
+                    order: 0,
+                    name: None,
+                    cat_ref: None,
+                    val_ref: "Sheet1!$A$1:$A$5".into(),
+                    x_val_ref: None,
+                    bubble_size_ref: None,
+                    fill_color: None,
+                    line_color: None,
+                    line_width: None,
+                    marker: None,
+                    smooth: None,
+                    explosion: None,
+                    data_labels: None,
+                }],
+                cat_axis: None,
+                val_axis: None,
+                legend: None,
+                data_labels: None,
+                grouping: None,
+                scatter_style: None,
+                radar_style: None,
+                hole_size: None,
+                bar_dir_horizontal: None,
+                style_id: None,
+                plot_area_layout: None,
+            },
+            anchor: ChartAnchor {
+                from_col,
+                from_row: 0,
+                from_col_off: 0,
+                from_row_off: 0,
+                to_col,
+                to_row: 10,
+                to_col_off: 0,
+                to_row_off: 0,
+            },
+        };
+
+        let wb = make_workbook_with_charts(vec![
+            make_chart(ChartType::Pie, 0, 5),
+            make_chart(ChartType::Line, 6, 12),
+        ]);
+        let bytes = write_xlsx(&wb).unwrap();
+
+        let limits = ZipSecurityLimits::default();
+        let zip_entries = read_zip_entries(&bytes, &limits).unwrap();
+
+        // Should have two chart XMLs.
+        assert!(zip_entries.contains_key("xl/charts/chart1.xml"));
+        assert!(zip_entries.contains_key("xl/charts/chart2.xml"));
+
+        // Single drawing XML with two anchors.
+        let drawing_xml =
+            std::str::from_utf8(zip_entries.get("xl/drawings/drawing1.xml").unwrap()).unwrap();
+        let anchor_count = drawing_xml.matches("<xdr:twoCellAnchor>").count();
+        assert_eq!(anchor_count, 2, "should have two chart anchors in drawing");
+
+        // Drawing rels should reference both charts.
+        let drawing_rels = std::str::from_utf8(
+            zip_entries
+                .get("xl/drawings/_rels/drawing1.xml.rels")
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(drawing_rels.contains("chart1.xml"));
+        assert!(drawing_rels.contains("chart2.xml"));
+
+        // Verify chart types.
+        let chart1 =
+            std::str::from_utf8(zip_entries.get("xl/charts/chart1.xml").unwrap()).unwrap();
+        assert!(chart1.contains("<c:pieChart>"), "first chart should be pie");
+        let chart2 =
+            std::str::from_utf8(zip_entries.get("xl/charts/chart2.xml").unwrap()).unwrap();
+        assert!(chart2.contains("<c:lineChart>"), "second chart should be line");
     }
 }

@@ -295,6 +295,199 @@ pub struct WorksheetChart {
 }
 
 // ---------------------------------------------------------------------------
+// Drawing XML generation
+// ---------------------------------------------------------------------------
+
+impl ChartAnchor {
+    /// Generate the complete `xl/drawings/drawing{n}.xml` for a worksheet's charts.
+    ///
+    /// Each chart gets a `<xdr:twoCellAnchor>` referencing its chart via the
+    /// corresponding relationship ID from `chart_r_ids`.
+    pub fn generate_drawing_xml(
+        charts: &[WorksheetChart],
+        chart_r_ids: &[String],
+    ) -> Result<Vec<u8>> {
+        let mut buf: Vec<u8> = Vec::with_capacity(512 + charts.len() * 512);
+        let mut writer = Writer::new(&mut buf);
+        let mut ibuf = itoa::Buffer::new();
+
+        let map_err = |e: std::io::Error| ModernXlsxError::XmlWrite(e.to_string());
+
+        // XML declaration.
+        writer
+            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), Some("yes"))))
+            .map_err(map_err)?;
+
+        // <xdr:wsDr>
+        let mut root = BytesStart::new("xdr:wsDr");
+        root.push_attribute(("xmlns:xdr", "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"));
+        root.push_attribute(("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main"));
+        root.push_attribute(("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"));
+        writer.write_event(Event::Start(root)).map_err(map_err)?;
+
+        for (i, wsc) in charts.iter().enumerate() {
+            let anchor = &wsc.anchor;
+            let r_id = &chart_r_ids[i];
+            let cnv_id = i as u32 + 2; // id starts at 2
+
+            // <xdr:twoCellAnchor>
+            writer
+                .write_event(Event::Start(BytesStart::new("xdr:twoCellAnchor")))
+                .map_err(map_err)?;
+
+            // <xdr:from>
+            writer
+                .write_event(Event::Start(BytesStart::new("xdr:from")))
+                .map_err(map_err)?;
+            Self::write_cell_pos(&mut writer, anchor.from_col, anchor.from_col_off, anchor.from_row, anchor.from_row_off, &mut ibuf)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("xdr:from")))
+                .map_err(map_err)?;
+
+            // <xdr:to>
+            writer
+                .write_event(Event::Start(BytesStart::new("xdr:to")))
+                .map_err(map_err)?;
+            Self::write_cell_pos(&mut writer, anchor.to_col, anchor.to_col_off, anchor.to_row, anchor.to_row_off, &mut ibuf)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("xdr:to")))
+                .map_err(map_err)?;
+
+            // <xdr:graphicFrame macro="">
+            let mut gf = BytesStart::new("xdr:graphicFrame");
+            gf.push_attribute(("macro", ""));
+            writer.write_event(Event::Start(gf)).map_err(map_err)?;
+
+            // <xdr:nvGraphicFramePr>
+            writer
+                .write_event(Event::Start(BytesStart::new("xdr:nvGraphicFramePr")))
+                .map_err(map_err)?;
+            let mut cnv_pr = BytesStart::new("xdr:cNvPr");
+            cnv_pr.push_attribute(("id", ibuf.format(cnv_id)));
+            let chart_name = format!("Chart {}", i + 1);
+            cnv_pr.push_attribute(("name", chart_name.as_str()));
+            writer.write_event(Event::Empty(cnv_pr)).map_err(map_err)?;
+            writer
+                .write_event(Event::Empty(BytesStart::new("xdr:cNvGraphicFramePr")))
+                .map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("xdr:nvGraphicFramePr")))
+                .map_err(map_err)?;
+
+            // <xdr:xfrm>
+            writer
+                .write_event(Event::Start(BytesStart::new("xdr:xfrm")))
+                .map_err(map_err)?;
+            let mut off = BytesStart::new("a:off");
+            off.push_attribute(("x", "0"));
+            off.push_attribute(("y", "0"));
+            writer.write_event(Event::Empty(off)).map_err(map_err)?;
+            let mut ext = BytesStart::new("a:ext");
+            ext.push_attribute(("cx", "0"));
+            ext.push_attribute(("cy", "0"));
+            writer.write_event(Event::Empty(ext)).map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("xdr:xfrm")))
+                .map_err(map_err)?;
+
+            // <a:graphic>
+            writer
+                .write_event(Event::Start(BytesStart::new("a:graphic")))
+                .map_err(map_err)?;
+            let mut gd = BytesStart::new("a:graphicData");
+            gd.push_attribute(("uri", "http://schemas.openxmlformats.org/drawingml/2006/chart"));
+            writer.write_event(Event::Start(gd)).map_err(map_err)?;
+            let mut chart_ref = BytesStart::new("c:chart");
+            chart_ref.push_attribute(("xmlns:c", "http://schemas.openxmlformats.org/drawingml/2006/chart"));
+            chart_ref.push_attribute(("r:id", r_id.as_str()));
+            writer.write_event(Event::Empty(chart_ref)).map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("a:graphicData")))
+                .map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("a:graphic")))
+                .map_err(map_err)?;
+
+            // </xdr:graphicFrame>
+            writer
+                .write_event(Event::End(BytesEnd::new("xdr:graphicFrame")))
+                .map_err(map_err)?;
+
+            // <xdr:clientData/>
+            writer
+                .write_event(Event::Empty(BytesStart::new("xdr:clientData")))
+                .map_err(map_err)?;
+
+            // </xdr:twoCellAnchor>
+            writer
+                .write_event(Event::End(BytesEnd::new("xdr:twoCellAnchor")))
+                .map_err(map_err)?;
+        }
+
+        // </xdr:wsDr>
+        writer
+            .write_event(Event::End(BytesEnd::new("xdr:wsDr")))
+            .map_err(map_err)?;
+
+        Ok(buf)
+    }
+
+    /// Write the `<xdr:col>`, `<xdr:colOff>`, `<xdr:row>`, `<xdr:rowOff>` children.
+    fn write_cell_pos(
+        writer: &mut Writer<&mut Vec<u8>>,
+        col: u32,
+        col_off: u64,
+        row: u32,
+        row_off: u64,
+        ibuf: &mut itoa::Buffer,
+    ) -> Result<()> {
+        let map_err = |e: std::io::Error| ModernXlsxError::XmlWrite(e.to_string());
+
+        writer
+            .write_event(Event::Start(BytesStart::new("xdr:col")))
+            .map_err(map_err)?;
+        writer
+            .write_event(Event::Text(BytesText::new(ibuf.format(col))))
+            .map_err(map_err)?;
+        writer
+            .write_event(Event::End(BytesEnd::new("xdr:col")))
+            .map_err(map_err)?;
+
+        writer
+            .write_event(Event::Start(BytesStart::new("xdr:colOff")))
+            .map_err(map_err)?;
+        writer
+            .write_event(Event::Text(BytesText::new(ibuf.format(col_off))))
+            .map_err(map_err)?;
+        writer
+            .write_event(Event::End(BytesEnd::new("xdr:colOff")))
+            .map_err(map_err)?;
+
+        writer
+            .write_event(Event::Start(BytesStart::new("xdr:row")))
+            .map_err(map_err)?;
+        writer
+            .write_event(Event::Text(BytesText::new(ibuf.format(row))))
+            .map_err(map_err)?;
+        writer
+            .write_event(Event::End(BytesEnd::new("xdr:row")))
+            .map_err(map_err)?;
+
+        writer
+            .write_event(Event::Start(BytesStart::new("xdr:rowOff")))
+            .map_err(map_err)?;
+        writer
+            .write_event(Event::Text(BytesText::new(ibuf.format(row_off))))
+            .map_err(map_err)?;
+        writer
+            .write_event(Event::End(BytesEnd::new("xdr:rowOff")))
+            .map_err(map_err)?;
+
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // XML Writer helpers
 // ---------------------------------------------------------------------------
 
@@ -1763,5 +1956,98 @@ mod tests {
         assert!(xml_str.contains("xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\""));
         assert!(xml_str.contains("xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\""));
         assert!(xml_str.contains("<c:printSettings>"));
+    }
+
+    // =======================================================================
+    // Drawing XML tests
+    // =======================================================================
+
+    #[test]
+    fn test_generate_drawing_xml_single_chart() {
+        let charts = vec![WorksheetChart {
+            chart: ChartData {
+                chart_type: ChartType::Bar,
+                title: None, series: vec![], cat_axis: None, val_axis: None,
+                legend: None, data_labels: None, grouping: None,
+                scatter_style: None, radar_style: None, hole_size: None,
+                bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+            },
+            anchor: ChartAnchor {
+                from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
+                to_col: 8, to_row: 15, to_col_off: 0, to_row_off: 0,
+            },
+        }];
+        let r_ids = vec!["rId1".to_string()];
+        let xml = ChartAnchor::generate_drawing_xml(&charts, &r_ids).unwrap();
+        let xml_str = std::str::from_utf8(&xml).unwrap();
+
+        // Check namespaces.
+        assert!(xml_str.contains("xmlns:xdr=\"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing\""));
+        assert!(xml_str.contains("xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\""));
+        assert!(xml_str.contains("xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\""));
+
+        // Check anchor structure.
+        assert!(xml_str.contains("<xdr:twoCellAnchor>"));
+        assert!(xml_str.contains("<xdr:from>"));
+        assert!(xml_str.contains("<xdr:to>"));
+        assert!(xml_str.contains("<xdr:col>0</xdr:col>"));
+        assert!(xml_str.contains("<xdr:col>8</xdr:col>"));
+        assert!(xml_str.contains("<xdr:row>15</xdr:row>"));
+
+        // Check graphic frame.
+        assert!(xml_str.contains(r#"<xdr:cNvPr id="2" name="Chart 1"/>"#));
+        assert!(xml_str.contains(r#"r:id="rId1""#));
+        assert!(xml_str.contains("<xdr:clientData/>"));
+    }
+
+    #[test]
+    fn test_generate_drawing_xml_multiple_charts() {
+        let charts = vec![
+            WorksheetChart {
+                chart: ChartData {
+                    chart_type: ChartType::Bar,
+                    title: None, series: vec![], cat_axis: None, val_axis: None,
+                    legend: None, data_labels: None, grouping: None,
+                    scatter_style: None, radar_style: None, hole_size: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                },
+                anchor: ChartAnchor {
+                    from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
+                    to_col: 8, to_row: 15, to_col_off: 0, to_row_off: 0,
+                },
+            },
+            WorksheetChart {
+                chart: ChartData {
+                    chart_type: ChartType::Line,
+                    title: None, series: vec![], cat_axis: None, val_axis: None,
+                    legend: None, data_labels: None, grouping: None,
+                    scatter_style: None, radar_style: None, hole_size: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                },
+                anchor: ChartAnchor {
+                    from_col: 10, from_row: 0, from_col_off: 100, from_row_off: 200,
+                    to_col: 18, to_row: 20, to_col_off: 300, to_row_off: 400,
+                },
+            },
+        ];
+        let r_ids = vec!["rId1".to_string(), "rId2".to_string()];
+        let xml = ChartAnchor::generate_drawing_xml(&charts, &r_ids).unwrap();
+        let xml_str = std::str::from_utf8(&xml).unwrap();
+
+        // Two anchors.
+        assert_eq!(xml_str.matches("<xdr:twoCellAnchor>").count(), 2);
+
+        // Unique cNvPr ids.
+        assert!(xml_str.contains(r#"id="2" name="Chart 1""#));
+        assert!(xml_str.contains(r#"id="3" name="Chart 2""#));
+
+        // Both rIds.
+        assert!(xml_str.contains(r#"r:id="rId1""#));
+        assert!(xml_str.contains(r#"r:id="rId2""#));
+
+        // Second anchor offsets.
+        assert!(xml_str.contains("<xdr:col>10</xdr:col>"));
+        assert!(xml_str.contains("<xdr:colOff>100</xdr:colOff>"));
+        assert!(xml_str.contains("<xdr:rowOff>200</xdr:rowOff>"));
     }
 }
