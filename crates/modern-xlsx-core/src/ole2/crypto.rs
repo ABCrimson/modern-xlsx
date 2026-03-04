@@ -1078,8 +1078,8 @@ mod tests {
 
         // Derive segment 0 IV: SHA-512(salt + LE32(0)), truncated to 16
         let mut hasher = Sha512::new();
-        Digest::update(&mut hasher, &salt);
-        Digest::update(&mut hasher, &0u32.to_le_bytes());
+        Digest::update(&mut hasher, salt);
+        Digest::update(&mut hasher, 0u32.to_le_bytes());
         let hash = hasher.finalize();
         let iv: Vec<u8> = hash[..16].to_vec();
 
@@ -1133,7 +1133,7 @@ mod tests {
         package.extend_from_slice(&(10000u64).to_le_bytes());
 
         // Encrypt each segment
-        let padded_size = if original.len() % 4096 == 0 {
+        let padded_size = if original.len().is_multiple_of(4096) {
             original.len()
         } else {
             ((original.len() / 4096) + 1) * 4096
@@ -1143,8 +1143,8 @@ mod tests {
 
         for (seg_idx, chunk) in padded.chunks(4096).enumerate() {
             let mut hasher = Sha512::new();
-            Digest::update(&mut hasher, &salt);
-            Digest::update(&mut hasher, &(seg_idx as u32).to_le_bytes());
+            Digest::update(&mut hasher, salt);
+            Digest::update(&mut hasher, (seg_idx as u32).to_le_bytes());
             let hash = hasher.finalize();
             let iv: Vec<u8> = hash[..16].to_vec();
 
@@ -1250,7 +1250,7 @@ mod tests {
 
         // Compute SHA-1 hash of verifier
         let mut hasher = Sha1::new();
-        Digest::update(&mut hasher, &verifier);
+        Digest::update(&mut hasher, verifier);
         let verifier_hash = hasher.finalize();
 
         // Encrypt verifier with AES-128-ECB
@@ -1291,7 +1291,7 @@ mod tests {
 
         let verifier = [0xAB; 16];
         let mut hasher = Sha1::new();
-        Digest::update(&mut hasher, &verifier);
+        Digest::update(&mut hasher, verifier);
         let verifier_hash = hasher.finalize();
 
         let encrypted_verifier = aes_ecb_encrypt_no_pad(&key, &verifier).unwrap();
