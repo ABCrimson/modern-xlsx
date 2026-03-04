@@ -82,6 +82,8 @@
 | Set codepage tables | :x: | :white_check_mark: `set_cptable()` | For legacy encoding |
 | WASM initialization | :star: `initWasm()` | :x: | Zero-copy WASM acceleration |
 | WASM sync init | :white_check_mark: `initWasmSync()` | :x: | |
+| Read encrypted XLSX | :star: `readFile(path, { password })` | :x: | modern-xlsx: ECMA-376 Agile Encryption |
+| Write encrypted XLSX | :star: `toFile(path, { password })` | :x: | modern-xlsx: AES-256 + SHA-512 |
 
 ---
 
@@ -609,6 +611,7 @@
 | **Table layout engine** | Full support | None | modern-xlsx |
 | **Rich text builder** | Fluent API | None | modern-xlsx |
 | **Validation & repair** | Full support | None | modern-xlsx |
+| **Encryption (password)** | Read + write (free) | None | modern-xlsx |
 | **Web Worker support** | Built-in API | None | modern-xlsx |
 | **Performance (read)** | ~4.6x faster | Baseline | modern-xlsx |
 | **Performance (write)** | ~1.3x faster | Baseline | modern-xlsx |
@@ -627,6 +630,6 @@
 
 ### Overall
 
-- **modern-xlsx wins on:** Performance, type safety, styling (free), data validation, conditional formatting, images, barcodes, table layout, rich text API, validation/repair, Web Workers, output size, API ergonomics
+- **modern-xlsx wins on:** Performance, type safety, styling (free), data validation, conditional formatting, images, barcodes, table layout, rich text API, validation/repair, encryption, Web Workers, output size, API ergonomics
 - **SheetJS wins on:** Multi-format support (20+ read, 23 write), streaming exports, DOM integration, sync API, legacy format compatibility, broader ecosystem maturity
 - **Tie on:** Core XLSX read/write, cell operations, formulas, merge cells, frozen panes, auto filter, hyperlinks, comments, page setup, document properties, number formatting, sheet conversion utilities

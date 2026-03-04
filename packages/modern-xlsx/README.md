@@ -14,7 +14,7 @@
 
 ---
 
-Full cell styling, data validation, conditional formatting, frozen panes, hyperlinks, comments, sheet protection, and more — features that SheetJS locks behind a **paid Pro license** — all **free and open source**.
+Full cell styling, data validation, conditional formatting, frozen panes, hyperlinks, comments, sheet protection, encryption, and more — features that SheetJS locks behind a **paid Pro license** — all **free and open source**.
 
 ## Install
 
@@ -111,6 +111,7 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
 | Headers & footers | **Yes** | No | Paid |
 | Row/column grouping (outline) | **Yes** | No | Paid |
 | Print titles & areas | **Yes** | No | Paid |
+| Encryption (password protection) | **Yes** | No | No |
 
 ## How It Works
 

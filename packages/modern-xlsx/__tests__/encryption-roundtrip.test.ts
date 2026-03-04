@@ -41,32 +41,32 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     expect(ws2).toBeDefined();
 
     // Verify bold
-    const cellA1 = ws2!.cell('A1');
-    expect(cellA1.value).toBe('Bold');
-    expect(cellA1.styleIndex).toBeGreaterThan(0);
-    const xfA1 = wb2.styles.cellXfs?.[cellA1.styleIndex!];
+    const cellA1 = ws2?.cell('A1');
+    expect(cellA1?.value).toBe('Bold');
+    expect(cellA1?.styleIndex).toBeGreaterThan(0);
+    const xfA1 = wb2.styles.cellXfs?.[cellA1?.styleIndex ?? 0];
     expect(xfA1).toBeDefined();
-    const fontA1 = wb2.styles.fonts?.[xfA1!.fontId];
+    const fontA1 = wb2.styles.fonts?.[xfA1?.fontId ?? 0];
     expect(fontA1?.bold).toBe(true);
     expect(fontA1?.size).toBe(14);
 
     // Verify italic + color
-    const cellB1 = ws2!.cell('B1');
-    expect(cellB1.value).toBe('Italic Red');
-    expect(cellB1.styleIndex).toBeGreaterThan(0);
-    const xfB1 = wb2.styles.cellXfs?.[cellB1.styleIndex!];
-    const fontB1 = wb2.styles.fonts?.[xfB1!.fontId];
+    const cellB1 = ws2?.cell('B1');
+    expect(cellB1?.value).toBe('Italic Red');
+    expect(cellB1?.styleIndex).toBeGreaterThan(0);
+    const xfB1 = wb2.styles.cellXfs?.[cellB1?.styleIndex ?? 0];
+    const fontB1 = wb2.styles.fonts?.[xfB1?.fontId ?? 0];
     expect(fontB1?.italic).toBe(true);
     expect(fontB1?.color).toBe('FF0000');
 
     // Verify fill + border
-    const cellC1 = ws2!.cell('C1');
-    expect(cellC1.value).toBe('Green Fill');
-    expect(cellC1.styleIndex).toBeGreaterThan(0);
-    const xfC1 = wb2.styles.cellXfs?.[cellC1.styleIndex!];
-    const fillC1 = wb2.styles.fills?.[xfC1!.fillId];
+    const cellC1 = ws2?.cell('C1');
+    expect(cellC1?.value).toBe('Green Fill');
+    expect(cellC1?.styleIndex).toBeGreaterThan(0);
+    const xfC1 = wb2.styles.cellXfs?.[cellC1?.styleIndex ?? 0];
+    const fillC1 = wb2.styles.fills?.[xfC1?.fillId ?? 0];
     expect(fillC1?.fgColor).toBe('00FF00');
-    const borderC1 = wb2.styles.borders?.[xfC1!.borderId];
+    const borderC1 = wb2.styles.borders?.[xfC1?.borderId ?? 0];
     expect(borderC1?.left?.style).toBe('thin');
     expect(borderC1?.right?.style).toBe('thin');
     expect(borderC1?.top?.style).toBe('thin');
@@ -102,17 +102,17 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     expect(ws2).toBeDefined();
 
     // Verify data cells
-    expect(ws2!.cell('A1').value).toBe(1);
-    expect(ws2!.cell('A10').value).toBe(10);
+    expect(ws2?.cell('A1').value).toBe(1);
+    expect(ws2?.cell('A10').value).toBe(10);
 
     // Verify formulas
-    const b1 = ws2!.cell('B1');
-    expect(b1.type).toBe('formulaStr');
-    expect(b1.formula).toBe('SUM(A1:A10)');
+    const b1 = ws2?.cell('B1');
+    expect(b1?.type).toBe('formulaStr');
+    expect(b1?.formula).toBe('SUM(A1:A10)');
 
-    const b2 = ws2!.cell('B2');
-    expect(b2.type).toBe('formulaStr');
-    expect(b2.formula).toBe('AVERAGE(A1:A10)');
+    const b2 = ws2?.cell('B2');
+    expect(b2?.type).toBe('formulaStr');
+    expect(b2?.formula).toBe('AVERAGE(A1:A10)');
 
     // Verify named range
     const namedRange = wb2.getNamedRange('TestRange');
@@ -166,20 +166,20 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     expect(ws2).toBeDefined();
 
     // Verify table exists
-    expect(ws2!.tables).toHaveLength(1);
-    const t = ws2!.getTable('SalesTable');
+    expect(ws2?.tables).toHaveLength(1);
+    const t = ws2?.getTable('SalesTable');
     expect(t).toBeDefined();
-    expect(t!.ref).toBe('A1:C3');
-    expect(t!.columns).toHaveLength(3);
-    expect(t!.columns[0]?.name).toBe('Product');
-    expect(t!.columns[1]?.name).toBe('Qty');
-    expect(t!.columns[2]?.name).toBe('Price');
-    expect(t!.styleInfo?.name).toBe('TableStyleMedium2');
-    expect(t!.styleInfo?.showRowStripes).toBe(true);
+    expect(t?.ref).toBe('A1:C3');
+    expect(t?.columns).toHaveLength(3);
+    expect(t?.columns[0]?.name).toBe('Product');
+    expect(t?.columns[1]?.name).toBe('Qty');
+    expect(t?.columns[2]?.name).toBe('Price');
+    expect(t?.styleInfo?.name).toBe('TableStyleMedium2');
+    expect(t?.styleInfo?.showRowStripes).toBe(true);
 
     // Verify underlying data
-    expect(ws2!.cell('A2').value).toBe('Widget');
-    expect(ws2!.cell('B2').value).toBe(10);
+    expect(ws2?.cell('A2').value).toBe('Widget');
+    expect(ws2?.cell('B2').value).toBe(10);
   });
 
   // -------------------------------------------------------------------------
@@ -215,13 +215,13 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     expect(ws2).toBeDefined();
 
     // Verify cell data survived
-    expect(ws2!.cell('A1').value).toBe('Score');
-    expect(ws2!.cell('A2').value).toBe(85);
-    expect(ws2!.cell('A3').value).toBe(42);
-    expect(ws2!.cell('A4').value).toBe(97);
+    expect(ws2?.cell('A1').value).toBe('Score');
+    expect(ws2?.cell('A2').value).toBe(85);
+    expect(ws2?.cell('A3').value).toBe(42);
+    expect(ws2?.cell('A4').value).toBe(97);
 
     // Verify data validation survived
-    const validations = ws2!.validations;
+    const validations = ws2?.validations ?? [];
     expect(validations.length).toBeGreaterThanOrEqual(1);
     const dv = validations[0];
     expect(dv?.validationType).toBe('whole');
@@ -254,12 +254,12 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     expect(ws2).toBeDefined();
 
     // Verify cell values
-    expect(ws2!.cell('A1').value).toBe('Merged Header');
-    expect(ws2!.cell('E1').value).toBe('Vertical');
-    expect(ws2!.cell('A3').value).toBe('Block');
+    expect(ws2?.cell('A1').value).toBe('Merged Header');
+    expect(ws2?.cell('E1').value).toBe('Vertical');
+    expect(ws2?.cell('A3').value).toBe('Block');
 
     // Verify merge ranges
-    const merges = ws2!.mergeCells;
+    const merges = ws2?.mergeCells ?? [];
     expect(merges).toHaveLength(3);
     expect(merges).toContain('A1:D1');
     expect(merges).toContain('E1:E5');
@@ -329,13 +329,13 @@ describe('Encryption: Roundtrip & Compatibility', () => {
       // Verify data sampling
       const ws2 = wb2.getSheet('Large');
       expect(ws2).toBeDefined();
-      expect(ws2!.cell('A1').value).toBe('Row 1');
-      expect(ws2!.cell('B1').value).toBe(1);
-      expect(ws2!.cell('A5000').value).toBe('Row 5000');
-      expect(ws2!.cell('B5000').value).toBe(5000);
-      expect(ws2!.cell('C10000').value).toBe(15000);
-      expect(ws2!.cell('D10000').value).toBe(true);
-      expect(ws2!.cell('E10000').value).toBe('Data-10000');
+      expect(ws2?.cell('A1').value).toBe('Row 1');
+      expect(ws2?.cell('B1').value).toBe(1);
+      expect(ws2?.cell('A5000').value).toBe('Row 5000');
+      expect(ws2?.cell('B5000').value).toBe(5000);
+      expect(ws2?.cell('C10000').value).toBe(15000);
+      expect(ws2?.cell('D10000').value).toBe(true);
+      expect(ws2?.cell('E10000').value).toBe('Data-10000');
     },
   );
 
@@ -414,7 +414,7 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     const ws2 = wb.addSheet('Numbers');
     ws2.cell('A1').value = 0;
     ws2.cell('B1').value = -1;
-    ws2.cell('A2').value = 3.14159;
+    ws2.cell('A2').value = 3.14;
     ws2.cell('B2').value = 999999999;
 
     // Sheet 3: Booleans
@@ -456,39 +456,40 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     // Verify Sheet 1: Strings
     const s1 = result.getSheet('Strings');
     expect(s1).toBeDefined();
-    expect(s1!.cell('A1').value).toBe('Hello');
-    expect(s1!.cell('B1').value).toBe('World');
-    expect(s1!.cell('A2').value).toBe('Special chars: <>&"\'');
+    expect(s1?.cell('A1').value).toBe('Hello');
+    expect(s1?.cell('B1').value).toBe('World');
+    expect(s1?.cell('A2').value).toBe('Special chars: <>&"\'');
 
     // Verify Sheet 2: Numbers
     const s2 = result.getSheet('Numbers');
     expect(s2).toBeDefined();
-    expect(s2!.cell('A1').value).toBe(0);
-    expect(s2!.cell('B1').value).toBe(-1);
-    expect(s2!.cell('A2').value).toBeCloseTo(3.14159, 4);
-    expect(s2!.cell('B2').value).toBe(999999999);
+    expect(s2?.cell('A1').value).toBe(0);
+    expect(s2?.cell('B1').value).toBe(-1);
+    expect(s2?.cell('A2').value).toBeCloseTo(3.14, 4);
+    expect(s2?.cell('B2').value).toBe(999999999);
 
     // Verify Sheet 3: Booleans
     const s3 = result.getSheet('Booleans');
     expect(s3).toBeDefined();
-    expect(s3!.cell('A1').value).toBe(true);
-    expect(s3!.cell('B1').value).toBe(false);
-    expect(s3!.cell('A2').value).toBe(true);
-    expect(s3!.cell('B2').value).toBe(false);
+    expect(s3?.cell('A1').value).toBe(true);
+    expect(s3?.cell('B1').value).toBe(false);
+    expect(s3?.cell('A2').value).toBe(true);
+    expect(s3?.cell('B2').value).toBe(false);
 
     // Verify Sheet 4: Formulas
     const s4 = result.getSheet('CalcSheet');
     expect(s4).toBeDefined();
-    expect(s4!.cell('A1').value).toBe(10);
-    expect(s4!.cell('B1').type).toBe('formulaStr');
-    expect(s4!.cell('B1').formula).toBe('SUM(A1:A3)');
+    expect(s4?.cell('A1').value).toBe(10);
+    expect(s4?.cell('B1').type).toBe('formulaStr');
+    expect(s4?.cell('B1').formula).toBe('SUM(A1:A3)');
 
     // Verify Sheet 5: Merges + validation
     const s5 = result.getSheet('Mixed');
     expect(s5).toBeDefined();
-    expect(s5!.cell('A1').value).toBe('Merged Title');
-    expect(s5!.mergeCells).toContain('A1:C1');
-    expect(s5!.validations.length).toBeGreaterThanOrEqual(1);
-    expect(s5!.validations[0]?.validationType).toBe('whole');
+    expect(s5?.cell('A1').value).toBe('Merged Title');
+    expect(s5?.mergeCells).toContain('A1:C1');
+    const s5Validations = s5?.validations ?? [];
+    expect(s5Validations.length).toBeGreaterThanOrEqual(1);
+    expect(s5Validations[0]?.validationType).toBe('whole');
   });
 });

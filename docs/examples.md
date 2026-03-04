@@ -434,6 +434,62 @@ wb.addImage('Sheet1', { fromCol: 0, fromRow: 0, toCol: 3, toRow: 3 }, png);
 
 ---
 
+## Encryption — Password-Protected Files
+
+### Reading Encrypted Files
+
+```typescript
+import { readFile, readBuffer, initWasm } from 'modern-xlsx';
+
+await initWasm();
+
+// Read password-protected XLSX from file path
+const wb = await readFile('protected.xlsx', { password: 'secret123' });
+console.log(wb.getSheet('Sheet1')?.cell('A1').value);
+
+// Read password-protected XLSX from buffer
+const response = await fetch('/api/encrypted-report.xlsx');
+const data = new Uint8Array(await response.arrayBuffer());
+const wb2 = await readBuffer(data, { password: 'secret123' });
+```
+
+### Writing Encrypted Files
+
+```typescript
+import { Workbook, initWasm } from 'modern-xlsx';
+
+await initWasm();
+
+const wb = new Workbook();
+const ws = wb.addSheet('Confidential');
+ws.cell('A1').value = 'Sensitive Data';
+ws.cell('A2').value = 42;
+
+// Write encrypted XLSX to file
+await wb.toFile('encrypted.xlsx', { password: 'secret123' });
+
+// Write encrypted XLSX to buffer
+const buffer = await wb.toBuffer({ password: 'secret123' });
+```
+
+### Changing File Password
+
+```typescript
+// Read with old password, write with new password
+const wb = await readFile('old.xlsx', { password: 'oldpass' });
+await wb.toFile('new.xlsx', { password: 'newpass' });
+```
+
+### Removing Encryption
+
+```typescript
+// Read encrypted file, write without password
+const wb = await readFile('encrypted.xlsx', { password: 'secret' });
+await wb.toFile('decrypted.xlsx'); // no password = no encryption
+```
+
+---
+
 ## Image Embedding
 
 ```typescript

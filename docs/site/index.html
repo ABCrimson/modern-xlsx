@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>modern-xlsx — High-Performance XLSX for JavaScript</title>
-  <meta name="description" content="Read and write Excel files with full styling support, powered by Rust + WASM. Free and open source.">
+  <meta name="description" content="Read and write Excel files with full styling, encryption, and validation support, powered by Rust + WASM. Free and open source.">
   <meta name="theme-color" content="#0a0a0a">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
   <meta property="og:title" content="modern-xlsx — High-Performance XLSX for JavaScript">
@@ -458,7 +458,7 @@
 <div class="hero">
   <div class="badge">
     <span class="dot"></span>
-    v0.5.0 — MIT Licensed
+    v0.6.0 — MIT Licensed
   </div>
   <h1>
     Excel files,<br>
@@ -542,6 +542,11 @@
       <div class="icon">&#128274;</div>
       <h3>Sheet Protection</h3>
       <p>Protect worksheets with granular permissions — lock formatting, insertion, deletion, sorting, and filtering independently.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">&#128272;</div>
+      <h3>Encryption</h3>
+      <p>Read and write password-protected XLSX files. ECMA-376 Agile Encryption with AES-256 and SHA-512.</p>
     </div>
     <div class="feature">
       <div class="icon">&#128196;</div>
@@ -763,6 +768,7 @@ console.<span class="fn">log</span>(existing.<span class="fn">getSheet</span>(<s
         <tr><td>OOXML validation &amp; repair</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
         <tr><td>Barcode &amp; QR code generation</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
         <tr><td>Image embedding</td><td class="yes">Yes</td><td class="no">No</td><td class="paid">Paid</td></tr>
+        <tr><td>Encryption (password protection)</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
       </tbody>
     </table>
   </div>
