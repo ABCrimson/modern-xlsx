@@ -219,6 +219,27 @@ pub fn read_stream(data: &[u8], name: &str) -> Result<Vec<u8>> {
     Ok(read_sectors(data, &header, &chain, entry.size as usize))
 }
 
+/// Decrypts an OLE2-wrapped encrypted XLSX file.
+/// Returns the decrypted ZIP bytes ready for normal reading.
+pub fn decrypt_file(data: &[u8], password: &str) -> Result<Vec<u8>> {
+    let enc_info_bytes = read_stream(data, "EncryptionInfo")?;
+    let enc_info = super::encryption_info::EncryptionInfo::parse(&enc_info_bytes)?;
+
+    match enc_info {
+        super::encryption_info::EncryptionInfo::Agile(ref agile) => {
+            let data_key = super::crypto::verify_password_agile(password, agile)?;
+            let encrypted_package = read_stream(data, "EncryptedPackage")?;
+            super::crypto::verify_hmac(&data_key, agile, &encrypted_package)?;
+            super::crypto::decrypt_package(&data_key, agile, &encrypted_package)
+        }
+        super::encryption_info::EncryptionInfo::Standard(_) => {
+            Err(ModernXlsxError::PasswordProtected(
+                "Standard encryption not yet supported. Only Agile encryption is supported.".into(),
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

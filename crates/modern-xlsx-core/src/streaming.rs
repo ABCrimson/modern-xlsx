@@ -36,21 +36,46 @@ impl StreamingReader {
         Self::open_with_limits(data, &ZipSecurityLimits::default())
     }
 
+    /// Open a streaming reader from an encrypted XLSX with a password.
+    ///
+    /// If the file is a plain ZIP (not encrypted), the password is ignored
+    /// and the file is read normally.
+    pub fn open_with_password(data: &[u8], password: &str) -> Result<Self, ModernXlsxError> {
+        let pw = if password.is_empty() { None } else { Some(password) };
+        Self::open_internal(data, &ZipSecurityLimits::default(), pw)
+    }
+
     /// Open a streaming reader from XLSX bytes with custom ZIP security limits.
     pub fn open_with_limits(
         data: &[u8],
         limits: &ZipSecurityLimits,
     ) -> Result<Self, ModernXlsxError> {
+        Self::open_internal(data, limits, None)
+    }
+
+    /// Internal open method that handles format detection with optional decryption.
+    fn open_internal(
+        data: &[u8],
+        limits: &ZipSecurityLimits,
+        password: Option<&str>,
+    ) -> Result<Self, ModernXlsxError> {
         use crate::ooxml::relationships::Relationships;
         use crate::zip::reader::read_zip_entries;
 
         use crate::ole2::detect::{ERR_LEGACY_XLS, ERR_NOT_XLSX, ERR_OLE2_UNKNOWN};
-        // Format detection: reject OLE2 (encrypted/legacy) and unknown formats early.
-        match detect_format(data) {
-            FileFormat::Zip => {} // continue with existing ZIP path
+
+        // Format detection with optional decryption.
+        let decrypted: Option<Vec<u8>>;
+        let actual_data: &[u8] = match detect_format(data) {
+            FileFormat::Zip => data,
             FileFormat::Ole2 => match classify_ole2(data)? {
                 Ole2Kind::EncryptedXlsx => {
-                    return Err(crate::ole2::encryption_info::build_encrypted_error(data));
+                    if let Some(pw) = password {
+                        decrypted = Some(crate::ole2::detect::decrypt_file(data, pw)?);
+                        decrypted.as_deref().unwrap()
+                    } else {
+                        return Err(crate::ole2::encryption_info::build_encrypted_error(data));
+                    }
                 }
                 Ole2Kind::LegacyXls => {
                     return Err(ModernXlsxError::LegacyFormat(ERR_LEGACY_XLS.into()));
@@ -64,9 +89,9 @@ impl StreamingReader {
             FileFormat::Unknown => {
                 return Err(ModernXlsxError::UnrecognizedFormat(ERR_NOT_XLSX.into()));
             }
-        }
+        };
 
-        let mut entries = read_zip_entries(data, limits)?;
+        let mut entries = read_zip_entries(actual_data, limits)?;
 
         // Parse workbook.xml (required).
         let wb_data = entries

@@ -1,3 +1,13 @@
+// ---------------------------------------------------------------------------
+// Read Options
+// ---------------------------------------------------------------------------
+
+/** Options for reading XLSX files. */
+export interface ReadOptions {
+  /** Password for encrypted XLSX files. */
+  password?: string;
+}
+
 export type DateSystem = 'date1900' | 'date1904';
 
 export type CellType =

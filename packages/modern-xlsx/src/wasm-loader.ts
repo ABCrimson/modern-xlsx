@@ -1,6 +1,7 @@
 import init, {
   initSync as _initSync,
   read as _wasmReadJson,
+  readWithPassword as _wasmReadWithPasswordJson,
   repair as _wasmRepairJson,
   validate as _wasmValidateJson,
   writeBlob as _wasmWriteBlobJson,
@@ -97,6 +98,20 @@ export function ensureInitialized(): void {
  */
 export function wasmRead(data: Uint8Array): WorkbookData {
   const json = _wasmReadJson(data);
+  const parsed: unknown = JSON.parse(json);
+  if (!isWorkbookData(parsed)) {
+    throw new Error('WASM returned invalid WorkbookData structure');
+  }
+  return parsed;
+}
+
+/**
+ * Read encrypted XLSX bytes with a password and return parsed WorkbookData.
+ * If the file is not encrypted, the password is ignored.
+ */
+export function wasmReadWithPassword(data: Uint8Array, password: string): WorkbookData {
+  ensureInitialized();
+  const json = _wasmReadWithPasswordJson(data, password);
   const parsed: unknown = JSON.parse(json);
   if (!isWorkbookData(parsed)) {
     throw new Error('WASM returned invalid WorkbookData structure');

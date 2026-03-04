@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { ReadOptions } from '../src/index.js';
 import { readBuffer, Workbook } from '../src/index.js';
 
 /**
@@ -354,5 +355,66 @@ describe('Encryption: Method Identification', () => {
     ]);
     // Should still show password-protected error (graceful fallback)
     await expect(readBuffer(ole2)).rejects.toThrow(/password.protected/i);
+  });
+});
+
+describe('Encryption: Decryption Integration', () => {
+  it('normal XLSX with password option still works', async () => {
+    const wb = new Workbook();
+    wb.addSheet('Sheet1').cell('A1').value = 'hello';
+    const buffer = await wb.toBuffer();
+    // Passing password option on non-encrypted file should work (password ignored)
+    const wb2 = await readBuffer(buffer, { password: 'test' });
+    expect(wb2.getSheet('Sheet1')?.cell('A1').value).toBe('hello');
+  });
+
+  it('encrypted file without password shows helpful error', async () => {
+    const encInfoXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<encryption xmlns="http://schemas.microsoft.com/office/2006/encryption" xmlns:p="http://schemas.microsoft.com/office/2006/keyEncryptor/password">
+  <keyData saltSize="16" blockSize="16" keyBits="256" hashSize="64" cipherAlgorithm="AES" cipherChaining="ChainingModeCBC" hashAlgorithm="SHA512" saltValue="AAAAAAAAAAAAAAAAAAAAAA=="/>
+  <dataIntegrity encryptedHmacKey="AAAAAAAAAAAAAAAAAAAAAA==" encryptedHmacValue="AAAAAAAAAAAAAAAAAAAAAA=="/>
+  <keyEncryptors>
+    <keyEncryptor uri="http://schemas.microsoft.com/office/2006/keyEncryptor/password">
+      <p:encryptedKey spinCount="100000" saltSize="16" blockSize="16" keyBits="256" hashSize="64" cipherAlgorithm="AES" cipherChaining="ChainingModeCBC" hashAlgorithm="SHA512" saltValue="BBBBBBBBBBBBBBBBBBBBBB==" encryptedKeyValue="CCCCCCCCCCCCCCCCCCCCCC==" encryptedVerifierHashInput="DDDDDDDDDDDDDDDDDDDDDD==" encryptedVerifierHashValue="EEEEEEEEEEEEEEEEEEEEEE=="/>
+    </keyEncryptor>
+  </keyEncryptors>
+</encryption>`;
+    const encInfoData = buildAgileEncInfoStream(encInfoXml);
+    const ole2 = buildOle2WithStreams([
+      { name: 'EncryptionInfo', data: encInfoData },
+      { name: 'EncryptedPackage', data: new Uint8Array(0) },
+    ]);
+    await expect(readBuffer(ole2)).rejects.toThrow(/password/i);
+  });
+
+  it('encrypted file with wrong password shows error', async () => {
+    const encInfoXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<encryption xmlns="http://schemas.microsoft.com/office/2006/encryption" xmlns:p="http://schemas.microsoft.com/office/2006/keyEncryptor/password">
+  <keyData saltSize="16" blockSize="16" keyBits="256" hashSize="64" cipherAlgorithm="AES" cipherChaining="ChainingModeCBC" hashAlgorithm="SHA512" saltValue="AAAAAAAAAAAAAAAAAAAAAA=="/>
+  <dataIntegrity encryptedHmacKey="AAAAAAAAAAAAAAAAAAAAAA==" encryptedHmacValue="AAAAAAAAAAAAAAAAAAAAAA=="/>
+  <keyEncryptors>
+    <keyEncryptor uri="http://schemas.microsoft.com/office/2006/keyEncryptor/password">
+      <p:encryptedKey spinCount="1" saltSize="16" blockSize="16" keyBits="256" hashSize="64" cipherAlgorithm="AES" cipherChaining="ChainingModeCBC" hashAlgorithm="SHA512" saltValue="BBBBBBBBBBBBBBBBBBBBBB==" encryptedKeyValue="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC==" encryptedVerifierHashInput="DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD==" encryptedVerifierHashValue="EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE=="/>
+    </keyEncryptor>
+  </keyEncryptors>
+</encryption>`;
+    const encInfoData = buildAgileEncInfoStream(encInfoXml);
+    const ole2 = buildOle2WithStreams([
+      { name: 'EncryptionInfo', data: encInfoData },
+      { name: 'EncryptedPackage', data: new Uint8Array(16) },
+    ]);
+    await expect(readBuffer(ole2, { password: 'wrong' })).rejects.toThrow(
+      /password|decrypt|padding/i,
+    );
+  });
+
+  it('readBuffer accepts ReadOptions type', async () => {
+    const wb = new Workbook();
+    wb.addSheet('Test');
+    const buf = await wb.toBuffer();
+    // TypeScript compile check: ReadOptions is valid
+    const opts: ReadOptions = { password: undefined };
+    const wb2 = await readBuffer(buf, opts);
+    expect(wb2.sheetCount).toBe(1);
   });
 });

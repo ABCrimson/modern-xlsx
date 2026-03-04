@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const read: (a: number, b: number, c: number) => void;
+export const readWithPassword: (a: number, b: number, c: number, d: number, e: number) => void;
 export const repair: (a: number, b: number, c: number) => void;
 export const validate: (a: number, b: number, c: number) => void;
 export const version: (a: number) => void;

@@ -108,6 +108,7 @@ export type {
   PaneSelectionData,
   PatternType,
   ProtectionData,
+  ReadOptions,
   RepairResult,
   RichTextRun,
   RowData,
@@ -165,8 +166,9 @@ export { Cell, Workbook, Worksheet } from './workbook.js';
 export type { XlsxWorker, XlsxWorkerOptions } from './worker-api.js';
 export { createXlsxWorker } from './worker-api.js';
 
+import type { ReadOptions } from './types.js';
 // Internal imports for readBuffer, writeBlob, readFile
-import { ensureInitialized, wasmRead, wasmWriteBlob } from './wasm-loader.js';
+import { ensureInitialized, wasmRead, wasmReadWithPassword, wasmWriteBlob } from './wasm-loader.js';
 import { Workbook as _Workbook } from './workbook.js';
 
 /**
@@ -176,10 +178,13 @@ import { Workbook as _Workbook } from './workbook.js';
  * Data crosses the WASM boundary as a JSON string (serde_json in Rust,
  * JSON.parse in JS) for optimal performance — 8-13x faster than
  * serde_wasm_bindgen for large workbooks (100K+ rows).
+ *
+ * @param data - Raw XLSX bytes (possibly encrypted OLE2 container).
+ * @param options - Optional read options. Pass `{ password: '...' }` for encrypted files.
  */
-export async function readBuffer(data: Uint8Array): Promise<_Workbook> {
+export async function readBuffer(data: Uint8Array, options?: ReadOptions): Promise<_Workbook> {
   ensureInitialized();
-  const raw = wasmRead(data);
+  const raw = options?.password ? wasmReadWithPassword(data, options.password) : wasmRead(data);
   return new _Workbook(raw);
 }
 
@@ -197,11 +202,14 @@ export function writeBlob(wb: _Workbook): Blob {
  * Read an XLSX file from disk and return a Workbook instance.
  * Only available in Node.js, Bun, and Deno environments.
  * WASM must be initialized first via `initWasm()`.
+ *
+ * @param path - File path to read.
+ * @param options - Optional read options. Pass `{ password: '...' }` for encrypted files.
  */
-export async function readFile(path: string): Promise<_Workbook> {
+export async function readFile(path: string, options?: ReadOptions): Promise<_Workbook> {
   const { readFile: fsReadFile } = await import('node:fs/promises');
   const buffer = await fsReadFile(path);
-  return readBuffer(new Uint8Array(buffer));
+  return readBuffer(new Uint8Array(buffer), options);
 }
 
 export const VERSION = '0.5.1' as const;

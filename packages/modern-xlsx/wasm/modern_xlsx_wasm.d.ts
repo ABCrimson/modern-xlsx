@@ -15,6 +15,15 @@
 export function read(data: Uint8Array): string;
 
 /**
+ * Read an encrypted XLSX file with a password.
+ *
+ * Accepts a `Uint8Array` containing the raw (possibly encrypted) `.xlsx` bytes
+ * and a password string. Returns a JSON string representing the parsed workbook.
+ * If the file is not encrypted, the password is ignored and reading proceeds normally.
+ */
+export function readWithPassword(data: Uint8Array, password: string): string;
+
+/**
  * Validate and auto-repair a workbook. Returns repaired workbook as JSON.
  *
  * Accepts a JSON string describing the workbook.
@@ -59,6 +68,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly read: (a: number, b: number, c: number) => void;
+    readonly readWithPassword: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly repair: (a: number, b: number, c: number) => void;
     readonly validate: (a: number, b: number, c: number) => void;
     readonly version: (a: number) => void;

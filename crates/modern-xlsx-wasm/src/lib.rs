@@ -17,6 +17,17 @@ pub fn read(data: &[u8]) -> Result<String, JsError> {
         .map_err(|e| JsError::new(&e.to_string()))
 }
 
+/// Read an encrypted XLSX file with a password.
+///
+/// Accepts a `Uint8Array` containing the raw (possibly encrypted) `.xlsx` bytes
+/// and a password string. Returns a JSON string representing the parsed workbook.
+/// If the file is not encrypted, the password is ignored and reading proceeds normally.
+#[wasm_bindgen(js_name = readWithPassword)]
+pub fn read_with_password(data: &[u8], password: &str) -> Result<String, JsError> {
+    modern_xlsx_core::reader::read_xlsx_json_with_password(data, password)
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+
 /// Write XLSX file bytes from a JSON string describing the workbook.
 ///
 /// Accepts a JSON string (from `JSON.stringify()` on the JS side).
