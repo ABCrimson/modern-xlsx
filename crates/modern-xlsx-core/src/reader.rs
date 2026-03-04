@@ -666,6 +666,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: Vec::new(),
+            charts: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -784,6 +785,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: Vec::new(),
+            charts: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -877,6 +879,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: Vec::new(),
+            charts: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1046,6 +1049,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: Vec::new(),
+            charts: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1180,6 +1184,7 @@ mod tests {
                 header_footer: None,
                 outline_properties: None,
                 sparkline_groups: Vec::new(),
+                charts: Vec::new(),
                 preserved_extensions: Vec::new(),
             };
             let ws_xml = ws.to_xml().unwrap();
@@ -1278,6 +1283,7 @@ mod tests {
                     header_footer: None,
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
+                    charts: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -1370,6 +1376,7 @@ mod tests {
                         header_footer: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
+                        charts: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1403,6 +1410,7 @@ mod tests {
                         header_footer: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
+                        charts: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },

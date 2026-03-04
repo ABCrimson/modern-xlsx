@@ -84,6 +84,7 @@ fn main() {
         outline_properties: None,
         tables: vec![],
         sparkline_groups: vec![],
+        charts: vec![],
         preserved_extensions: vec![],
     };
     let wb = WorkbookData {

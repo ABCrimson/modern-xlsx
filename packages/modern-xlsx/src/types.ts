@@ -375,6 +375,122 @@ export interface SparklineGroupData {
 }
 
 // ---------------------------------------------------------------------------
+// Chart definitions
+// ---------------------------------------------------------------------------
+
+export type ChartType = 'bar' | 'column' | 'line' | 'pie' | 'doughnut' | 'scatter' | 'area' | 'radar' | 'bubble' | 'stock';
+export type ChartGrouping = 'clustered' | 'stacked' | 'percentStacked' | 'standard';
+export type ScatterStyle = 'lineMarker' | 'line' | 'marker' | 'smooth' | 'smoothMarker';
+export type RadarStyle = 'standard' | 'marker' | 'filled';
+export type MarkerStyleType = 'circle' | 'square' | 'diamond' | 'triangle' | 'star' | 'x' | 'plus' | 'dash' | 'dot' | 'none';
+export type TickLabelPosition = 'high' | 'low' | 'nextTo' | 'none';
+export type TickMark = 'cross' | 'in' | 'out' | 'none';
+export type AxisPosition = 'bottom' | 'top' | 'left' | 'right';
+export type LegendPosition = 'top' | 'bottom' | 'left' | 'right' | 'topRight';
+
+export interface ChartTitleData {
+  text: string;
+  overlay?: boolean;
+  fontSize?: number | null;
+  bold?: boolean | null;
+  color?: string | null;
+}
+
+export interface ChartAxisData {
+  id: number;
+  crossAx: number;
+  title?: ChartTitleData | null;
+  numFmt?: string | null;
+  sourceLinked?: boolean;
+  min?: number | null;
+  max?: number | null;
+  majorUnit?: number | null;
+  minorUnit?: number | null;
+  logBase?: number | null;
+  reversed?: boolean;
+  tickLblPos?: TickLabelPosition | null;
+  majorTickMark?: TickMark | null;
+  minorTickMark?: TickMark | null;
+  majorGridlines?: boolean;
+  minorGridlines?: boolean;
+  delete?: boolean;
+  position?: AxisPosition | null;
+  crossesAt?: number | null;
+  fontSize?: number | null;
+}
+
+export interface ChartLegendData {
+  position: LegendPosition;
+  overlay?: boolean;
+}
+
+export interface DataLabelsData {
+  showVal?: boolean;
+  showCatName?: boolean;
+  showSerName?: boolean;
+  showPercent?: boolean;
+  numFmt?: string | null;
+  showLeaderLines?: boolean;
+}
+
+export interface ChartSeriesData {
+  idx: number;
+  order: number;
+  name?: string | null;
+  catRef?: string | null;
+  valRef: string;
+  xValRef?: string | null;
+  bubbleSizeRef?: string | null;
+  fillColor?: string | null;
+  lineColor?: string | null;
+  lineWidth?: number | null;
+  marker?: MarkerStyleType | null;
+  smooth?: boolean | null;
+  explosion?: number | null;
+  dataLabels?: DataLabelsData | null;
+}
+
+export interface ManualLayoutData {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface ChartDataModel {
+  chartType: ChartType;
+  title?: ChartTitleData | null;
+  series: ChartSeriesData[];
+  catAxis?: ChartAxisData | null;
+  valAxis?: ChartAxisData | null;
+  legend?: ChartLegendData | null;
+  dataLabels?: DataLabelsData | null;
+  grouping?: ChartGrouping | null;
+  scatterStyle?: ScatterStyle | null;
+  radarStyle?: RadarStyle | null;
+  holeSize?: number | null;
+  barDirHorizontal?: boolean | null;
+  styleId?: number | null;
+  plotAreaLayout?: ManualLayoutData | null;
+}
+
+export interface ChartAnchorData {
+  fromCol: number;
+  fromRow: number;
+  fromColOff?: number;
+  fromRowOff?: number;
+  toCol: number;
+  toRow: number;
+  toColOff?: number;
+  toRowOff?: number;
+}
+
+export interface WorksheetChartData {
+  chart: ChartDataModel;
+  anchor: ChartAnchorData;
+}
+
+// ---------------------------------------------------------------------------
 // WorksheetData
 // ---------------------------------------------------------------------------
 
@@ -405,6 +521,7 @@ export interface WorksheetData {
   headerFooter?: HeaderFooterData | null;
   outlineProperties?: OutlinePropertiesData | null;
   sparklineGroups?: SparklineGroupData[];
+  charts?: WorksheetChartData[];
 }
 
 // ---------------------------------------------------------------------------

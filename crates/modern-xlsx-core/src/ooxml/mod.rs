@@ -1,3 +1,4 @@
+pub mod charts;
 pub mod calc_chain;
 pub mod cell;
 pub mod comments;

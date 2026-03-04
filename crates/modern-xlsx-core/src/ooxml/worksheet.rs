@@ -1,6 +1,7 @@
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 
+use super::charts::WorksheetChart;
 use super::push_entity;
 use serde::{Deserialize, Serialize};
 
@@ -174,6 +175,9 @@ pub struct WorksheetXml {
     /// Sparkline groups (from x14 extension in extLst).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sparkline_groups: Vec<SparklineGroup>,
+    /// Charts embedded in this worksheet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub charts: Vec<WorksheetChart>,
     /// Non-sparkline extension XML preserved as raw strings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preserved_extensions: Vec<String>,
@@ -2119,6 +2123,7 @@ impl WorksheetXml {
             header_footer,
             outline_properties,
             sparkline_groups,
+            charts: Vec::new(),
             preserved_extensions,
         })
     }
@@ -5065,6 +5070,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5154,6 +5160,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5244,6 +5251,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5289,6 +5297,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5406,6 +5415,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5553,6 +5563,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5653,6 +5664,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5718,6 +5730,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5793,6 +5806,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5894,6 +5908,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5982,6 +5997,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -6058,6 +6074,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -6141,6 +6158,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -6245,6 +6263,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
 
@@ -6301,6 +6320,7 @@ mod tests {
             }),
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[]).unwrap();
@@ -6338,6 +6358,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[]).unwrap();
@@ -6395,6 +6416,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[]).unwrap();
@@ -6429,6 +6451,7 @@ mod tests {
                 summary_right: true,
             }),
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[]).unwrap();
@@ -6470,6 +6493,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
@@ -6514,6 +6538,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
@@ -6552,6 +6577,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
@@ -6678,6 +6704,7 @@ mod tests {
             header_footer: None,
             outline_properties: None,
             sparkline_groups: vec![],
+            charts: vec![],
             preserved_extensions: vec![],
         }
     }
