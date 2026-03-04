@@ -1,3 +1,4 @@
+export { evaluateFormula, evaluateNode } from './evaluator.js';
 export type {
   ArrayNode,
   ASTNode,
@@ -15,6 +16,8 @@ export type {
   UnaryOpNode,
 } from './parser.js';
 export { parseCellRefValue, parseFormula } from './parser.js';
+export type { CellValue, EvalContext, FormulaFunction } from './resolver.js';
+export { resolveRange, resolveRef } from './resolver.js';
 export type { RewriteAction } from './rewriter.js';
 export { rewriteFormula } from './rewriter.js';
 export { serializeFormula } from './serializer.js';
