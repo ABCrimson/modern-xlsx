@@ -28,6 +28,7 @@ import type {
   SheetData,
   SheetProtectionData,
   SheetState,
+  SparklineGroupData,
   SplitPaneData,
   StylesData,
   TableDefinitionData,
@@ -1144,6 +1145,28 @@ export class Worksheet {
       const summary = findRowBinary(this.data.worksheet.rows, summaryIdx);
       if (summary) summary.collapsed = false;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Sparklines
+  // -------------------------------------------------------------------------
+
+  /** Returns all sparkline groups on this sheet. */
+  get sparklineGroups(): SparklineGroupData[] {
+    return this.data.worksheet.sparklineGroups ?? [];
+  }
+
+  /** Adds a sparkline group to this sheet. */
+  addSparklineGroup(group: SparklineGroupData): void {
+    if (!this.data.worksheet.sparklineGroups) {
+      this.data.worksheet.sparklineGroups = [];
+    }
+    this.data.worksheet.sparklineGroups.push(group);
+  }
+
+  /** Removes all sparkline groups from this sheet. */
+  clearSparklineGroups(): void {
+    delete this.data.worksheet.sparklineGroups;
   }
 }
 

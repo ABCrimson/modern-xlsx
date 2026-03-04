@@ -318,6 +318,42 @@ export interface OutlinePropertiesData {
 }
 
 // ---------------------------------------------------------------------------
+// Sparklines
+// ---------------------------------------------------------------------------
+
+export type SparklineType = 'line' | 'column' | 'stacked';
+
+export interface SparklineData {
+  formula: string;
+  sqref: string;
+}
+
+export interface SparklineGroupData {
+  sparklineType?: SparklineType;
+  sparklines: SparklineData[];
+  colorSeries?: string | null;
+  colorNegative?: string | null;
+  colorAxis?: string | null;
+  colorMarkers?: string | null;
+  colorFirst?: string | null;
+  colorLast?: string | null;
+  colorHigh?: string | null;
+  colorLow?: string | null;
+  lineWeight?: number | null;
+  markers?: boolean;
+  high?: boolean;
+  low?: boolean;
+  first?: boolean;
+  last?: boolean;
+  negative?: boolean;
+  displayXAxis?: boolean;
+  displayEmptyCellsAs?: 'gap' | 'zero' | 'span' | null;
+  manualMin?: number | null;
+  manualMax?: number | null;
+  rightToLeft?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // WorksheetData
 // ---------------------------------------------------------------------------
 
@@ -347,6 +383,7 @@ export interface WorksheetData {
   tables?: TableDefinitionData[];
   headerFooter?: HeaderFooterData | null;
   outlineProperties?: OutlinePropertiesData | null;
+  sparklineGroups?: SparklineGroupData[];
 }
 
 // ---------------------------------------------------------------------------
