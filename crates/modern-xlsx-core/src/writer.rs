@@ -285,9 +285,18 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                         Relationships::new()
                     };
 
-                    // Compute the next available rId number for the merged drawing rels.
-                    // Chart rIds start at rId1, so next is chart_count + 1.
-                    let mut next_rid = sheet.worksheet.charts.len() + 1;
+                    // Compute the next available rId number from actual rels (resilient
+                    // to future changes in chart rId numbering scheme).
+                    let mut next_rid = drawing_rels
+                        .relationships
+                        .iter()
+                        .filter_map(|r| {
+                            r.id.strip_prefix("rId")
+                                .and_then(|n| n.parse::<usize>().ok())
+                        })
+                        .max()
+                        .unwrap_or(0)
+                        + 1;
 
                     // Build a rId remapping: old image rId -> new rId in merged drawing.
                     let mut rid_remap: Vec<(String, String)> = Vec::new();
@@ -354,16 +363,9 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             // Add drawing relationship to worksheet .rels — but only if one
             // does not already exist (addImage may have already added one via
             // preserved entries that were parsed into ws_rels above).
-            let already_has_drawing = ws_rels
-                .find_by_type(REL_DRAWING)
-                .next()
-                .is_some();
-            if already_has_drawing {
+            if let Some(existing) = ws_rels.find_by_type(REL_DRAWING).next() {
                 // Reuse the existing drawing rId from preserved entries.
-                drawing_r_id_str = ws_rels
-                    .find_by_type(REL_DRAWING)
-                    .next()
-                    .map(|r| r.id.clone());
+                drawing_r_id_str = Some(existing.id.clone());
             } else {
                 let rid_num = next_r_id(&ws_rels);
                 let rid_str = format!("rId{rid_num}");
@@ -518,23 +520,28 @@ pub fn write_xlsx_with_password(workbook: &WorkbookData, password: &str) -> Resu
 /// Extract all `<xdr:twoCellAnchor ...>...</xdr:twoCellAnchor>` blocks from
 /// a drawing XML string. Used to merge image anchors into chart drawing XML
 /// when both images and charts exist on the same worksheet.
+/// NOTE: Input is always machine-generated XML from TypeScript `generateDrawingXml`
+/// (barcode.ts), which produces clean, predictable output. This function is not
+/// designed for arbitrary third-party XML with CDATA, comments, or non-prefixed
+/// namespace declarations.
 fn extract_anchors_from_drawing(drawing_xml: &str) -> Vec<String> {
     let mut anchors = Vec::new();
-    let tag_open = "<xdr:twoCellAnchor";
-    let tag_close = "</xdr:twoCellAnchor>";
-
-    let mut search_start = 0;
-    while let Some(open_pos) = drawing_xml[search_start..].find(tag_open) {
-        let abs_open = search_start + open_pos;
-        if let Some(close_pos) = drawing_xml[abs_open..].find(tag_close) {
-            let abs_close = abs_open + close_pos + tag_close.len();
-            anchors.push(drawing_xml[abs_open..abs_close].to_string());
-            search_start = abs_close;
-        } else {
-            break;
+    // Extract all three OOXML anchor types to prevent silent data loss.
+    for tag in &["xdr:twoCellAnchor", "xdr:oneCellAnchor", "xdr:absoluteAnchor"] {
+        let tag_open = format!("<{tag}");
+        let tag_close = format!("</{tag}>");
+        let mut search_start = 0;
+        while let Some(open_pos) = drawing_xml[search_start..].find(&*tag_open) {
+            let abs_open = search_start + open_pos;
+            if let Some(close_pos) = drawing_xml[abs_open..].find(&*tag_close) {
+                let abs_close = abs_open + close_pos + tag_close.len();
+                anchors.push(drawing_xml[abs_open..abs_close].to_string());
+                search_start = abs_close;
+            } else {
+                break;
+            }
         }
     }
-
     anchors
 }
 
