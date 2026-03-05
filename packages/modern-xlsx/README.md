@@ -112,6 +112,9 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
 | Row/column grouping (outline) | **Yes** | No | Paid |
 | Print titles & areas | **Yes** | No | Paid |
 | Encryption (password protection) | **Yes** | No | No |
+| Charts (bar, line, pie, etc.) | **Yes** | No | Paid |
+| Formula engine (54 functions) | **Yes** | No | No |
+| Sparklines | **Yes** | No | Paid |
 
 ## How It Works
 
@@ -299,6 +302,60 @@ wb.setPrintTitles('Sheet1', { rows: { start: 1, end: 1 } });
 wb.setPrintArea('Sheet1', 'A1:G50');
 ```
 
+### Charts
+
+Create Excel charts with the fluent ChartBuilder API:
+
+```typescript
+import { ChartBuilder } from 'modern-xlsx';
+
+const ws = wb.addSheet('Sales');
+ws.cell('A1').value = 'Q1'; ws.cell('A2').value = 'Q2';
+ws.cell('B1').value = 100;  ws.cell('B2').value = 200;
+
+// Create a bar chart
+const chart = new ChartBuilder('bar')
+  .title('Quarterly Sales')
+  .addSeries({ name: 'Revenue', values: 'Sales!$B$1:$B$4' })
+  .categoryAxis({ title: 'Quarter' })
+  .valueAxis({ title: 'Amount ($)' })
+  .size(800, 400)
+  .build();
+
+ws.addChart(chart);
+
+// Supported types: bar, column, line, pie, area, scatter, radar, doughnut, bubble, stock
+```
+
+### Formula Engine
+
+Evaluate 54 built-in Excel functions in-memory:
+
+```typescript
+import { evaluateFormula, createDefaultFunctions } from 'modern-xlsx';
+
+const ctx = {
+  getCell: (sheet, col, row) => wb.getSheet(sheet)?.cell(encodeCellRef(row - 1, letterToColumn(col)))?.value ?? null,
+  currentSheet: 'Sheet1',
+  functions: createDefaultFunctions(),
+};
+
+const result = evaluateFormula('SUM(A1:A10)', ctx);
+// Supports: SUM, AVERAGE, COUNT, IF, VLOOKUP, INDEX/MATCH, CONCATENATE, and 46 more
+```
+
+### Encryption
+
+Read and write password-protected XLSX files (ECMA-376 Standard Encryption):
+
+```typescript
+// Read encrypted file
+const wb = await readFile('protected.xlsx', { password: 'secret' });
+
+// Write encrypted file
+await wb.toFile('output.xlsx', { password: 'secret' });
+```
+
 ### Styles
 
 Fluent builder that produces a style index for any cell:
@@ -469,7 +526,7 @@ const runs = new RichTextBuilder()
 Single `<script>` tag — no bundler required:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.5.0/dist/modern-xlsx.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.8.5/dist/modern-xlsx.min.js"></script>
 <script>
   (async () => {
     await ModernXlsx.initWasm();
@@ -481,7 +538,7 @@ Single `<script>` tag — no bundler required:
 </script>
 ```
 
-Also available via unpkg: `https://unpkg.com/modern-xlsx@0.5.0/dist/modern-xlsx.min.js`
+Also available via unpkg: `https://unpkg.com/modern-xlsx@0.8.5/dist/modern-xlsx.min.js`
 
 ### Web Worker (Off-Thread)
 
@@ -547,6 +604,11 @@ import type {
   // Tables & print layout
   TableDefinitionData, TableColumnData, TableStyleInfoData,
   HeaderFooterData, OutlinePropertiesData,
+  // Charts
+  ChartDataModel, ChartSeriesData, ChartAxisData, ChartType,
+  ChartAnchorData, ChartGrouping, ChartLegendData,
+  // Formula engine
+  ASTNode, CellValue, EvalContext, FormulaFunction,
 } from 'modern-xlsx';
 ```
 
