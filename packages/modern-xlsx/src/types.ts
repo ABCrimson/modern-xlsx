@@ -469,6 +469,8 @@ export interface ChartAxisData {
   delete?: boolean;
   position?: AxisPosition | null;
   crossesAt?: number | null;
+  /** Font size for tick labels in hundredths of a point (1400 = 14pt). */
+  fontSize?: number | null;
 }
 
 export interface ChartLegendData {

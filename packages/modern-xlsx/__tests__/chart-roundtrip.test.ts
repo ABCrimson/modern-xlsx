@@ -169,4 +169,26 @@ describe('Chart roundtrip', () => {
     expect(ws2.charts).toHaveLength(1);
     expect(ws2.charts[0].chart.grouping).toBe('stacked');
   });
+
+  it('preserves axis tick label font size on roundtrip', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Data');
+    ws.cell('A1').value = 'X';
+    ws.cell('B1').value = '10';
+
+    ws.addChart('bar', (b) => {
+      b.addSeries({ valRef: 'Data!$B$1:$B$1', catRef: 'Data!$A$1:$A$1' })
+        .catAxis({ title: 'Category', fontSize: 1400 })
+        .valAxis({ title: 'Value', fontSize: 1200 })
+        .anchor({ col: 3, row: 0 }, { col: 10, row: 15 });
+    });
+
+    const buf = await wb.toBuffer();
+    const wb2 = await readBuffer(buf);
+    const ws2 = wb2.getSheet('Data');
+    const chart = ws2?.charts?.[0];
+
+    expect(chart?.chart.catAxis?.fontSize).toBe(1400);
+    expect(chart?.chart.valAxis?.fontSize).toBe(1200);
+  });
 });

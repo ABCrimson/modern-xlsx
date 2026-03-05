@@ -210,6 +210,9 @@ pub struct ChartAxis {
     pub position: Option<AxisPosition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crosses_at: Option<f64>,
+    /// Font size for axis tick labels in hundredths of a point (e.g., 1400 = 14pt).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_size: Option<u32>,
 }
 
 /// Tick label position.
@@ -1590,6 +1593,39 @@ impl ChartData {
             Self::write_f64_element(writer, "c:minorUnit", minor)?;
         }
 
+        // <c:txPr> — axis tick label font size
+        if let Some(sz) = axis.font_size {
+            writer
+                .write_event(Event::Start(BytesStart::new("c:txPr")))
+                .map_err(map_err)?;
+            writer
+                .write_event(Event::Empty(BytesStart::new("a:bodyPr")))
+                .map_err(map_err)?;
+            writer
+                .write_event(Event::Empty(BytesStart::new("a:lstStyle")))
+                .map_err(map_err)?;
+            writer
+                .write_event(Event::Start(BytesStart::new("a:p")))
+                .map_err(map_err)?;
+            writer
+                .write_event(Event::Start(BytesStart::new("a:pPr")))
+                .map_err(map_err)?;
+            let mut def_rpr = BytesStart::new("a:defRPr");
+            def_rpr.push_attribute(("sz", ibuf.format(sz)));
+            writer
+                .write_event(Event::Empty(def_rpr))
+                .map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("a:pPr")))
+                .map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("a:p")))
+                .map_err(map_err)?;
+            writer
+                .write_event(Event::End(BytesEnd::new("c:txPr")))
+                .map_err(map_err)?;
+        }
+
         writer
             .write_event(Event::End(BytesEnd::new(tag)))
             .map_err(map_err)?;
@@ -2005,6 +2041,8 @@ enum ParseCtx {
     SerTrendline,
     /// Inside `<c:errBars>` within a series.
     SerErrBars,
+    /// Inside `<c:txPr>` within an axis (tick label font properties).
+    AxisTxPr(AxisKind),
     /// Inside `<c:view3D>` within `<c:chart>`.
     View3D,
 }
@@ -2298,6 +2336,17 @@ impl ChartData {
                             cur_val_axis_title = TitleBuilder::new();
                             ctx_stack.push(ParseCtx::Title(TitleOwner::ValAxis));
                         }
+                        // Axis tick label text properties.
+                        (ParseCtx::CatAxis, b"txPr") => {
+                            ctx_stack.push(ParseCtx::AxisTxPr(AxisKind::Cat));
+                        }
+                        (ParseCtx::ValAxis, b"txPr") => {
+                            ctx_stack.push(ParseCtx::AxisTxPr(AxisKind::Val));
+                        }
+                        (ParseCtx::AxisTxPr(_), _) => {
+                            // Descend into txPr children (a:bodyPr, a:lstStyle, a:p, a:pPr, etc.)
+                            ctx_stack.push(ctx);
+                        }
                         // Title text structure.
                         (ParseCtx::Title(owner), b"r") => {
                             ctx_stack.push(ParseCtx::TitleRun(owner));
@@ -2588,6 +2637,17 @@ impl ChartData {
                         (ParseCtx::AxisScaling(AxisKind::Val), b"logBase") => {
                             cur_val_axis.log_base = attr_val_str(e).parse().ok();
                         }
+                        // Axis txPr — defRPr with sz attribute.
+                        (ParseCtx::AxisTxPr(AxisKind::Cat), b"defRPr") => {
+                            if let Some(sz) = attr_val(e, b"sz") {
+                                cur_cat_axis.font_size = sz.parse().ok();
+                            }
+                        }
+                        (ParseCtx::AxisTxPr(AxisKind::Val), b"defRPr") => {
+                            if let Some(sz) = attr_val(e, b"sz") {
+                                cur_val_axis.font_size = sz.parse().ok();
+                            }
+                        }
                         // Legend.
                         (ParseCtx::Legend, b"legendPos") => {
                             cur_legend.position = LegendPosition::from_xml(&attr_val_str(e));
@@ -2783,6 +2843,13 @@ impl ChartData {
                             view_3d = cur_view_3d.build();
                             ctx_stack.pop();
                         }
+                        (ParseCtx::AxisTxPr(_), b"txPr") => {
+                            ctx_stack.pop();
+                        }
+                        (ParseCtx::AxisTxPr(_), _) => {
+                            // Pop child contexts within txPr (a:p, a:pPr, etc.)
+                            ctx_stack.pop();
+                        }
                         (ParseCtx::CatAxis, b"catAx") => {
                             let builder = std::mem::replace(&mut cur_cat_axis, AxisBuilder::new());
                             cat_axis = Some(builder.build_with_title(
@@ -2936,6 +3003,7 @@ struct AxisBuilder {
     delete: bool,
     position: Option<AxisPosition>,
     crosses_at: Option<f64>,
+    font_size: Option<u32>,
 }
 
 impl AxisBuilder {
@@ -2959,6 +3027,7 @@ impl AxisBuilder {
             delete: false,
             position: None,
             crosses_at: None,
+            font_size: None,
         }
     }
 
@@ -2983,6 +3052,7 @@ impl AxisBuilder {
             delete: self.delete,
             position: self.position,
             crosses_at: self.crosses_at,
+            font_size: self.font_size,
         }
     }
 }
@@ -3391,8 +3461,8 @@ mod tests {
                 trendline: None,
                 error_bars: None,
             }],
-            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
-            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: Some(ChartLegend { position: LegendPosition::Bottom, overlay: false }),
             data_labels: None,
             grouping: Some(ChartGrouping::Clustered),
@@ -3520,6 +3590,7 @@ mod tests {
             delete: false,
             position: Some(AxisPosition::Left),
             crosses_at: Some(0.0),
+            font_size: None,
         };
         let json = serde_json::to_string(&axis).unwrap();
         let rt: ChartAxis = serde_json::from_str(&json).unwrap();
@@ -3604,8 +3675,8 @@ mod tests {
                 trendline: None,
                 error_bars: None,
             }],
-            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
-            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: Some(ChartLegend { position: LegendPosition::Bottom, overlay: false }),
             data_labels: None,
             grouping: Some(ChartGrouping::Clustered),
@@ -3644,8 +3715,8 @@ mod tests {
                 trendline: None,
                 error_bars: None,
             }],
-            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
-            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None,
             data_labels: None,
             grouping: Some(ChartGrouping::Clustered),
@@ -3676,8 +3747,8 @@ mod tests {
                 trendline: None,
                 error_bars: None,
             }],
-            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
-            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None,
             grouping: Some(ChartGrouping::Standard),
             scatter_style: None, radar_style: None, hole_size: None,
@@ -3744,7 +3815,7 @@ mod tests {
                 error_bars: None,
             }],
             cat_axis: None,
-            val_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            val_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None,
             grouping: None,
             scatter_style: Some(ScatterStyle::LineMarker),
@@ -3803,8 +3874,8 @@ mod tests {
                 trendline: None,
                 error_bars: None,
             }],
-            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
-            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None,
             grouping: Some(ChartGrouping::Stacked),
             scatter_style: None, radar_style: None, hole_size: None,
@@ -3831,8 +3902,8 @@ mod tests {
                 trendline: None,
                 error_bars: None,
             }],
-            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
-            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None,
             grouping: None, scatter_style: None,
             radar_style: Some(RadarStyle::Filled),
@@ -3878,7 +3949,7 @@ mod tests {
                 major_tick_mark: Some(TickMark::Cross),
                 minor_tick_mark: None,
                 major_gridlines: true, minor_gridlines: false,
-                delete: false, position: Some(AxisPosition::Bottom), crosses_at: None,
+                delete: false, position: Some(AxisPosition::Bottom), crosses_at: None, font_size: None,
             }),
             val_axis: Some(ChartAxis {
                 id: 1, cross_ax: 0,
@@ -3889,7 +3960,7 @@ mod tests {
                 log_base: None, reversed: false,
                 tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None,
                 major_gridlines: true, minor_gridlines: false,
-                delete: false, position: Some(AxisPosition::Left), crosses_at: None,
+                delete: false, position: Some(AxisPosition::Left), crosses_at: None, font_size: None,
             }),
             legend: None, data_labels: None, grouping: None,
             scatter_style: None, radar_style: None, hole_size: None,
@@ -4034,8 +4105,8 @@ mod tests {
                 trendline: None,
                 error_bars: None,
             }],
-            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
-            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: Some(ChartLegend { position: LegendPosition::Bottom, overlay: false }),
             data_labels: None,
             grouping: Some(ChartGrouping::Clustered),
@@ -4110,7 +4181,7 @@ mod tests {
                 error_bars: None,
             }],
             cat_axis: None,
-            val_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            val_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None, grouping: None,
             scatter_style: Some(ScatterStyle::LineMarker),
             radar_style: None, hole_size: None,
@@ -4171,8 +4242,8 @@ mod tests {
                 trendline: None,
                 error_bars: None,
             }],
-            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
-            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None,
             grouping: Some(ChartGrouping::Clustered),
             scatter_style: None, radar_style: None, hole_size: None,
@@ -4229,8 +4300,8 @@ mod tests {
                 trendline: None,
                 error_bars: None,
             }],
-            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
-            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None,
             grouping: Some(ChartGrouping::Standard),
             scatter_style: None, radar_style: None, hole_size: None,
@@ -4259,7 +4330,7 @@ mod tests {
                 log_base: None, reversed: false,
                 tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None,
                 major_gridlines: true, minor_gridlines: false,
-                delete: false, position: Some(AxisPosition::Bottom), crosses_at: None,
+                delete: false, position: Some(AxisPosition::Bottom), crosses_at: None, font_size: None,
             }),
             val_axis: Some(ChartAxis {
                 id: 1, cross_ax: 0,
@@ -4270,7 +4341,7 @@ mod tests {
                 log_base: None, reversed: false,
                 tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None,
                 major_gridlines: true, minor_gridlines: false,
-                delete: false, position: Some(AxisPosition::Left), crosses_at: None,
+                delete: false, position: Some(AxisPosition::Left), crosses_at: None, font_size: None,
             }),
             legend: None, data_labels: None, grouping: None,
             scatter_style: None, radar_style: None, hole_size: None,
@@ -4310,8 +4381,8 @@ mod tests {
                 trendline: None,
                 error_bars: None,
             }],
-            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
-            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None }),
+            cat_axis: Some(ChartAxis { id: 0, cross_ax: 1, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: false, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
+            val_axis: Some(ChartAxis { id: 1, cross_ax: 0, title: None, num_fmt: None, source_linked: false, min: None, max: None, major_unit: None, minor_unit: None, log_base: None, reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None, major_gridlines: true, minor_gridlines: false, delete: false, position: None, crosses_at: None, font_size: None }),
             legend: None, data_labels: None,
             grouping: None, scatter_style: None,
             radar_style: Some(RadarStyle::Filled),

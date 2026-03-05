@@ -72,6 +72,8 @@ export interface AxisOptions {
   delete?: boolean;
   position?: AxisPosition;
   crossesAt?: number;
+  /** Font size for tick labels in hundredths of a point (1400 = 14pt). */
+  fontSize?: number;
 }
 
 /**
@@ -369,6 +371,7 @@ function buildAxisTickProps(
   | 'delete'
   | 'position'
   | 'crossesAt'
+  | 'fontSize'
 > {
   return {
     tickLblPos: opts.tickLblPos ?? null,
@@ -379,6 +382,7 @@ function buildAxisTickProps(
     delete: opts.delete ?? false,
     position: opts.position ?? null,
     crossesAt: opts.crossesAt ?? null,
+    fontSize: opts.fontSize ?? null,
   };
 }
 
