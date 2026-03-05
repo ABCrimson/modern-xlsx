@@ -400,7 +400,7 @@ mod tests {
                 assert!(!a.encrypted_hmac_key.is_empty());
                 assert!(!a.encrypted_hmac_value.is_empty());
             }
-            _ => panic!("Expected Agile encryption"),
+            other => unreachable!("Expected Agile encryption, got {other:?}"),
         }
     }
 
@@ -429,7 +429,7 @@ mod tests {
                 assert_eq!(a.key_hash_alg, "SHA256");
                 assert_eq!(a.pw_spin_count, 50000);
             }
-            _ => panic!("Expected Agile encryption"),
+            other => unreachable!("Expected Agile encryption, got {other:?}"),
         }
     }
 
@@ -473,7 +473,7 @@ mod tests {
                 assert_eq!(s.verifier_hash_size, 20);
                 assert_eq!(s.encrypted_verifier_hash.len(), 32);
             }
-            _ => panic!("Expected Standard encryption"),
+            other => unreachable!("Expected Standard encryption, got {other:?}"),
         }
     }
 

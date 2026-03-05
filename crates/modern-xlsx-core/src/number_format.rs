@@ -90,6 +90,15 @@ pub fn classify_format_string(format: &str) -> FormatType {
 fn clean_format_string(format: &str) -> Vec<u8> {
     let bytes = format.as_bytes();
     let len = bytes.len();
+
+    // Fast path: if no special characters, just lowercase without the state machine.
+    if !bytes
+        .iter()
+        .any(|&b| matches!(b, b'[' | b'"' | b'\\' | b'_' | b'*'))
+    {
+        return bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
+    }
+
     let mut result = Vec::with_capacity(len);
     let mut i = 0;
 
@@ -142,14 +151,10 @@ fn clean_format_string(format: &str) -> Vec<u8> {
 /// (h, m, s, hh, mm, ss — case-insensitive) without allocating.
 fn is_elapsed_time_marker(content: &[u8]) -> bool {
     match content.len() {
-        1 => {
-            let c = content[0].to_ascii_lowercase();
-            c == b'h' || c == b'm' || c == b's'
-        }
+        1 => matches!(content[0].to_ascii_lowercase(), b'h' | b'm' | b's'),
         2 => {
             let a = content[0].to_ascii_lowercase();
-            let b = content[1].to_ascii_lowercase();
-            a == b && (a == b'h' || a == b'm' || a == b's')
+            a == content[1].to_ascii_lowercase() && matches!(a, b'h' | b'm' | b's')
         }
         _ => false,
     }

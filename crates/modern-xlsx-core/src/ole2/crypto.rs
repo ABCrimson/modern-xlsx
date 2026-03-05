@@ -1373,7 +1373,7 @@ mod tests {
         let info = crate::ole2::encryption_info::EncryptionInfo::parse(&enc_info_stream).unwrap();
         let agile = match info {
             crate::ole2::encryption_info::EncryptionInfo::Agile(a) => a,
-            _ => panic!("Expected Agile encryption info"),
+            other => unreachable!("Expected Agile encryption info, got {other:?}"),
         };
 
         // Verify password and get data key.

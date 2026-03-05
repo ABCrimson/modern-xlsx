@@ -607,7 +607,7 @@ fn validate_metadata(report: &mut ValidationReport, wb: &WorkbookData) {
 }
 
 /// Quick check for ISO 8601 datetime format.
-fn is_valid_iso8601(s: &str) -> bool {
+const fn is_valid_iso8601(s: &str) -> bool {
     // Accept common ISO 8601 patterns:
     // YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS, YYYY-MM-DDTHH:MM:SSZ
     let bytes = s.as_bytes();
@@ -615,11 +615,16 @@ fn is_valid_iso8601(s: &str) -> bool {
         return false;
     }
     // Check date portion: YYYY-MM-DD
-    bytes[0..4].iter().all(|b| b.is_ascii_digit())
+    bytes[0].is_ascii_digit()
+        && bytes[1].is_ascii_digit()
+        && bytes[2].is_ascii_digit()
+        && bytes[3].is_ascii_digit()
         && bytes[4] == b'-'
-        && bytes[5..7].iter().all(|b| b.is_ascii_digit())
+        && bytes[5].is_ascii_digit()
+        && bytes[6].is_ascii_digit()
         && bytes[7] == b'-'
-        && bytes[8..10].iter().all(|b| b.is_ascii_digit())
+        && bytes[8].is_ascii_digit()
+        && bytes[9].is_ascii_digit()
 }
 
 // -- Structure --

@@ -31,9 +31,9 @@ pub enum Ole2Kind {
 
 /// Detect whether a byte slice begins with ZIP or OLE2 magic bytes.
 pub fn detect_format(data: &[u8]) -> FileFormat {
-    if data.len() >= 8 && data[..8] == super::OLE2_MAGIC {
+    if data.starts_with(&super::OLE2_MAGIC) {
         FileFormat::Ole2
-    } else if data.len() >= 4 && data[..4] == ZIP_MAGIC {
+    } else if data.starts_with(&ZIP_MAGIC) {
         FileFormat::Zip
     } else {
         FileFormat::Unknown
@@ -67,7 +67,7 @@ impl Ole2Header {
                 break;
             }
             let sid = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());
-            if sid != 0xFFFFFFFE && sid != 0xFFFFFFFF {
+            if !matches!(sid, 0xFFFFFFFE | 0xFFFFFFFF) {
                 fat_sectors.push(sid);
             }
         }
@@ -88,7 +88,7 @@ impl Ole2Header {
 /// Reads the FAT (File Allocation Table) to follow sector chains.
 fn read_fat(data: &[u8], header: &Ole2Header) -> Vec<u32> {
     let entries_per_sector = header.sector_size / 4;
-    let mut fat = Vec::new();
+    let mut fat = Vec::with_capacity(header.fat_sectors.len() * entries_per_sector);
     for &sid in &header.fat_sectors {
         let offset = header.sector_offset(sid);
         for i in 0..entries_per_sector {
@@ -110,9 +110,9 @@ fn follow_chain(fat: &[u32], start: u32) -> Vec<u32> {
     while (current as usize) < fat.len() && chain.len() < max_sectors {
         chain.push(current);
         let next = fat[current as usize];
-        if next == 0xFFFFFFFE || next == 0xFFFFFFFF {
+        if matches!(next, 0xFFFFFFFE | 0xFFFFFFFF) {
             break;
-        } // end of chain
+        }
         current = next;
     }
     chain
@@ -161,9 +161,6 @@ fn read_directory(data: &[u8], header: &Ole2Header, fat: &[u32]) -> Vec<DirEntry
         let name_bytes = name_len.saturating_sub(2); // subtract null terminator
         let name: String = (0..name_bytes / 2)
             .map(|i| u16::from_le_bytes([chunk[i * 2], chunk[i * 2 + 1]]))
-            .collect::<Vec<u16>>()
-            .iter()
-            .copied()
             .map(|c| char::from_u32(u32::from(c)).unwrap_or('\u{FFFD}'))
             .collect();
 
@@ -190,9 +187,17 @@ pub fn classify_ole2(data: &[u8]) -> Result<Ole2Kind> {
     let fat = read_fat(data, &header);
     let entries = read_directory(data, &header, &fat);
 
-    let has_encryption_info = entries.iter().any(|e| e.name == "EncryptionInfo");
-    let has_encrypted_package = entries.iter().any(|e| e.name == "EncryptedPackage");
-    let has_workbook = entries.iter().any(|e| e.name == "Workbook" || e.name == "Book");
+    // Single pass over directory entries to classify the OLE2 document.
+    let (mut has_encryption_info, mut has_encrypted_package, mut has_workbook) =
+        (false, false, false);
+    for e in &entries {
+        match e.name.as_str() {
+            "EncryptionInfo" => has_encryption_info = true,
+            "EncryptedPackage" => has_encrypted_package = true,
+            "Workbook" | "Book" => has_workbook = true,
+            _ => {}
+        }
+    }
 
     if has_encryption_info && has_encrypted_package {
         Ok(Ole2Kind::EncryptedXlsx)

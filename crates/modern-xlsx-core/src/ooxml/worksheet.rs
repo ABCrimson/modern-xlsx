@@ -1881,8 +1881,8 @@ impl WorksheetXml {
                         }
                         (ParseState::InInlineStrT, b"t") => {
                             let text = std::mem::take(&mut text_buf);
-                            cur_cell_value = Some(text.clone());
-                            cur_cell_inline_string = Some(text);
+                            cur_cell_inline_string = Some(text.clone());
+                            cur_cell_value = Some(text);
                             state = ParseState::InInlineStr;
                         }
                         (ParseState::InInlineStr, b"is") => {
@@ -4759,8 +4759,8 @@ fn col_index_to_letter(col: u32) -> String {
 /// but always keeping at least one decimal place if the number is not an integer.
 fn format_f64(val: f64) -> String {
     if val == val.floor() {
-        // Integer value — format without decimal places.
-        format!("{}", val as i64)
+        // Integer value — use itoa to avoid format! overhead.
+        itoa::Buffer::new().format(val as i64).to_owned()
     } else {
         format!("{val}")
     }

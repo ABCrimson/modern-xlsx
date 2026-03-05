@@ -227,7 +227,7 @@ fn test_truncated_encrypted_package_no_panic() {
     // Get the real data key
     let agile = match &enc_info {
         EncryptionInfo::Agile(a) => a,
-        _ => panic!("Expected Agile encryption"),
+        other => unreachable!("Expected Agile encryption, got {other:?}"),
     };
     let data_key =
         modern_xlsx_core::ole2::crypto::verify_password_agile("test_pw", agile).unwrap();

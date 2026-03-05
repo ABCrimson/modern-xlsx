@@ -313,7 +313,8 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
                     // Remap rId references in the image anchor XML fragments and
                     // insert them before </xdr:wsDr> in the chart drawing XML.
-                    let mut remapped_anchors = String::new();
+                    let anchor_capacity: usize = image_anchors.iter().map(|a| a.len()).sum();
+                    let mut remapped_anchors = String::with_capacity(anchor_capacity);
                     for anchor_xml in &image_anchors {
                         let mut remapped = anchor_xml.clone();
                         for (old_rid, new_rid) in &rid_remap {
@@ -407,11 +408,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             });
 
             // Only add the comments relationship if not already present.
-            let already_has_comments = ws_rels
-                .find_by_type(REL_COMMENTS)
-                .next()
-                .is_some();
-            if !already_has_comments {
+            if ws_rels.find_by_type(REL_COMMENTS).next().is_none() {
                 let rid_num = next_r_id(&ws_rels);
                 ws_rels.add(
                     format!("rId{rid_num}"),
