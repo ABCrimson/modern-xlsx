@@ -11,7 +11,7 @@ import { isDateFormatCode, serialToDate } from './dates.js';
 import type { DateSystem } from './types.js';
 
 /** Built-in Excel format codes (ECMA-376 18.8.30). */
-const BUILTIN_FORMATS: Record<number, string> = {
+const BUILTIN_FORMATS = {
   0: 'General',
   1: '0',
   2: '0.00',
@@ -40,7 +40,10 @@ const BUILTIN_FORMATS: Record<number, string> = {
   47: 'mmss.0',
   48: '##0.0E+0',
   49: '@',
-};
+} as const satisfies Record<number, string>;
+
+/** Type-safe lookup for BUILTIN_FORMATS by arbitrary numeric key. */
+const builtinFormatLookup = BUILTIN_FORMATS as Record<number, string | undefined>;
 
 /** Runtime-registered custom format codes. */
 const CUSTOM_FORMATS = new Map<number, string>();
@@ -87,7 +90,7 @@ export function formatCell(
 
   const formatCode =
     typeof format === 'number'
-      ? (BUILTIN_FORMATS[format] ?? CUSTOM_FORMATS.get(format) ?? 'General')
+      ? (builtinFormatLookup[format] ?? CUSTOM_FORMATS.get(format) ?? 'General')
       : format;
 
   if (formatCode === 'General' || formatCode === '' || formatCode === '@') {
@@ -102,7 +105,7 @@ export function formatCell(
 
 /** Get the format code string for a built-in format ID. */
 export function getBuiltinFormat(id: number): string | undefined {
-  return BUILTIN_FORMATS[id];
+  return builtinFormatLookup[id];
 }
 
 /** Result of rich cell formatting, including optional color metadata. */
@@ -128,7 +131,7 @@ export function formatCellRich(
 
   let formatCode: string;
   if (typeof format === 'number') {
-    formatCode = BUILTIN_FORMATS[format] ?? CUSTOM_FORMATS.get(format) ?? 'General';
+    formatCode = builtinFormatLookup[format] ?? CUSTOM_FORMATS.get(format) ?? 'General';
   } else {
     formatCode = format;
   }
@@ -270,7 +273,7 @@ const MONTH_NAMES = [
   'October',
   'November',
   'December',
-];
+] as const;
 
 const MONTH_SHORT = [
   'Jan',
@@ -285,7 +288,7 @@ const MONTH_SHORT = [
   'Oct',
   'Nov',
   'Dec',
-];
+] as const;
 
 function formatDate(serial: number, code: string, system: DateSystem): string {
   const date = serialToDate(serial, system);
@@ -333,33 +336,36 @@ interface DateToken {
  * Tokens for run-length date characters (m, d, h, s).
  * Keyed by lowercase character; value maps run length to formatter.
  */
-const RUN_TOKENS: Record<string, readonly [number, TokenFormatter][]> = {
+const RUN_TOKENS = {
   m: [
-    [4, (p) => MONTH_NAMES[p.month - 1] ?? ''],
-    [3, (p) => MONTH_SHORT[p.month - 1] ?? ''],
-    [2, (p) => String(p.month).padStart(2, '0')],
-    [1, (p) => String(p.month)],
+    [4, (p: DateParts) => MONTH_NAMES[p.month - 1] ?? ''],
+    [3, (p: DateParts) => MONTH_SHORT[p.month - 1] ?? ''],
+    [2, (p: DateParts) => String(p.month).padStart(2, '0')],
+    [1, (p: DateParts) => String(p.month)],
   ],
   d: [
-    [2, (p) => String(p.day).padStart(2, '0')],
-    [1, (p) => String(p.day)],
+    [2, (p: DateParts) => String(p.day).padStart(2, '0')],
+    [1, (p: DateParts) => String(p.day)],
   ],
   h: [
-    [2, (p) => String(p.hours).padStart(2, '0')],
-    [1, (p) => String(p.hours)],
+    [2, (p: DateParts) => String(p.hours).padStart(2, '0')],
+    [1, (p: DateParts) => String(p.hours)],
   ],
   s: [
-    [2, (p) => String(p.seconds).padStart(2, '0')],
-    [1, (p) => String(p.seconds)],
+    [2, (p: DateParts) => String(p.seconds).padStart(2, '0')],
+    [1, (p: DateParts) => String(p.seconds)],
   ],
-};
+} as const satisfies Record<string, readonly [number, TokenFormatter][]>;
+
+/** Typed lookup for RUN_TOKENS by arbitrary string key. */
+const runTokenLookup = RUN_TOKENS as Record<string, readonly [number, TokenFormatter][] | undefined>;
 
 /** Fixed-string tokens matched before run tokens. Ordered longest-first. */
-const FIXED_TOKENS: readonly DateToken[] = [
-  { pattern: 'am/pm', render: (p) => p.ampm },
-  { pattern: 'yyyy', render: (p) => String(p.year) },
-  { pattern: 'yy', render: (p) => String(p.year).slice(-2) },
-];
+const FIXED_TOKENS = [
+  { pattern: 'am/pm', render: (p: DateParts) => p.ampm },
+  { pattern: 'yyyy', render: (p: DateParts) => String(p.year) },
+  { pattern: 'yy', render: (p: DateParts) => String(p.year).slice(-2) },
+] as const satisfies readonly DateToken[];
 
 /** Count consecutive case-insensitive occurrences of `ch` starting at `start`. */
 function countRun(s: string, start: number, ch: string): number {
@@ -381,7 +387,7 @@ function matchFixedToken(lower: string): DateToken | undefined {
 /** Try to match a run-length token at position `i`. Returns [consumed, output] or undefined. */
 function matchRunToken(s: string, i: number): [number, TokenFormatter] | undefined {
   const ch = (s[i] ?? '').toLowerCase();
-  const entries = RUN_TOKENS[ch];
+  const entries = runTokenLookup[ch];
   if (!entries) return undefined;
   const run = countRun(s, i, ch);
   for (const [minLen, render] of entries) {
@@ -525,6 +531,26 @@ function resolveSection(code: string, value: number): { section: string; value: 
   return { section: sections[0] ?? 'General', value };
 }
 
+// ---------------------------------------------------------------------------
+// Cached Intl.NumberFormat — avoids re-creating formatters on every call
+// ---------------------------------------------------------------------------
+
+const numberFormatCache = new Map<string, Intl.NumberFormat>();
+
+function getCachedNumberFormat(decimals: number, useGrouping: boolean): Intl.NumberFormat {
+  const key = `${decimals}:${useGrouping}`;
+  let fmt = numberFormatCache.get(key);
+  if (!fmt) {
+    fmt = new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+      useGrouping,
+    });
+    numberFormatCache.set(key, fmt);
+  }
+  return fmt;
+}
+
 function applyNumberFormat(value: number, section: string): string {
   // Strip quoted literals, replace with placeholders
   const literals: string[] = [];
@@ -536,16 +562,9 @@ function applyNumberFormat(value: number, section: string): string {
   const hasComma = stripped.includes('#,') || stripped.includes('0,');
   const decimals = countDecimals(stripped, /\.(0+|#+)/);
 
-  let formatted: string;
-  if (hasComma) {
-    formatted = value.toLocaleString('en-US', {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-      useGrouping: true,
-    });
-  } else {
-    formatted = value.toFixed(decimals);
-  }
+  const formatted = hasComma
+    ? getCachedNumberFormat(decimals, true).format(value)
+    : value.toFixed(decimals);
 
   // Reinsert literals
   return formatted.replace(/<<(\d+)>>/g, (_, idx: string) => literals[Number(idx)] ?? '');

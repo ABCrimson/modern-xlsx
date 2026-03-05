@@ -84,7 +84,7 @@ export interface CellData {
 
 export interface RowData {
   index: number;
-  cells: CellData[];
+  readonly cells: CellData[];
   height: number | null;
   hidden: boolean;
   outlineLevel?: number | null;
@@ -169,12 +169,12 @@ export interface ColumnInfo {
 
 export interface AutoFilterData {
   range: string;
-  filterColumns?: FilterColumnData[];
+  filterColumns?: readonly FilterColumnData[];
 }
 
 export interface FilterColumnData {
   colId: number;
-  filters: string[];
+  readonly filters: string[];
 }
 
 export interface HyperlinkData {
@@ -246,18 +246,18 @@ export interface CfvoData {
 }
 
 export interface ColorScaleData {
-  cfvos: CfvoData[];
-  colors: string[];
+  readonly cfvos: CfvoData[];
+  readonly colors: string[];
 }
 
 export interface DataBarData {
-  cfvos: CfvoData[];
+  readonly cfvos: CfvoData[];
   color: string;
 }
 
 export interface IconSetData {
   iconSetType?: string | null;
-  cfvos: CfvoData[];
+  readonly cfvos: CfvoData[];
 }
 
 export interface ConditionalFormattingRuleData {
@@ -273,7 +273,7 @@ export interface ConditionalFormattingRuleData {
 
 export interface ConditionalFormattingData {
   sqref: string;
-  rules: ConditionalFormattingRuleData[];
+  readonly rules: ConditionalFormattingRuleData[];
 }
 
 // ---------------------------------------------------------------------------
@@ -307,7 +307,7 @@ export interface TableDefinitionData {
   headerRowCount: number;
   totalsRowCount: number;
   totalsRowShown: boolean;
-  columns: TableColumnData[];
+  readonly columns: TableColumnData[];
   styleInfo?: TableStyleInfoData | null;
   autoFilterRef?: string | null;
 }
@@ -351,7 +351,7 @@ export interface SparklineData {
 
 export interface SparklineGroupData {
   sparklineType?: SparklineType;
-  sparklines: SparklineData[];
+  readonly sparklines: SparklineData[];
   colorSeries?: string | null;
   colorNegative?: string | null;
   colorAxis?: string | null;
@@ -516,7 +516,7 @@ export interface ManualLayoutData {
 export interface ChartDataModel {
   chartType: ChartType;
   title?: ChartTitleData | null;
-  series: ChartSeriesData[];
+  readonly series: ChartSeriesData[];
   catAxis?: ChartAxisData | null;
   valAxis?: ChartAxisData | null;
   legend?: ChartLegendData | null;
@@ -644,7 +644,7 @@ export interface GradientStopData {
 export interface GradientFillData {
   gradientType?: string | null;
   degree?: number | null;
-  stops?: GradientStopData[];
+  stops?: readonly GradientStopData[];
 }
 
 export interface FillData {
@@ -754,8 +754,8 @@ export interface RichTextRun {
 }
 
 export interface SharedStringsData {
-  strings: string[];
-  richRuns?: (RichTextRun[] | null)[];
+  readonly strings: string[];
+  readonly richRuns?: (RichTextRun[] | null)[];
 }
 
 // ---------------------------------------------------------------------------
@@ -820,7 +820,7 @@ export interface WorkbookData {
   sharedStrings?: SharedStringsData;
   docProperties?: DocPropertiesData | null;
   themeColors?: ThemeColorsData | null;
-  calcChain?: CalcChainEntryData[];
+  calcChain?: readonly CalcChainEntryData[];
   workbookViews?: WorkbookViewData[];
   protection?: WorkbookProtectionData | null;
   /** Opaque ZIP entries preserved through roundtrip (drawings, media, charts, etc.) */
@@ -856,7 +856,7 @@ export interface ValidationIssue {
 }
 
 export interface ValidationReport {
-  issues: ValidationIssue[];
+  readonly issues: ValidationIssue[];
   errorCount: number;
   warningCount: number;
   infoCount: number;

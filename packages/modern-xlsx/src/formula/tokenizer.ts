@@ -46,7 +46,7 @@ export interface TokenizeResult {
 const CELL_REF_RE = /^\$?[A-Z]{1,3}\$?[0-9]+$/;
 
 /** Known Excel error literals */
-const ERROR_LITERALS: readonly string[] = [
+const ERROR_LITERALS = [
   '#DIV/0!',
   '#N/A',
   '#NAME?',
@@ -54,7 +54,7 @@ const ERROR_LITERALS: readonly string[] = [
   '#NUM!',
   '#REF!',
   '#VALUE!',
-];
+] as const satisfies readonly string[];
 
 /** Token types that indicate the next +/- is unary (prefix) */
 const UNARY_CONTEXT: ReadonlySet<TokenType> = new Set<TokenType>([

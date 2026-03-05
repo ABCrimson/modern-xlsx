@@ -478,11 +478,27 @@ function htmlCellStyle(cell: CellData | undefined): string {
 }
 
 function escapeHtml(str: string): string {
-  return str
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+  let result = '';
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    switch (ch) {
+      case '&':
+        result += '&amp;';
+        break;
+      case '<':
+        result += '&lt;';
+        break;
+      case '>':
+        result += '&gt;';
+        break;
+      case '"':
+        result += '&quot;';
+        break;
+      default:
+        result += ch;
+    }
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,7 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
   const worker = new Worker(options.workerUrl, { type: 'module' });
   const wasmUrl = options.wasmUrl?.toString();
   let nextId = 0;
+  let terminated = false;
   const pending = new Map<
     number,
     { resolve: (v: WorkerResponse) => void; reject: (e: Error) => void }
@@ -55,6 +56,7 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
   });
 
   worker.addEventListener('error', (event) => {
+    terminated = true;
     for (const handler of pending.values()) {
       handler.reject(new Error(event.message ?? 'Worker error'));
     }
@@ -65,6 +67,9 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
     request: Omit<WorkerRequest, 'id'>,
     transfer?: Transferable[],
   ): Promise<WorkerResponse> {
+    if (terminated) {
+      return Promise.reject(new Error('Worker has crashed or been terminated'));
+    }
     return new Promise((resolve, reject) => {
       const id = nextId++;
       pending.set(id, { resolve, reject });
@@ -100,6 +105,7 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
     },
 
     terminate(): void {
+      terminated = true;
       for (const handler of pending.values()) {
         handler.reject(new Error('Worker terminated'));
       }

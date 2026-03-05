@@ -334,7 +334,7 @@ export class Workbook {
    * @param value The range reference (e.g., `"Sheet1!$1:$2"` for first 2 rows). Pass `null` to clear.
    */
   setPrintTitles(sheetIndex: number, value: string | null): void {
-    if (!this.data.definedNames) this.data.definedNames = [];
+    this.data.definedNames ??= [];
     const idx = this.data.definedNames.findIndex(
       (d) => d.name === '_xlnm.Print_Titles' && d.sheetId === sheetIndex,
     );
@@ -370,7 +370,7 @@ export class Workbook {
    * @param value The range reference (e.g., `"Sheet1!$A$1:$D$50"`). Pass `null` to clear.
    */
   setPrintArea(sheetIndex: number, value: string | null): void {
-    if (!this.data.definedNames) this.data.definedNames = [];
+    this.data.definedNames ??= [];
     const idx = this.data.definedNames.findIndex(
       (d) => d.name === '_xlnm.Print_Area' && d.sheetId === sheetIndex,
     );

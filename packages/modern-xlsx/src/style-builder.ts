@@ -57,14 +57,14 @@ export class StyleBuilder {
 
   /** Set alignment properties (horizontal, vertical, wrap text, rotation, indent). */
   alignment(opts: Partial<AlignmentData>): this {
-    if (!this.alignmentData) this.alignmentData = {};
+    this.alignmentData ??= {};
     Object.assign(this.alignmentData, opts);
     return this;
   }
 
   /** Set cell protection properties (locked, hidden). */
   protection(opts: Partial<ProtectionData>): this {
-    if (!this.protectionData) this.protectionData = {};
+    this.protectionData ??= {};
     Object.assign(this.protectionData, opts);
     return this;
   }

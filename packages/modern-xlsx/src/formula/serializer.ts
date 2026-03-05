@@ -13,7 +13,7 @@ import type { ASTNode, BinaryOpNode } from './parser.js';
 // Operator precedence (higher = tighter binding)
 // ---------------------------------------------------------------------------
 
-const PRECEDENCE: Record<string, number> = {
+const PRECEDENCE = {
   '=': 1,
   '<>': 1,
   '<': 1,
@@ -26,10 +26,13 @@ const PRECEDENCE: Record<string, number> = {
   '*': 4,
   '/': 4,
   '^': 5,
-};
+} as const satisfies Record<string, number>;
+
+/** Typed lookup for PRECEDENCE by arbitrary string key. */
+const precedenceLookup = PRECEDENCE as Record<string, number | undefined>;
 
 function precedence(op: string): number {
-  return PRECEDENCE[op] ?? 0;
+  return precedenceLookup[op] ?? 0;
 }
 
 // ---------------------------------------------------------------------------
