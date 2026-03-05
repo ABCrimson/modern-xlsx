@@ -284,4 +284,67 @@ describe('Chart roundtrip', () => {
     expect(chart.chart.series[1].name).toBe('Low');
     expect(chart.chart.series[2].name).toBe('Close');
   });
+
+  it('roundtrips a oneCellAnchor chart through WASM write/read', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    ws.cell('A1').value = 'Category';
+    ws.cell('B1').value = 'Value';
+    ws.cell('A2').value = 'Q1';
+    ws.cell('B2').value = '100';
+
+    // Use addChartData to set oneCellAnchor via extCx/extCy.
+    ws.addChartData({
+      chart: {
+        chartType: 'bar',
+        title: { text: 'OneCellTest', overlay: false },
+        series: [
+          {
+            idx: 0,
+            order: 0,
+            name: 'Revenue',
+            catRef: 'Sheet1!$A$2:$A$2',
+            valRef: 'Sheet1!$B$2:$B$2',
+          },
+        ],
+        showDataTable: false,
+      },
+      anchor: {
+        fromCol: 3,
+        fromRow: 5,
+        fromColOff: 100,
+        fromRowOff: 200,
+        toCol: 0,
+        toRow: 0,
+        extCx: 5400000,
+        extCy: 3240000,
+      },
+    });
+
+    expect(ws.charts).toHaveLength(1);
+    expect(ws.charts[0].anchor.extCx).toBe(5400000);
+    expect(ws.charts[0].anchor.extCy).toBe(3240000);
+
+    // Write to buffer.
+    const buffer = await wb.toBuffer();
+    expect(buffer.length).toBeGreaterThan(0);
+
+    // Read back.
+    const wb2 = await readBuffer(buffer);
+    const ws2 = wb2.getSheet('Sheet1') as Worksheet;
+    expect(ws2).toBeDefined();
+
+    const charts = ws2.charts;
+    expect(charts).toHaveLength(1);
+    expect(charts[0].chart.chartType).toBe('bar');
+    expect(charts[0].chart.title?.text).toBe('OneCellTest');
+
+    // Verify the oneCellAnchor fields survived the roundtrip.
+    expect(charts[0].anchor.fromCol).toBe(3);
+    expect(charts[0].anchor.fromRow).toBe(5);
+    expect(charts[0].anchor.fromColOff).toBe(100);
+    expect(charts[0].anchor.fromRowOff).toBe(200);
+    expect(charts[0].anchor.extCx).toBe(5400000);
+    expect(charts[0].anchor.extCy).toBe(3240000);
+  });
 });

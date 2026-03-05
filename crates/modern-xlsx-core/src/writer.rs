@@ -2241,6 +2241,8 @@ mod tests {
                 to_row: 15,
                 to_col_off: 0,
                 to_row_off: 0,
+                ext_cx: None,
+                ext_cy: None,
             },
         };
 
@@ -2385,6 +2387,8 @@ mod tests {
                 to_row: 10,
                 to_col_off: 0,
                 to_row_off: 0,
+                ext_cx: None,
+                ext_cy: None,
             },
         };
 
@@ -2525,6 +2529,8 @@ mod tests {
                 to_row: 15,
                 to_col_off: 0,
                 to_row_off: 0,
+                ext_cx: None,
+                ext_cy: None,
             },
         }]);
 
@@ -2729,6 +2735,8 @@ mod tests {
                 to_row: 10,
                 to_col_off: 0,
                 to_row_off: 0,
+                ext_cx: None,
+                ext_cy: None,
             },
         }]);
 

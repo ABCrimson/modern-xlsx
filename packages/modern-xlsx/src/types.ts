@@ -543,6 +543,10 @@ export interface ChartAnchorData {
   toRow: number;
   toColOff?: number;
   toRowOff?: number;
+  /** Width in EMUs (for oneCellAnchor charts). When set, the anchor is a oneCellAnchor. */
+  extCx?: number | null;
+  /** Height in EMUs (for oneCellAnchor charts). When set, the anchor is a oneCellAnchor. */
+  extCy?: number | null;
 }
 
 export interface WorksheetChartData {

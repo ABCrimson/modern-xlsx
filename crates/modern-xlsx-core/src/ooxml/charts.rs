@@ -383,6 +383,10 @@ pub struct View3D {
 }
 
 /// Drawing anchor for positioning a chart on a worksheet.
+///
+/// For `twoCellAnchor`, `from_*` and `to_*` define the bounding box.
+/// For `oneCellAnchor`, only `from_*` is meaningful and `ext_cx`/`ext_cy`
+/// specify the width/height in EMUs. The `to_*` fields are set to 0.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChartAnchor {
@@ -398,6 +402,12 @@ pub struct ChartAnchor {
     pub to_col_off: u64,
     #[serde(default)]
     pub to_row_off: u64,
+    /// Width in EMUs (for oneCellAnchor). When `Some`, the anchor is a oneCellAnchor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ext_cx: Option<u64>,
+    /// Height in EMUs (for oneCellAnchor). When `Some`, the anchor is a oneCellAnchor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ext_cy: Option<u64>,
 }
 
 /// A chart embedded in a worksheet, with its anchor position.
@@ -444,9 +454,16 @@ impl ChartAnchor {
             let r_id = &chart_r_ids[i];
             let cnv_id = i as u32 + 2; // id starts at 2
 
-            // <xdr:twoCellAnchor>
+            let is_one_cell = anchor.ext_cx.is_some() && anchor.ext_cy.is_some();
+            let anchor_tag = if is_one_cell {
+                "xdr:oneCellAnchor"
+            } else {
+                "xdr:twoCellAnchor"
+            };
+
+            // <xdr:twoCellAnchor> or <xdr:oneCellAnchor>
             writer
-                .write_event(Event::Start(BytesStart::new("xdr:twoCellAnchor")))
+                .write_event(Event::Start(BytesStart::new(anchor_tag)))
                 .map_err(map_err)?;
 
             // <xdr:from>
@@ -458,14 +475,22 @@ impl ChartAnchor {
                 .write_event(Event::End(BytesEnd::new("xdr:from")))
                 .map_err(map_err)?;
 
-            // <xdr:to>
-            writer
-                .write_event(Event::Start(BytesStart::new("xdr:to")))
-                .map_err(map_err)?;
-            Self::write_cell_pos(&mut writer, anchor.to_col, anchor.to_col_off, anchor.to_row, anchor.to_row_off, &mut ibuf)?;
-            writer
-                .write_event(Event::End(BytesEnd::new("xdr:to")))
-                .map_err(map_err)?;
+            if is_one_cell {
+                // <xdr:ext cx="..." cy="..."/>
+                let mut ext_elem = BytesStart::new("xdr:ext");
+                ext_elem.push_attribute(("cx", ibuf.format(anchor.ext_cx.unwrap_or(0))));
+                ext_elem.push_attribute(("cy", ibuf.format(anchor.ext_cy.unwrap_or(0))));
+                writer.write_event(Event::Empty(ext_elem)).map_err(map_err)?;
+            } else {
+                // <xdr:to>
+                writer
+                    .write_event(Event::Start(BytesStart::new("xdr:to")))
+                    .map_err(map_err)?;
+                Self::write_cell_pos(&mut writer, anchor.to_col, anchor.to_col_off, anchor.to_row, anchor.to_row_off, &mut ibuf)?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("xdr:to")))
+                    .map_err(map_err)?;
+            }
 
             // <xdr:graphicFrame macro="">
             let mut gf = BytesStart::new("xdr:graphicFrame");
@@ -532,9 +557,9 @@ impl ChartAnchor {
                 .write_event(Event::Empty(BytesStart::new("xdr:clientData")))
                 .map_err(map_err)?;
 
-            // </xdr:twoCellAnchor>
+            // </xdr:twoCellAnchor> or </xdr:oneCellAnchor>
             writer
-                .write_event(Event::End(BytesEnd::new("xdr:twoCellAnchor")))
+                .write_event(Event::End(BytesEnd::new(anchor_tag)))
                 .map_err(map_err)?;
         }
 
@@ -3253,7 +3278,7 @@ impl View3DBuilder {
 /// Parse `xl/drawings/drawing{n}.xml` to extract chart anchors and chart rIds.
 ///
 /// Returns a vec of `(ChartAnchor, rId)` pairs for each `<xdr:twoCellAnchor>`
-/// that contains a chart reference.
+/// or `<xdr:oneCellAnchor>` that contains a chart reference.
 pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> {
     let mut reader = Reader::from_reader(data);
     reader.config_mut().trim_text(true);
@@ -3263,8 +3288,10 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
 
     // State tracking.
     let mut in_anchor = false;
+    let mut is_one_cell_anchor = false;
     let mut in_from = false;
     let mut in_to = false;
+    let mut in_graphic_frame = false;
     let mut from_col: u32 = 0;
     let mut from_col_off: u64 = 0;
     let mut from_row: u32 = 0;
@@ -3273,6 +3300,8 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
     let mut to_col_off: u64 = 0;
     let mut to_row: u32 = 0;
     let mut to_row_off: u64 = 0;
+    let mut ext_cx: Option<u64> = None;
+    let mut ext_cy: Option<u64> = None;
     let mut chart_r_id: Option<String> = None;
 
     // Text capture for position elements.
@@ -3291,6 +3320,24 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
     }
     let mut text_target = DrawingTextTarget::None;
 
+    /// Reset all anchor state for a new anchor element.
+    macro_rules! reset_anchor_state {
+        () => {
+            in_anchor = true;
+            from_col = 0;
+            from_col_off = 0;
+            from_row = 0;
+            from_row_off = 0;
+            to_col = 0;
+            to_col_off = 0;
+            to_row = 0;
+            to_row_off = 0;
+            ext_cx = None;
+            ext_cy = None;
+            chart_r_id = None;
+        };
+    }
+
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => {
@@ -3298,16 +3345,12 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                 let local = local.as_ref();
                 match local {
                     b"twoCellAnchor" => {
-                        in_anchor = true;
-                        from_col = 0;
-                        from_col_off = 0;
-                        from_row = 0;
-                        from_row_off = 0;
-                        to_col = 0;
-                        to_col_off = 0;
-                        to_row = 0;
-                        to_row_off = 0;
-                        chart_r_id = None;
+                        reset_anchor_state!();
+                        is_one_cell_anchor = false;
+                    }
+                    b"oneCellAnchor" => {
+                        reset_anchor_state!();
+                        is_one_cell_anchor = true;
                     }
                     b"from" if in_anchor => {
                         in_from = true;
@@ -3347,6 +3390,9 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                             DrawingTextTarget::ToRowOff
                         };
                     }
+                    b"graphicFrame" if in_anchor => {
+                        in_graphic_frame = true;
+                    }
                     _ => {}
                 }
             }
@@ -3369,12 +3415,25 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                         }
                     }
                 }
+                // <xdr:ext cx="..." cy="..."/> — oneCellAnchor dimensions.
+                // Only match the direct-child ext, not <a:ext> inside graphicFrame.
+                if local == b"ext" && in_anchor && is_one_cell_anchor && !in_from && !in_to && !in_graphic_frame {
+                    for attr in e.attributes().flatten() {
+                        let key = attr.key.as_ref();
+                        let val_str = std::str::from_utf8(&attr.value).unwrap_or_default();
+                        if key == b"cx" {
+                            ext_cx = Some(val_str.parse().unwrap_or(0));
+                        } else if key == b"cy" {
+                            ext_cy = Some(val_str.parse().unwrap_or(0));
+                        }
+                    }
+                }
             }
             Ok(Event::End(ref e)) => {
                 let local = e.local_name();
                 let local = local.as_ref();
                 match local {
-                    b"twoCellAnchor" => {
+                    b"twoCellAnchor" | b"oneCellAnchor" => {
                         if let Some(r_id) = chart_r_id.take() {
                             result.push((
                                 ChartAnchor {
@@ -3386,11 +3445,14 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                                     to_row,
                                     to_col_off,
                                     to_row_off,
+                                    ext_cx: if is_one_cell_anchor { ext_cx } else { None },
+                                    ext_cy: if is_one_cell_anchor { ext_cy } else { None },
                                 },
                                 r_id,
                             ));
                         }
                         in_anchor = false;
+                        is_one_cell_anchor = false;
                         in_from = false;
                         in_to = false;
                     }
@@ -3399,6 +3461,9 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                     }
                     b"to" => {
                         in_to = false;
+                    }
+                    b"graphicFrame" => {
+                        in_graphic_frame = false;
                     }
                     b"col" | b"colOff" | b"row" | b"rowOff" => {
                         let val_str = std::mem::take(&mut text_buf);
@@ -3502,6 +3567,7 @@ mod tests {
         let anchor = ChartAnchor {
             from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
             to_col: 8, to_row: 15, to_col_off: 0, to_row_off: 0,
+            ext_cx: None, ext_cy: None,
         };
         let json = serde_json::to_string(&anchor).unwrap();
         let rt: ChartAnchor = serde_json::from_str(&json).unwrap();
@@ -3522,6 +3588,7 @@ mod tests {
             anchor: ChartAnchor {
                 from_col: 5, from_row: 0, from_col_off: 0, from_row_off: 0,
                 to_col: 12, to_row: 18, to_col_off: 0, to_row_off: 0,
+                ext_cx: None, ext_cy: None,
             },
         };
         let json = serde_json::to_string(&wc).unwrap();
@@ -4007,6 +4074,7 @@ mod tests {
             anchor: ChartAnchor {
                 from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
                 to_col: 8, to_row: 15, to_col_off: 0, to_row_off: 0,
+                ext_cx: None, ext_cy: None,
             },
         }];
         let r_ids = vec!["rId1".to_string()];
@@ -4046,6 +4114,7 @@ mod tests {
                 anchor: ChartAnchor {
                     from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
                     to_col: 8, to_row: 15, to_col_off: 0, to_row_off: 0,
+                    ext_cx: None, ext_cy: None,
                 },
             },
             WorksheetChart {
@@ -4059,6 +4128,7 @@ mod tests {
                 anchor: ChartAnchor {
                     from_col: 10, from_row: 0, from_col_off: 100, from_row_off: 200,
                     to_col: 18, to_row: 20, to_col_off: 300, to_row_off: 400,
+                    ext_cx: None, ext_cy: None,
                 },
             },
         ];
@@ -4209,6 +4279,7 @@ mod tests {
                 anchor: ChartAnchor {
                     from_col: 2, from_row: 5, from_col_off: 100, from_row_off: 200,
                     to_col: 12, to_row: 25, to_col_off: 300, to_row_off: 400,
+                    ext_cx: None, ext_cy: None,
                 },
             },
         ];
@@ -4409,6 +4480,7 @@ mod tests {
                 anchor: ChartAnchor {
                     from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
                     to_col: 8, to_row: 15, to_col_off: 0, to_row_off: 0,
+                    ext_cx: None, ext_cy: None,
                 },
             },
             WorksheetChart {
@@ -4422,6 +4494,7 @@ mod tests {
                 anchor: ChartAnchor {
                     from_col: 10, from_row: 0, from_col_off: 100, from_row_off: 200,
                     to_col: 18, to_row: 20, to_col_off: 300, to_row_off: 400,
+                    ext_cx: None, ext_cy: None,
                 },
             },
         ];
@@ -4433,5 +4506,180 @@ mod tests {
         assert_eq!(anchors[1].1, "rId2");
         assert_eq!(anchors[1].0.from_col, 10);
         assert_eq!(anchors[1].0.to_row, 20);
+    }
+
+    #[test]
+    fn test_parse_one_cell_anchor_drawing() {
+        // Hand-crafted drawing XML with a oneCellAnchor chart.
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <xdr:oneCellAnchor>
+    <xdr:from>
+      <xdr:col>3</xdr:col>
+      <xdr:colOff>100</xdr:colOff>
+      <xdr:row>5</xdr:row>
+      <xdr:rowOff>200</xdr:rowOff>
+    </xdr:from>
+    <xdr:ext cx="5400000" cy="3240000"/>
+    <xdr:graphicFrame macro="">
+      <xdr:nvGraphicFramePr>
+        <xdr:cNvPr id="2" name="Chart 1"/>
+        <xdr:cNvGraphicFramePr/>
+      </xdr:nvGraphicFramePr>
+      <xdr:xfrm>
+        <a:off x="0" y="0"/>
+        <a:ext cx="0" cy="0"/>
+      </xdr:xfrm>
+      <a:graphic>
+        <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">
+          <c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="rId1"/>
+        </a:graphicData>
+      </a:graphic>
+    </xdr:graphicFrame>
+    <xdr:clientData/>
+  </xdr:oneCellAnchor>
+</xdr:wsDr>"#;
+
+        let anchors = parse_drawing_anchors(xml).unwrap();
+        assert_eq!(anchors.len(), 1, "should parse oneCellAnchor");
+        let (anchor, r_id) = &anchors[0];
+        assert_eq!(r_id, "rId1");
+        assert_eq!(anchor.from_col, 3);
+        assert_eq!(anchor.from_row, 5);
+        assert_eq!(anchor.from_col_off, 100);
+        assert_eq!(anchor.from_row_off, 200);
+        assert_eq!(anchor.ext_cx, Some(5_400_000));
+        assert_eq!(anchor.ext_cy, Some(3_240_000));
+        // to_* should be 0 for oneCellAnchor.
+        assert_eq!(anchor.to_col, 0);
+        assert_eq!(anchor.to_row, 0);
+    }
+
+    #[test]
+    fn test_one_cell_anchor_generate_and_parse_roundtrip() {
+        // Write a oneCellAnchor and verify it roundtrips through generate+parse.
+        let charts = vec![WorksheetChart {
+            chart: ChartData {
+                chart_type: ChartType::Bar,
+                title: None, series: vec![], cat_axis: None, val_axis: None,
+                legend: None, data_labels: None, grouping: None,
+                scatter_style: None, radar_style: None, hole_size: None,
+                bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
+            },
+            anchor: ChartAnchor {
+                from_col: 2, from_row: 3, from_col_off: 50, from_row_off: 75,
+                to_col: 0, to_row: 0, to_col_off: 0, to_row_off: 0,
+                ext_cx: Some(5_400_000), ext_cy: Some(3_240_000),
+            },
+        }];
+        let r_ids = vec!["rId1".into()];
+        let drawing_xml = ChartAnchor::generate_drawing_xml(&charts, &r_ids).unwrap();
+        let xml_str = std::str::from_utf8(&drawing_xml).unwrap();
+
+        // Verify it writes oneCellAnchor, not twoCellAnchor.
+        assert!(xml_str.contains("<xdr:oneCellAnchor>"), "should write oneCellAnchor tag");
+        assert!(!xml_str.contains("<xdr:twoCellAnchor>"), "should not write twoCellAnchor");
+        assert!(xml_str.contains("cx=\"5400000\""), "should write ext cx");
+        assert!(xml_str.contains("cy=\"3240000\""), "should write ext cy");
+        assert!(!xml_str.contains("<xdr:to>"), "should not write <xdr:to>");
+
+        // Parse back.
+        let anchors = parse_drawing_anchors(&drawing_xml).unwrap();
+        assert_eq!(anchors.len(), 1);
+        let (anchor, r_id) = &anchors[0];
+        assert_eq!(r_id, "rId1");
+        assert_eq!(anchor.from_col, 2);
+        assert_eq!(anchor.from_row, 3);
+        assert_eq!(anchor.from_col_off, 50);
+        assert_eq!(anchor.from_row_off, 75);
+        assert_eq!(anchor.ext_cx, Some(5_400_000));
+        assert_eq!(anchor.ext_cy, Some(3_240_000));
+    }
+
+    #[test]
+    fn test_mixed_one_cell_and_two_cell_anchors() {
+        // A drawing with both anchor types.
+        let charts = vec![
+            WorksheetChart {
+                chart: ChartData {
+                    chart_type: ChartType::Bar,
+                    title: None, series: vec![], cat_axis: None, val_axis: None,
+                    legend: None, data_labels: None, grouping: None,
+                    scatter_style: None, radar_style: None, hole_size: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                    secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
+                },
+                anchor: ChartAnchor {
+                    from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
+                    to_col: 8, to_row: 15, to_col_off: 0, to_row_off: 0,
+                    ext_cx: None, ext_cy: None,
+                },
+            },
+            WorksheetChart {
+                chart: ChartData {
+                    chart_type: ChartType::Line,
+                    title: None, series: vec![], cat_axis: None, val_axis: None,
+                    legend: None, data_labels: None, grouping: None,
+                    scatter_style: None, radar_style: None, hole_size: None,
+                    bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                    secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
+                },
+                anchor: ChartAnchor {
+                    from_col: 10, from_row: 0, from_col_off: 0, from_row_off: 0,
+                    to_col: 0, to_row: 0, to_col_off: 0, to_row_off: 0,
+                    ext_cx: Some(7_200_000), ext_cy: Some(4_320_000),
+                },
+            },
+        ];
+        let r_ids = vec!["rId1".into(), "rId2".into()];
+        let drawing_xml = ChartAnchor::generate_drawing_xml(&charts, &r_ids).unwrap();
+        let xml_str = std::str::from_utf8(&drawing_xml).unwrap();
+
+        // One of each type.
+        assert_eq!(xml_str.matches("<xdr:twoCellAnchor>").count(), 1);
+        assert_eq!(xml_str.matches("<xdr:oneCellAnchor>").count(), 1);
+
+        // Parse back.
+        let anchors = parse_drawing_anchors(&drawing_xml).unwrap();
+        assert_eq!(anchors.len(), 2);
+        // First is twoCellAnchor.
+        assert_eq!(anchors[0].0.ext_cx, None);
+        assert_eq!(anchors[0].0.ext_cy, None);
+        assert_eq!(anchors[0].0.to_col, 8);
+        assert_eq!(anchors[0].1, "rId1");
+        // Second is oneCellAnchor.
+        assert_eq!(anchors[1].0.ext_cx, Some(7_200_000));
+        assert_eq!(anchors[1].0.ext_cy, Some(4_320_000));
+        assert_eq!(anchors[1].0.from_col, 10);
+        assert_eq!(anchors[1].1, "rId2");
+    }
+
+    #[test]
+    fn test_one_cell_anchor_serde() {
+        let anchor = ChartAnchor {
+            from_col: 3, from_row: 5, from_col_off: 0, from_row_off: 0,
+            to_col: 0, to_row: 0, to_col_off: 0, to_row_off: 0,
+            ext_cx: Some(5_400_000), ext_cy: Some(3_240_000),
+        };
+        let json = serde_json::to_string(&anchor).unwrap();
+        assert!(json.contains("\"extCx\":5400000"));
+        assert!(json.contains("\"extCy\":3240000"));
+        let rt: ChartAnchor = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.ext_cx, Some(5_400_000));
+        assert_eq!(rt.ext_cy, Some(3_240_000));
+        assert_eq!(rt.from_col, 3);
+
+        // twoCellAnchor: ext_cx/ext_cy should not appear in JSON.
+        let anchor2 = ChartAnchor {
+            from_col: 0, from_row: 0, from_col_off: 0, from_row_off: 0,
+            to_col: 8, to_row: 15, to_col_off: 0, to_row_off: 0,
+            ext_cx: None, ext_cy: None,
+        };
+        let json2 = serde_json::to_string(&anchor2).unwrap();
+        assert!(!json2.contains("extCx"));
+        assert!(!json2.contains("extCy"));
     }
 }
