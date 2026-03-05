@@ -1,0 +1,120 @@
+{
+  "sheets": [
+    {
+      "name": "ConditionalFormatting",
+      "worksheet": {
+        "rows": [
+          {
+            "index": 1,
+            "cells": [
+              {
+                "reference": "A1",
+                "cellType": "number",
+                "value": "10"
+              }
+            ]
+          },
+          {
+            "index": 2,
+            "cells": [
+              {
+                "reference": "A2",
+                "cellType": "number",
+                "value": "50"
+              }
+            ]
+          },
+          {
+            "index": 3,
+            "cells": [
+              {
+                "reference": "A3",
+                "cellType": "number",
+                "value": "90"
+              }
+            ]
+          }
+        ],
+        "conditionalFormatting": [
+          {
+            "sqref": "A1:A3",
+            "rules": [
+              {
+                "ruleType": "cellIs",
+                "priority": 1,
+                "operator": "greaterThan",
+                "formula": "50",
+                "dxfId": 0
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "dateSystem": "date1900",
+  "styles": {
+    "numFmts": [],
+    "fonts": [
+      {
+        "name": "Aptos",
+        "size": 11.0,
+        "bold": false,
+        "italic": false,
+        "underline": false,
+        "strike": false,
+        "color": null
+      }
+    ],
+    "fills": [
+      {
+        "patternType": "none",
+        "fgColor": null,
+        "bgColor": null
+      },
+      {
+        "patternType": "gray125",
+        "fgColor": null,
+        "bgColor": null
+      }
+    ],
+    "borders": [
+      {
+        "left": null,
+        "right": null,
+        "top": null,
+        "bottom": null
+      }
+    ],
+    "cellXfs": [
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 0,
+        "borderId": 0
+      }
+    ],
+    "dxfs": [
+      {
+        "font": {
+          "name": null,
+          "size": null,
+          "bold": true,
+          "italic": false,
+          "underline": false,
+          "strike": false,
+          "color": "FF9C0006"
+        },
+        "fill": {
+          "patternType": "solid",
+          "fgColor": "FFFFC7CE",
+          "bgColor": null
+        }
+      }
+    ]
+  },
+  "definedNames": [],
+  "sharedStrings": {
+    "strings": []
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "sheets": [
+    {
+      "name": "Hyperlinks",
+      "worksheet": {
+        "rows": [
+          {
+            "index": 1,
+            "cells": [
+              {
+                "reference": "A1",
+                "cellType": "sharedString",
+                "value": "Click here"
+              },
+              {
+                "reference": "B1",
+                "cellType": "sharedString",
+                "value": "Go to Sheet2"
+              }
+            ]
+          }
+        ],
+        "hyperlinks": [
+          {
+            "cellRef": "A1",
+            "location": "https://example.com",
+            "display": "Example Site",
+            "tooltip": "Visit example.com"
+          },
+          {
+            "cellRef": "B1",
+            "location": "Sheet2!A1",
+            "display": "Go to Sheet2"
+          }
+        ]
+      }
+    }
+  ],
+  "dateSystem": "date1900",
+  "styles": {
+    "numFmts": [],
+    "fonts": [
+      {
+        "name": "Aptos",
+        "size": 11.0,
+        "bold": false,
+        "italic": false,
+        "underline": false,
+        "strike": false,
+        "color": null
+      }
+    ],
+    "fills": [
+      {
+        "patternType": "none",
+        "fgColor": null,
+        "bgColor": null
+      },
+      {
+        "patternType": "gray125",
+        "fgColor": null,
+        "bgColor": null
+      }
+    ],
+    "borders": [
+      {
+        "left": null,
+        "right": null,
+        "top": null,
+        "bottom": null
+      }
+    ],
+    "cellXfs": [
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 0,
+        "borderId": 0
+      }
+    ]
+  },
+  "definedNames": [],
+  "sharedStrings": {
+    "strings": [
+      "Click here",
+      "Go to Sheet2"
+    ]
+  }
+}

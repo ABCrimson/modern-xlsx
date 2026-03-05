@@ -1,0 +1,93 @@
+{
+  "sheets": [
+    {
+      "name": "DataValidation",
+      "worksheet": {
+        "rows": [
+          {
+            "index": 1,
+            "cells": [
+              {
+                "reference": "A1",
+                "cellType": "number",
+                "value": "5"
+              }
+            ]
+          }
+        ],
+        "dataValidations": [
+          {
+            "sqref": "B1:B10",
+            "validationType": "list",
+            "formula1": "\"Yes,No,Maybe\"",
+            "allowBlank": true,
+            "showErrorMessage": true,
+            "errorTitle": "Invalid",
+            "errorMessage": "Please select from the list",
+            "showInputMessage": true,
+            "promptTitle": "Choose",
+            "prompt": "Select a value"
+          },
+          {
+            "sqref": "C1:C10",
+            "validationType": "decimal",
+            "operator": "between",
+            "formula1": "0",
+            "formula2": "100",
+            "allowBlank": false,
+            "showErrorMessage": true,
+            "errorTitle": "Out of range",
+            "errorMessage": "Value must be between 0 and 100"
+          }
+        ]
+      }
+    }
+  ],
+  "dateSystem": "date1900",
+  "styles": {
+    "numFmts": [],
+    "fonts": [
+      {
+        "name": "Aptos",
+        "size": 11.0,
+        "bold": false,
+        "italic": false,
+        "underline": false,
+        "strike": false,
+        "color": null
+      }
+    ],
+    "fills": [
+      {
+        "patternType": "none",
+        "fgColor": null,
+        "bgColor": null
+      },
+      {
+        "patternType": "gray125",
+        "fgColor": null,
+        "bgColor": null
+      }
+    ],
+    "borders": [
+      {
+        "left": null,
+        "right": null,
+        "top": null,
+        "bottom": null
+      }
+    ],
+    "cellXfs": [
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 0,
+        "borderId": 0
+      }
+    ]
+  },
+  "definedNames": [],
+  "sharedStrings": {
+    "strings": []
+  }
+}

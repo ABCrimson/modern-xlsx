@@ -1,0 +1,109 @@
+{
+  "sheets": [
+    {
+      "name": "ColumnWidths",
+      "worksheet": {
+        "rows": [
+          {
+            "index": 1,
+            "cells": [
+              {
+                "reference": "A1",
+                "cellType": "number",
+                "value": "Wide"
+              }
+            ]
+          },
+          {
+            "index": 1,
+            "cells": [
+              {
+                "reference": "D1",
+                "cellType": "number",
+                "value": "Visible"
+              }
+            ]
+          }
+        ],
+        "columns": [
+          {
+            "min": 1,
+            "max": 1,
+            "width": 25.0,
+            "hidden": false,
+            "customWidth": true
+          },
+          {
+            "min": 2,
+            "max": 2,
+            "width": 8.0,
+            "hidden": true,
+            "customWidth": true
+          },
+          {
+            "min": 3,
+            "max": 3,
+            "width": 15.5,
+            "hidden": false,
+            "customWidth": true,
+            "outlineLevel": 1
+          },
+          {
+            "min": 4,
+            "max": 4,
+            "width": 12.0,
+            "hidden": false,
+            "customWidth": true
+          }
+        ]
+      }
+    }
+  ],
+  "dateSystem": "date1900",
+  "styles": {
+    "numFmts": [],
+    "fonts": [
+      {
+        "name": "Aptos",
+        "size": 11.0,
+        "bold": false,
+        "italic": false,
+        "underline": false,
+        "strike": false,
+        "color": null
+      }
+    ],
+    "fills": [
+      {
+        "patternType": "none",
+        "fgColor": null,
+        "bgColor": null
+      },
+      {
+        "patternType": "gray125",
+        "fgColor": null,
+        "bgColor": null
+      }
+    ],
+    "borders": [
+      {
+        "left": null,
+        "right": null,
+        "top": null,
+        "bottom": null
+      }
+    ],
+    "cellXfs": [
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 0,
+        "borderId": 0
+      }
+    ]
+  },
+  "definedNames": [],
+  "sharedStrings": {
+    "strings": []
+  }
+}

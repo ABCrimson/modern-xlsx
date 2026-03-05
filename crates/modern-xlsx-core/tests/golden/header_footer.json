@@ -1,0 +1,74 @@
+{
+  "sheets": [
+    {
+      "name": "HeaderFooter",
+      "worksheet": {
+        "rows": [
+          {
+            "index": 1,
+            "cells": [
+              {
+                "reference": "A1",
+                "cellType": "number",
+                "value": "Report Data"
+              }
+            ]
+          }
+        ],
+        "headerFooter": {
+          "oddHeader": "&LCompany Name&CMonthly Report&R&D",
+          "oddFooter": "&LConfidential&CPage &P of &N&R&F",
+          "firstHeader": "&CFirst Page Header",
+          "differentFirst": true
+        }
+      }
+    }
+  ],
+  "dateSystem": "date1900",
+  "styles": {
+    "numFmts": [],
+    "fonts": [
+      {
+        "name": "Aptos",
+        "size": 11.0,
+        "bold": false,
+        "italic": false,
+        "underline": false,
+        "strike": false,
+        "color": null
+      }
+    ],
+    "fills": [
+      {
+        "patternType": "none",
+        "fgColor": null,
+        "bgColor": null
+      },
+      {
+        "patternType": "gray125",
+        "fgColor": null,
+        "bgColor": null
+      }
+    ],
+    "borders": [
+      {
+        "left": null,
+        "right": null,
+        "top": null,
+        "bottom": null
+      }
+    ],
+    "cellXfs": [
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 0,
+        "borderId": 0
+      }
+    ]
+  },
+  "definedNames": [],
+  "sharedStrings": {
+    "strings": []
+  }
+}

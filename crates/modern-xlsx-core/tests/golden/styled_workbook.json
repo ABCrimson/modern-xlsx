@@ -1,0 +1,140 @@
+{
+  "sheets": [
+    {
+      "name": "Styled",
+      "worksheet": {
+        "rows": [
+          {
+            "index": 1,
+            "cells": [
+              {
+                "reference": "A1",
+                "cellType": "number",
+                "styleIndex": 1,
+                "value": "1"
+              },
+              {
+                "reference": "B1",
+                "cellType": "number",
+                "styleIndex": 2,
+                "value": "2"
+              },
+              {
+                "reference": "C1",
+                "cellType": "number",
+                "styleIndex": 3,
+                "value": "3"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "dateSystem": "date1900",
+  "styles": {
+    "numFmts": [],
+    "fonts": [
+      {
+        "name": "Aptos",
+        "size": 11.0,
+        "bold": false,
+        "italic": false,
+        "underline": false,
+        "strike": false,
+        "color": null
+      },
+      {
+        "name": "Aptos",
+        "size": 14.0,
+        "bold": true,
+        "italic": false,
+        "underline": false,
+        "strike": false,
+        "color": "FFFF0000"
+      }
+    ],
+    "fills": [
+      {
+        "patternType": "none",
+        "fgColor": null,
+        "bgColor": null
+      },
+      {
+        "patternType": "gray125",
+        "fgColor": null,
+        "bgColor": null
+      },
+      {
+        "patternType": "solid",
+        "fgColor": "FFFFFF00",
+        "bgColor": null
+      }
+    ],
+    "borders": [
+      {
+        "left": null,
+        "right": null,
+        "top": null,
+        "bottom": null
+      },
+      {
+        "left": {
+          "style": "thin",
+          "color": "FF000000"
+        },
+        "right": {
+          "style": "thin",
+          "color": "FF000000"
+        },
+        "top": {
+          "style": "thin",
+          "color": "FF000000"
+        },
+        "bottom": {
+          "style": "thin",
+          "color": "FF000000"
+        }
+      }
+    ],
+    "cellXfs": [
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 0,
+        "borderId": 0
+      },
+      {
+        "numFmtId": 0,
+        "fontId": 1,
+        "fillId": 0,
+        "borderId": 0,
+        "applyFont": true
+      },
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 2,
+        "borderId": 0,
+        "applyFill": true
+      },
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 0,
+        "borderId": 1,
+        "alignment": {
+          "horizontal": "center",
+          "vertical": "center",
+          "wrapText": true
+        },
+        "applyBorder": true,
+        "applyAlignment": true
+      }
+    ]
+  },
+  "definedNames": [],
+  "sharedStrings": {
+    "strings": []
+  }
+}

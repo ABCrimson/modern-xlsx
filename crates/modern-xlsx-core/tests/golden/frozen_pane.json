@@ -1,0 +1,92 @@
+{
+  "sheets": [
+    {
+      "name": "FrozenPane",
+      "worksheet": {
+        "rows": [
+          {
+            "index": 1,
+            "cells": [
+              {
+                "reference": "A1",
+                "cellType": "number",
+                "value": "Header1"
+              }
+            ]
+          },
+          {
+            "index": 2,
+            "cells": [
+              {
+                "reference": "A2",
+                "cellType": "number",
+                "value": "Data1"
+              }
+            ]
+          },
+          {
+            "index": 3,
+            "cells": [
+              {
+                "reference": "A3",
+                "cellType": "number",
+                "value": "Data2"
+              }
+            ]
+          }
+        ],
+        "frozenPane": {
+          "rows": 1,
+          "cols": 1
+        }
+      }
+    }
+  ],
+  "dateSystem": "date1900",
+  "styles": {
+    "numFmts": [],
+    "fonts": [
+      {
+        "name": "Aptos",
+        "size": 11.0,
+        "bold": false,
+        "italic": false,
+        "underline": false,
+        "strike": false,
+        "color": null
+      }
+    ],
+    "fills": [
+      {
+        "patternType": "none",
+        "fgColor": null,
+        "bgColor": null
+      },
+      {
+        "patternType": "gray125",
+        "fgColor": null,
+        "bgColor": null
+      }
+    ],
+    "borders": [
+      {
+        "left": null,
+        "right": null,
+        "top": null,
+        "bottom": null
+      }
+    ],
+    "cellXfs": [
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 0,
+        "borderId": 0
+      }
+    ]
+  },
+  "definedNames": [],
+  "sharedStrings": {
+    "strings": []
+  }
+}
