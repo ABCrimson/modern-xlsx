@@ -16,6 +16,11 @@ import type { CellValue, EvalContext, FormulaFunction } from '../resolver.js';
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Safely get an element from an array by index. */
+function at<T>(arr: T[], idx: number): T | undefined {
+  return arr[idx];
+}
+
 function isError(val: CellValue): val is string {
   return typeof val === 'string' && val.length > 0 && val.charAt(0) === '#';
 }
@@ -61,7 +66,9 @@ function resolveStartPos(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): number | string {
   if (args.length <= argIndex) return 0;
-  const sVal = toNumber(evaluate(args[argIndex]!, ctx));
+  const arg = at(args, argIndex);
+  if (!arg) return 0;
+  const sVal = toNumber(evaluate(arg, ctx));
   if (typeof sVal === 'string') return sVal;
   if (sVal < 1) return '#VALUE!';
   return Math.floor(sVal) - 1;
@@ -90,11 +97,16 @@ function replaceNthOccurrence(
 
 const substituteImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
   if (args.length < 3) return '#VALUE!';
-  const textVal = evaluate(args[0]!, ctx);
+  const arg0 = at(args, 0);
+  const arg1 = at(args, 1);
+  const arg2 = at(args, 2);
+  if (!arg0 || !arg1 || !arg2) return '#VALUE!';
+
+  const textVal = evaluate(arg0, ctx);
   if (isError(textVal)) return textVal;
-  const oldVal = evaluate(args[1]!, ctx);
+  const oldVal = evaluate(arg1, ctx);
   if (isError(oldVal)) return oldVal;
-  const newVal = evaluate(args[2]!, ctx);
+  const newVal = evaluate(arg2, ctx);
   if (isError(newVal)) return newVal;
 
   const text = coerceToString(textVal);
@@ -104,7 +116,9 @@ const substituteImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
   if (oldStr === '') return text;
 
   if (args.length >= 4) {
-    const instVal = toNumber(evaluate(args[3]!, ctx));
+    const arg3 = at(args, 3);
+    if (!arg3) return '#VALUE!';
+    const instVal = toNumber(evaluate(arg3, ctx));
     if (typeof instVal === 'string') return instVal;
     const instance = Math.floor(instVal);
     if (instance < 1) return '#VALUE!';
@@ -116,9 +130,13 @@ const substituteImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
 
 const reptImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
   if (args.length < 2) return '#VALUE!';
-  const textVal = evaluate(args[0]!, ctx);
+  const arg0 = at(args, 0);
+  const arg1 = at(args, 1);
+  if (!arg0 || !arg1) return '#VALUE!';
+
+  const textVal = evaluate(arg0, ctx);
   if (isError(textVal)) return textVal;
-  const nVal = toNumber(evaluate(args[1]!, ctx));
+  const nVal = toNumber(evaluate(arg1, ctx));
   if (typeof nVal === 'string') return nVal;
   if (nVal < 0) return '#VALUE!';
   return coerceToString(textVal).repeat(Math.floor(nVal));
@@ -126,9 +144,13 @@ const reptImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
 
 const findImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
   if (args.length < 2) return '#VALUE!';
-  const findVal = evaluate(args[0]!, ctx);
+  const arg0 = at(args, 0);
+  const arg1 = at(args, 1);
+  if (!arg0 || !arg1) return '#VALUE!';
+
+  const findVal = evaluate(arg0, ctx);
   if (isError(findVal)) return findVal;
-  const withinVal = evaluate(args[1]!, ctx);
+  const withinVal = evaluate(arg1, ctx);
   if (isError(withinVal)) return withinVal;
 
   const startPos = resolveStartPos(args, 2, ctx, evaluate);
@@ -140,9 +162,13 @@ const findImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
 
 const searchImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
   if (args.length < 2) return '#VALUE!';
-  const findVal = evaluate(args[0]!, ctx);
+  const arg0 = at(args, 0);
+  const arg1 = at(args, 1);
+  if (!arg0 || !arg1) return '#VALUE!';
+
+  const findVal = evaluate(arg0, ctx);
   if (isError(findVal)) return findVal;
-  const withinVal = evaluate(args[1]!, ctx);
+  const withinVal = evaluate(arg1, ctx);
   if (isError(withinVal)) return withinVal;
 
   const startPos = resolveStartPos(args, 2, ctx, evaluate);
@@ -165,12 +191,15 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- IF ----------------------------------------------------------------
   registry.set('IF', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const test = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    const arg1 = at(args, 1);
+    if (!arg0 || !arg1) return '#VALUE!';
+    const test = evaluate(arg0, ctx);
     if (isError(test)) return test;
     const condition = toBool(test);
     if (typeof condition === 'string') return condition;
     if (condition) {
-      return evaluate(args[1]!, ctx);
+      return evaluate(arg1, ctx);
     }
     return args[2] ? evaluate(args[2], ctx) : false;
   });
@@ -204,7 +233,9 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- NOT ---------------------------------------------------------------
   registry.set('NOT', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const val = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    if (!arg0) return '#VALUE!';
+    const val = evaluate(arg0, ctx);
     if (isError(val)) return val;
     const b = toBool(val);
     if (typeof b === 'string') return b;
@@ -214,8 +245,11 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- IFERROR -----------------------------------------------------------
   registry.set('IFERROR', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const val = evaluate(args[0]!, ctx);
-    if (isError(val)) return evaluate(args[1]!, ctx);
+    const arg0 = at(args, 0);
+    const arg1 = at(args, 1);
+    if (!arg0 || !arg1) return '#VALUE!';
+    const val = evaluate(arg0, ctx);
+    if (isError(val)) return evaluate(arg1, ctx);
     return val;
   });
 
@@ -233,12 +267,16 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- LEFT --------------------------------------------------------------
   registry.set('LEFT', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const textVal = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    if (!arg0) return '#VALUE!';
+    const textVal = evaluate(arg0, ctx);
     if (isError(textVal)) return textVal;
     const text = coerceToString(textVal);
     let n = 1;
     if (args.length >= 2) {
-      const nVal = toNumber(evaluate(args[1]!, ctx));
+      const arg1 = at(args, 1);
+      if (!arg1) return '#VALUE!';
+      const nVal = toNumber(evaluate(arg1, ctx));
       if (typeof nVal === 'string') return nVal;
       if (nVal < 0) return '#VALUE!';
       n = Math.floor(nVal);
@@ -249,12 +287,16 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- RIGHT -------------------------------------------------------------
   registry.set('RIGHT', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const textVal = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    if (!arg0) return '#VALUE!';
+    const textVal = evaluate(arg0, ctx);
     if (isError(textVal)) return textVal;
     const text = coerceToString(textVal);
     let n = 1;
     if (args.length >= 2) {
-      const nVal = toNumber(evaluate(args[1]!, ctx));
+      const arg1 = at(args, 1);
+      if (!arg1) return '#VALUE!';
+      const nVal = toNumber(evaluate(arg1, ctx));
       if (typeof nVal === 'string') return nVal;
       if (nVal < 0) return '#VALUE!';
       n = Math.floor(nVal);
@@ -266,12 +308,16 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- MID ---------------------------------------------------------------
   registry.set('MID', (args, ctx, evaluate): CellValue => {
     if (args.length < 3) return '#VALUE!';
-    const textVal = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    const arg1 = at(args, 1);
+    const arg2 = at(args, 2);
+    if (!arg0 || !arg1 || !arg2) return '#VALUE!';
+    const textVal = evaluate(arg0, ctx);
     if (isError(textVal)) return textVal;
     const text = coerceToString(textVal);
-    const startVal = toNumber(evaluate(args[1]!, ctx));
+    const startVal = toNumber(evaluate(arg1, ctx));
     if (typeof startVal === 'string') return startVal;
-    const nVal = toNumber(evaluate(args[2]!, ctx));
+    const nVal = toNumber(evaluate(arg2, ctx));
     if (typeof nVal === 'string') return nVal;
     if (startVal < 1 || nVal < 0) return '#VALUE!';
     const start = Math.floor(startVal) - 1;
@@ -281,7 +327,9 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- LEN ---------------------------------------------------------------
   registry.set('LEN', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const val = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    if (!arg0) return '#VALUE!';
+    const val = evaluate(arg0, ctx);
     if (isError(val)) return val;
     return coerceToString(val).length;
   });
@@ -289,7 +337,9 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- TRIM --------------------------------------------------------------
   registry.set('TRIM', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const val = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    if (!arg0) return '#VALUE!';
+    const val = evaluate(arg0, ctx);
     if (isError(val)) return val;
     return coerceToString(val).trim().replace(/ +/g, ' ');
   });
@@ -297,7 +347,9 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- UPPER -------------------------------------------------------------
   registry.set('UPPER', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const val = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    if (!arg0) return '#VALUE!';
+    const val = evaluate(arg0, ctx);
     if (isError(val)) return val;
     return coerceToString(val).toUpperCase();
   });
@@ -305,7 +357,9 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- LOWER -------------------------------------------------------------
   registry.set('LOWER', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const val = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    if (!arg0) return '#VALUE!';
+    const val = evaluate(arg0, ctx);
     if (isError(val)) return val;
     return coerceToString(val).toLowerCase();
   });
@@ -313,21 +367,24 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- TEXT --------------------------------------------------------------
   registry.set('TEXT', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const valRaw = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    const arg1 = at(args, 1);
+    if (!arg0 || !arg1) return '#VALUE!';
+    const valRaw = evaluate(arg0, ctx);
     if (isError(valRaw)) return valRaw;
-    const fmtRaw = evaluate(args[1]!, ctx);
+    const fmtRaw = evaluate(arg1, ctx);
     if (isError(fmtRaw)) return fmtRaw;
     const num = toNumber(valRaw);
     if (typeof num === 'string') return num;
     const fmt = coerceToString(fmtRaw);
     const decMatch = fmt.match(/\.(0+)/);
     if (decMatch) {
-      return num.toFixed(decMatch[1]!.length);
+      return num.toFixed(decMatch[1]?.length ?? 0);
     }
     if (fmt.includes('%')) {
       const pctMatch = fmt.match(/\.(0+)%/);
       if (pctMatch) {
-        return `${(num * 100).toFixed(pctMatch[1]!.length)}%`;
+        return `${(num * 100).toFixed(pctMatch[1]?.length ?? 0)}%`;
       }
       return `${Math.round(num * 100)}%`;
     }
@@ -337,7 +394,9 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- VALUE -------------------------------------------------------------
   registry.set('VALUE', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const val = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    if (!arg0) return '#VALUE!';
+    const val = evaluate(arg0, ctx);
     if (isError(val)) return val;
     if (typeof val === 'number') return val;
     if (typeof val === 'boolean') return val ? 1 : 0;
@@ -349,9 +408,12 @@ export function registerStringLogicalFunctions(registry: Map<string, FormulaFunc
   // ---- EXACT -------------------------------------------------------------
   registry.set('EXACT', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const a = evaluate(args[0]!, ctx);
+    const arg0 = at(args, 0);
+    const arg1 = at(args, 1);
+    if (!arg0 || !arg1) return '#VALUE!';
+    const a = evaluate(arg0, ctx);
     if (isError(a)) return a;
-    const b = evaluate(args[1]!, ctx);
+    const b = evaluate(arg1, ctx);
     if (isError(b)) return b;
     return coerceToString(a) === coerceToString(b);
   });

@@ -162,7 +162,9 @@ function buildMatcher(criteria: CellValue): Matcher {
   // Operator prefix patterns
   const opMatch = s.match(/^(<>|>=|<=|>|<|=)(.*)$/);
   if (opMatch) {
-    return buildOperatorMatcher(opMatch[1]!, opMatch[2]!);
+    const op = opMatch[1] ?? '';
+    const val = opMatch[2] ?? '';
+    return buildOperatorMatcher(op, val);
   }
 
   // Wildcard support: * and ?
@@ -231,11 +233,12 @@ function conditionalCollect(
 ): number[] {
   const results: number[] = [];
   for (let r = 0; r < rangeMatrix.length; r++) {
-    const rangeRow = rangeMatrix[r]!;
+    const rangeRow = rangeMatrix[r];
+    if (!rangeRow) continue;
     const valRow = valueMatrix[r];
     if (!valRow) continue;
     for (let c = 0; c < rangeRow.length; c++) {
-      if (matcher(rangeRow[c]!)) {
+      if (matcher(rangeRow[c] ?? null)) {
         const v = valRow[c];
         if (typeof v === 'number') results.push(v);
       }
@@ -250,11 +253,15 @@ function conditionalCollect(
 
 const sumifImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
   if (args.length < 2) return '#VALUE!';
-  const rangeMatrix = resolveMatrix(args[0]!, ctx, evaluate);
-  const criteriaVal = evaluate(args[1]!, ctx);
+  const arg0 = args[0];
+  const arg1 = args[1];
+  if (!arg0 || !arg1) return '#VALUE!';
+  const rangeMatrix = resolveMatrix(arg0, ctx, evaluate);
+  const criteriaVal = evaluate(arg1, ctx);
   if (isError(criteriaVal)) return criteriaVal;
   const matcher = buildMatcher(criteriaVal);
-  const sumMatrix = args.length >= 3 ? resolveMatrix(args[2]!, ctx, evaluate) : rangeMatrix;
+  const arg2 = args[2];
+  const sumMatrix = arg2 ? resolveMatrix(arg2, ctx, evaluate) : rangeMatrix;
   const nums = conditionalCollect(rangeMatrix, sumMatrix, matcher);
   let total = 0;
   for (const n of nums) total += n;
@@ -263,8 +270,11 @@ const sumifImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
 
 const countifImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
   if (args.length < 2) return '#VALUE!';
-  const rangeMatrix = resolveMatrix(args[0]!, ctx, evaluate);
-  const criteriaVal = evaluate(args[1]!, ctx);
+  const arg0 = args[0];
+  const arg1 = args[1];
+  if (!arg0 || !arg1) return '#VALUE!';
+  const rangeMatrix = resolveMatrix(arg0, ctx, evaluate);
+  const criteriaVal = evaluate(arg1, ctx);
   if (isError(criteriaVal)) return criteriaVal;
   const matcher = buildMatcher(criteriaVal);
   let count = 0;
@@ -278,11 +288,15 @@ const countifImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
 
 const averageifImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
   if (args.length < 2) return '#VALUE!';
-  const rangeMatrix = resolveMatrix(args[0]!, ctx, evaluate);
-  const criteriaVal = evaluate(args[1]!, ctx);
+  const arg0 = args[0];
+  const arg1 = args[1];
+  if (!arg0 || !arg1) return '#VALUE!';
+  const rangeMatrix = resolveMatrix(arg0, ctx, evaluate);
+  const criteriaVal = evaluate(arg1, ctx);
   if (isError(criteriaVal)) return criteriaVal;
   const matcher = buildMatcher(criteriaVal);
-  const avgMatrix = args.length >= 3 ? resolveMatrix(args[2]!, ctx, evaluate) : rangeMatrix;
+  const arg2 = args[2];
+  const avgMatrix = arg2 ? resolveMatrix(arg2, ctx, evaluate) : rangeMatrix;
   const nums = conditionalCollect(rangeMatrix, avgMatrix, matcher);
   if (nums.length === 0) return '#DIV/0!';
   let total = 0;
@@ -296,8 +310,10 @@ const sumproductImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
   const dimError = validateDimensions(matrices);
   if (dimError) return dimError;
 
-  const rows = matrices[0]!.length;
-  const cols = matrices[0]![0]?.length ?? 0;
+  const m0 = matrices[0];
+  if (!m0) return '#VALUE!';
+  const rows = m0.length;
+  const cols = m0[0]?.length ?? 0;
   let total = 0;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -311,8 +327,10 @@ const sumproductImpl: FormulaFunction = (args, ctx, evaluate): CellValue => {
 
 /** Validate all matrices have the same dimensions. */
 function validateDimensions(matrices: CellValue[][][]): CellValue {
-  const rows = matrices[0]!.length;
-  const cols = matrices[0]![0]?.length ?? 0;
+  const first = matrices[0];
+  if (!first) return '#VALUE!';
+  const rows = first.length;
+  const cols = first[0]?.length ?? 0;
   for (const m of matrices) {
     if (m.length !== rows || (m[0]?.length ?? 0) !== cols) return '#VALUE!';
   }
@@ -416,9 +434,12 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- ROUND -------------------------------------------------------------
   registry.set('ROUND', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const nVal = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    const arg1 = args[1];
+    if (!arg0 || !arg1) return '#VALUE!';
+    const nVal = toNumber(evaluate(arg0, ctx));
     if (typeof nVal === 'string') return nVal;
-    const dVal = toNumber(evaluate(args[1]!, ctx));
+    const dVal = toNumber(evaluate(arg1, ctx));
     if (typeof dVal === 'string') return dVal;
     const d = Math.trunc(dVal);
     const factor = 10 ** d;
@@ -428,9 +449,12 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- ROUNDUP -----------------------------------------------------------
   registry.set('ROUNDUP', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const nVal = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    const arg1 = args[1];
+    if (!arg0 || !arg1) return '#VALUE!';
+    const nVal = toNumber(evaluate(arg0, ctx));
     if (typeof nVal === 'string') return nVal;
-    const dVal = toNumber(evaluate(args[1]!, ctx));
+    const dVal = toNumber(evaluate(arg1, ctx));
     if (typeof dVal === 'string') return dVal;
     const d = Math.trunc(dVal);
     const factor = 10 ** d;
@@ -441,9 +465,12 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- ROUNDDOWN ---------------------------------------------------------
   registry.set('ROUNDDOWN', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const nVal = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    const arg1 = args[1];
+    if (!arg0 || !arg1) return '#VALUE!';
+    const nVal = toNumber(evaluate(arg0, ctx));
     if (typeof nVal === 'string') return nVal;
-    const dVal = toNumber(evaluate(args[1]!, ctx));
+    const dVal = toNumber(evaluate(arg1, ctx));
     if (typeof dVal === 'string') return dVal;
     const d = Math.trunc(dVal);
     const factor = 10 ** d;
@@ -454,7 +481,9 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- ABS ---------------------------------------------------------------
   registry.set('ABS', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const n = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    if (!arg0) return '#VALUE!';
+    const n = toNumber(evaluate(arg0, ctx));
     if (typeof n === 'string') return n;
     return Math.abs(n);
   });
@@ -462,7 +491,9 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- SQRT --------------------------------------------------------------
   registry.set('SQRT', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const n = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    if (!arg0) return '#VALUE!';
+    const n = toNumber(evaluate(arg0, ctx));
     if (typeof n === 'string') return n;
     if (n < 0) return '#NUM!';
     return Math.sqrt(n);
@@ -471,9 +502,12 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- MOD ---------------------------------------------------------------
   registry.set('MOD', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const n = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    const arg1 = args[1];
+    if (!arg0 || !arg1) return '#VALUE!';
+    const n = toNumber(evaluate(arg0, ctx));
     if (typeof n === 'string') return n;
-    const d = toNumber(evaluate(args[1]!, ctx));
+    const d = toNumber(evaluate(arg1, ctx));
     if (typeof d === 'string') return d;
     if (d === 0) return '#DIV/0!';
     return n - d * Math.floor(n / d);
@@ -482,7 +516,9 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- INT ---------------------------------------------------------------
   registry.set('INT', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const n = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    if (!arg0) return '#VALUE!';
+    const n = toNumber(evaluate(arg0, ctx));
     if (typeof n === 'string') return n;
     return Math.floor(n);
   });
@@ -490,9 +526,12 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- CEILING -----------------------------------------------------------
   registry.set('CEILING', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const n = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    const arg1 = args[1];
+    if (!arg0 || !arg1) return '#VALUE!';
+    const n = toNumber(evaluate(arg0, ctx));
     if (typeof n === 'string') return n;
-    const sig = toNumber(evaluate(args[1]!, ctx));
+    const sig = toNumber(evaluate(arg1, ctx));
     if (typeof sig === 'string') return sig;
     if (sig === 0) return 0;
     if (n > 0 && sig < 0) return '#NUM!';
@@ -502,9 +541,12 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- FLOOR -------------------------------------------------------------
   registry.set('FLOOR', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const n = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    const arg1 = args[1];
+    if (!arg0 || !arg1) return '#VALUE!';
+    const n = toNumber(evaluate(arg0, ctx));
     if (typeof n === 'string') return n;
-    const sig = toNumber(evaluate(args[1]!, ctx));
+    const sig = toNumber(evaluate(arg1, ctx));
     if (typeof sig === 'string') return sig;
     if (sig === 0) return '#DIV/0!';
     if (n > 0 && sig < 0) return '#NUM!';
@@ -514,9 +556,12 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- POWER -------------------------------------------------------------
   registry.set('POWER', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const base = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    const arg1 = args[1];
+    if (!arg0 || !arg1) return '#VALUE!';
+    const base = toNumber(evaluate(arg0, ctx));
     if (typeof base === 'string') return base;
-    const exp = toNumber(evaluate(args[1]!, ctx));
+    const exp = toNumber(evaluate(arg1, ctx));
     if (typeof exp === 'string') return exp;
     const result = base ** exp;
     return Number.isFinite(result) ? result : '#NUM!';
@@ -525,12 +570,16 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- LOG ---------------------------------------------------------------
   registry.set('LOG', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const n = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    if (!arg0) return '#VALUE!';
+    const n = toNumber(evaluate(arg0, ctx));
     if (typeof n === 'string') return n;
     if (n <= 0) return '#NUM!';
     let base = 10;
     if (args.length >= 2) {
-      const bVal = toNumber(evaluate(args[1]!, ctx));
+      const arg1 = args[1];
+      if (!arg1) return '#VALUE!';
+      const bVal = toNumber(evaluate(arg1, ctx));
       if (typeof bVal === 'string') return bVal;
       if (bVal <= 0 || bVal === 1) return '#NUM!';
       base = bVal;
@@ -541,7 +590,9 @@ export function registerMathStatsFunctions(registry: Map<string, FormulaFunction
   // ---- LN ----------------------------------------------------------------
   registry.set('LN', (args, ctx, evaluate): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const n = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = args[0];
+    if (!arg0) return '#VALUE!';
+    const n = toNumber(evaluate(arg0, ctx));
     if (typeof n === 'string') return n;
     if (n <= 0) return '#NUM!';
     return Math.log(n);

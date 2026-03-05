@@ -18,6 +18,15 @@ export const CHART_STYLE_PALETTES: ReadonlyMap<number, readonly string[]> = new 
  * Get the color palette for a chart style ID.
  * Returns the default Office palette for unknown IDs.
  */
+const DEFAULT_PALETTE: readonly string[] = [
+  '4472C4',
+  'ED7D31',
+  'A5A5A5',
+  'FFC000',
+  '5B9BD5',
+  '70AD47',
+];
+
 export function getChartStylePalette(styleId: number): readonly string[] {
-  return CHART_STYLE_PALETTES.get(styleId) ?? CHART_STYLE_PALETTES.get(1)!;
+  return CHART_STYLE_PALETTES.get(styleId) ?? DEFAULT_PALETTE;
 }

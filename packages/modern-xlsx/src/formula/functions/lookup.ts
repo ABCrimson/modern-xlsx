@@ -79,6 +79,11 @@ function compareForMatch(a: CellValue, b: CellValue): number {
     .localeCompare(String(b ?? '').toLowerCase());
 }
 
+/** Safely get an element from an array by index. */
+function at<T>(arr: T[], idx: number): T | undefined {
+  return arr[idx];
+}
+
 /** Resolve the optional `approx` argument (defaults to true). */
 function resolveApprox(
   args: ASTNode[],
@@ -87,7 +92,9 @@ function resolveApprox(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): boolean | string {
   if (args.length <= argIndex) return true;
-  const aVal = evaluate(args[argIndex]!, ctx);
+  const arg = at(args, argIndex);
+  if (!arg) return true;
+  const aVal = evaluate(arg, ctx);
   if (isError(aVal)) return aVal;
   if (typeof aVal === 'boolean') return aVal;
   if (typeof aVal === 'number') return aVal !== 0;
@@ -101,7 +108,8 @@ function resolveApprox(
 function approxSearchAsc(values: CellValue[], target: CellValue): number {
   let bestIdx = -1;
   for (let i = 0; i < values.length; i++) {
-    const cmp = compareForMatch(values[i]!, target);
+    const v = at(values, i);
+    const cmp = compareForMatch(v ?? null, target);
     if (cmp <= 0) bestIdx = i;
     else break;
   }
@@ -111,7 +119,8 @@ function approxSearchAsc(values: CellValue[], target: CellValue): number {
 /** Find the index of exact match in a flat array.  Returns -1 if not found. */
 function exactSearch(values: CellValue[], target: CellValue): number {
   for (let i = 0; i < values.length; i++) {
-    if (valuesEqual(values[i]!, target)) return i;
+    const v = at(values, i);
+    if (valuesEqual(v ?? null, target)) return i;
   }
   return -1;
 }
@@ -137,11 +146,16 @@ function vlookupImpl(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): CellValue {
   if (args.length < 3) return '#VALUE!';
-  const lookupVal = evaluate(args[0]!, ctx);
+  const arg0 = at(args, 0);
+  const arg1 = at(args, 1);
+  const arg2 = at(args, 2);
+  if (!arg0 || !arg1 || !arg2) return '#VALUE!';
+
+  const lookupVal = evaluate(arg0, ctx);
   if (isError(lookupVal)) return lookupVal;
 
-  const matrix = resolveMatrix(args[1]!, ctx, evaluate);
-  const colIdxVal = toNumber(evaluate(args[2]!, ctx));
+  const matrix = resolveMatrix(arg1, ctx, evaluate);
+  const colIdxVal = toNumber(evaluate(arg2, ctx));
   if (typeof colIdxVal === 'string') return colIdxVal;
   const colIdx = Math.floor(colIdxVal);
   if (colIdx < 1) return '#VALUE!';
@@ -151,14 +165,14 @@ function vlookupImpl(
   if (typeof approx === 'string') return approx;
 
   // Extract first column for searching
-  const firstCol: CellValue[] = matrix.map((row) => row[0]!);
+  const firstCol: CellValue[] = matrix.map((row) => row[0] ?? null);
 
   if (approx) {
     const idx = approxSearchAsc(firstCol, lookupVal);
-    return idx === -1 ? '#N/A' : (matrix[idx]?.[colIdx - 1] ?? null);
+    return idx === -1 ? '#N/A' : (at(matrix, idx)?.[colIdx - 1] ?? null);
   }
   const idx = exactSearch(firstCol, lookupVal);
-  return idx === -1 ? '#N/A' : (matrix[idx]?.[colIdx - 1] ?? null);
+  return idx === -1 ? '#N/A' : (at(matrix, idx)?.[colIdx - 1] ?? null);
 }
 
 function hlookupImpl(
@@ -167,11 +181,16 @@ function hlookupImpl(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): CellValue {
   if (args.length < 3) return '#VALUE!';
-  const lookupVal = evaluate(args[0]!, ctx);
+  const arg0 = at(args, 0);
+  const arg1 = at(args, 1);
+  const arg2 = at(args, 2);
+  if (!arg0 || !arg1 || !arg2) return '#VALUE!';
+
+  const lookupVal = evaluate(arg0, ctx);
   if (isError(lookupVal)) return lookupVal;
 
-  const matrix = resolveMatrix(args[1]!, ctx, evaluate);
-  const rowIdxVal = toNumber(evaluate(args[2]!, ctx));
+  const matrix = resolveMatrix(arg1, ctx, evaluate);
+  const rowIdxVal = toNumber(evaluate(arg2, ctx));
   if (typeof rowIdxVal === 'string') return rowIdxVal;
   const rowIdx = Math.floor(rowIdxVal);
   if (rowIdx < 1) return '#VALUE!';
@@ -185,10 +204,10 @@ function hlookupImpl(
 
   if (approx) {
     const idx = approxSearchAsc(firstRow, lookupVal);
-    return idx === -1 ? '#N/A' : (matrix[rowIdx - 1]?.[idx] ?? null);
+    return idx === -1 ? '#N/A' : (at(matrix, rowIdx - 1)?.[idx] ?? null);
   }
   const idx = exactSearch(firstRow, lookupVal);
-  return idx === -1 ? '#N/A' : (matrix[rowIdx - 1]?.[idx] ?? null);
+  return idx === -1 ? '#N/A' : (at(matrix, rowIdx - 1)?.[idx] ?? null);
 }
 
 // ---------------------------------------------------------------------------
@@ -201,14 +220,20 @@ function indexImpl(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): CellValue {
   if (args.length < 2) return '#VALUE!';
-  const matrix = resolveMatrix(args[0]!, ctx, evaluate);
-  const rowVal = toNumber(evaluate(args[1]!, ctx));
+  const arg0 = at(args, 0);
+  const arg1 = at(args, 1);
+  if (!arg0 || !arg1) return '#VALUE!';
+
+  const matrix = resolveMatrix(arg0, ctx, evaluate);
+  const rowVal = toNumber(evaluate(arg1, ctx));
   if (typeof rowVal === 'string') return rowVal;
   const rowIdx = Math.floor(rowVal);
 
   let colIdx = 1;
   if (args.length >= 3) {
-    const cVal = toNumber(evaluate(args[2]!, ctx));
+    const arg2 = at(args, 2);
+    if (!arg2) return '#VALUE!';
+    const cVal = toNumber(evaluate(arg2, ctx));
     if (typeof cVal === 'string') return cVal;
     colIdx = Math.floor(cVal);
   }
@@ -226,14 +251,20 @@ function matchImpl(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): CellValue {
   if (args.length < 2) return '#VALUE!';
-  const lookupVal = evaluate(args[0]!, ctx);
+  const arg0 = at(args, 0);
+  const arg1 = at(args, 1);
+  if (!arg0 || !arg1) return '#VALUE!';
+
+  const lookupVal = evaluate(arg0, ctx);
   if (isError(lookupVal)) return lookupVal;
 
-  const values = flattenMatrix(resolveMatrix(args[1]!, ctx, evaluate));
+  const values = flattenMatrix(resolveMatrix(arg1, ctx, evaluate));
 
   let matchType = 1;
   if (args.length >= 3) {
-    const mtVal = toNumber(evaluate(args[2]!, ctx));
+    const arg2 = at(args, 2);
+    if (!arg2) return '#VALUE!';
+    const mtVal = toNumber(evaluate(arg2, ctx));
     if (typeof mtVal === 'string') return mtVal;
     matchType = mtVal;
   }
@@ -255,7 +286,8 @@ function matchByType(values: CellValue[], lookupVal: CellValue, matchType: numbe
     // Smallest value >= lookupVal (data sorted descending)
     let bestIdx = -1;
     for (let i = 0; i < values.length; i++) {
-      const cmp = compareForMatch(values[i]!, lookupVal);
+      const v = at(values, i);
+      const cmp = compareForMatch(v ?? null, lookupVal);
       if (cmp >= 0) bestIdx = i;
       else break;
     }
@@ -280,17 +312,22 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
   // ---- CHOOSE ------------------------------------------------------------
   registry.set('CHOOSE', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const idxVal = toNumber(evaluate(args[0]!, ctx));
+    const arg0 = at(args, 0);
+    if (!arg0) return '#VALUE!';
+    const idxVal = toNumber(evaluate(arg0, ctx));
     if (typeof idxVal === 'string') return idxVal;
     const idx = Math.floor(idxVal);
     if (idx < 1 || idx >= args.length) return '#VALUE!';
-    return evaluate(args[idx]!, ctx);
+    const argN = at(args, idx);
+    if (!argN) return '#VALUE!';
+    return evaluate(argN, ctx);
   });
 
   // ---- ROW ---------------------------------------------------------------
   registry.set('ROW', (args): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const arg = args[0]!;
+    const arg = at(args, 0);
+    if (!arg) return '#VALUE!';
     if (arg.type === 'cell_ref') return (arg as CellRefNode).row;
     if (arg.type === 'range') return (arg as RangeNode).start.row;
     return '#VALUE!';
@@ -299,7 +336,8 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
   // ---- COLUMN ------------------------------------------------------------
   registry.set('COLUMN', (args): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const arg = args[0]!;
+    const arg = at(args, 0);
+    if (!arg) return '#VALUE!';
     if (arg.type === 'cell_ref') return letterToCol((arg as CellRefNode).col) + 1;
     if (arg.type === 'range') return letterToCol((arg as RangeNode).start.col) + 1;
     return '#VALUE!';
@@ -308,7 +346,8 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
   // ---- ROWS --------------------------------------------------------------
   registry.set('ROWS', (args): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const arg = args[0]!;
+    const arg = at(args, 0);
+    if (!arg) return '#VALUE!';
     if (arg.type === 'range') {
       const range = arg as RangeNode;
       return Math.abs(range.end.row - range.start.row) + 1;
@@ -320,7 +359,8 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
   // ---- COLUMNS -----------------------------------------------------------
   registry.set('COLUMNS', (args): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const arg = args[0]!;
+    const arg = at(args, 0);
+    if (!arg) return '#VALUE!';
     if (arg.type === 'range') {
       const range = arg as RangeNode;
       return Math.abs(letterToCol(range.end.col) - letterToCol(range.start.col)) + 1;

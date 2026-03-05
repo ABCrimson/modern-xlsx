@@ -358,7 +358,10 @@ const RUN_TOKENS = {
 } as const satisfies Record<string, readonly [number, TokenFormatter][]>;
 
 /** Typed lookup for RUN_TOKENS by arbitrary string key. */
-const runTokenLookup = RUN_TOKENS as Record<string, readonly [number, TokenFormatter][] | undefined>;
+const runTokenLookup = RUN_TOKENS as Record<
+  string,
+  readonly [number, TokenFormatter][] | undefined
+>;
 
 /** Fixed-string tokens matched before run tokens. Ordered longest-first. */
 const FIXED_TOKENS = [

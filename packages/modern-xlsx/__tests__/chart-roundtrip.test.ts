@@ -347,4 +347,104 @@ describe('Chart roundtrip', () => {
     expect(charts[0].anchor.extCx).toBe(5400000);
     expect(charts[0].anchor.extCy).toBe(3240000);
   });
+
+  it('roundtrips a combo chart (bar + line) with secondary axis', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    ws.cell('A1').value = 'Category';
+    ws.cell('B1').value = 'Sales';
+    ws.cell('C1').value = 'Trend';
+    ws.cell('A2').value = 'Q1';
+    ws.cell('B2').value = '100';
+    ws.cell('C2').value = '10';
+    ws.cell('A3').value = 'Q2';
+    ws.cell('B3').value = '200';
+    ws.cell('C3').value = '15';
+
+    ws.addChartData({
+      chart: {
+        chartType: 'column',
+        title: { text: 'Combo Chart', overlay: false },
+        series: [
+          {
+            idx: 0,
+            order: 0,
+            name: 'Sales',
+            catRef: 'Sheet1!$A$2:$A$3',
+            valRef: 'Sheet1!$B$2:$B$3',
+          },
+        ],
+        grouping: 'clustered',
+        catAxis: { id: 100, crossAx: 200 },
+        valAxis: { id: 200, crossAx: 100 },
+        secondaryChart: {
+          chartType: 'line',
+          series: [
+            {
+              idx: 1,
+              order: 1,
+              name: 'Trend',
+              catRef: 'Sheet1!$A$2:$A$3',
+              valRef: 'Sheet1!$C$2:$C$3',
+            },
+          ],
+          grouping: 'standard',
+          showDataTable: false,
+        },
+        secondaryValAxis: {
+          id: 300,
+          crossAx: 100,
+          position: 'right',
+        },
+        showDataTable: false,
+      },
+      anchor: {
+        fromCol: 4,
+        fromRow: 0,
+        toCol: 14,
+        toRow: 18,
+      },
+    });
+
+    expect(ws.charts).toHaveLength(1);
+    expect(ws.charts[0].chart.secondaryChart?.chartType).toBe('line');
+
+    // Write to buffer.
+    const buffer = await wb.toBuffer();
+    expect(buffer.length).toBeGreaterThan(0);
+
+    // Read back.
+    const wb2 = await readBuffer(buffer);
+    const ws2 = wb2.getSheet('Sheet1') as Worksheet;
+    expect(ws2).toBeDefined();
+
+    const charts = ws2.charts;
+    expect(charts).toHaveLength(1);
+    const chart = charts[0].chart;
+
+    // Primary chart.
+    expect(chart.chartType).toBe('column');
+    expect(chart.grouping).toBe('clustered');
+    expect(chart.series).toHaveLength(1);
+    expect(chart.series[0].name).toBe('Sales');
+    expect(chart.series[0].valRef).toBe('Sheet1!$B$2:$B$3');
+
+    // Secondary chart.
+    expect(chart.secondaryChart).toBeDefined();
+    expect(chart.secondaryChart?.chartType).toBe('line');
+    expect(chart.secondaryChart?.grouping).toBe('standard');
+    expect(chart.secondaryChart?.series).toHaveLength(1);
+    expect(chart.secondaryChart?.series[0].name).toBe('Trend');
+    expect(chart.secondaryChart?.series[0].valRef).toBe('Sheet1!$C$2:$C$3');
+
+    // Primary value axis.
+    expect(chart.valAxis?.id).toBe(200);
+    expect(chart.valAxis?.crossAx).toBe(100);
+
+    // Secondary value axis.
+    expect(chart.secondaryValAxis).toBeDefined();
+    expect(chart.secondaryValAxis?.id).toBe(300);
+    expect(chart.secondaryValAxis?.crossAx).toBe(100);
+    expect(chart.secondaryValAxis?.position).toBe('right');
+  });
 });
