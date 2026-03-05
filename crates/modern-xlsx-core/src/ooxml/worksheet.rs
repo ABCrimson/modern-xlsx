@@ -1226,30 +1226,7 @@ impl WorksheetXml {
                             state = ParseState::SparklineGroups;
                         }
                         (ParseState::SparklineGroups, b"sparklineGroup") => {
-                            let mut group = SparklineGroup {
-                                sparkline_type: default_sparkline_type(),
-                                sparklines: Vec::new(),
-                                color_series: None,
-                                color_negative: None,
-                                color_axis: None,
-                                color_markers: None,
-                                color_first: None,
-                                color_last: None,
-                                color_high: None,
-                                color_low: None,
-                                line_weight: None,
-                                markers: false,
-                                high: false,
-                                low: false,
-                                first: false,
-                                last: false,
-                                negative: false,
-                                display_x_axis: false,
-                                display_empty_cells_as: None,
-                                manual_min: None,
-                                manual_max: None,
-                                right_to_left: false,
-                            };
+                            let mut group = SparklineGroup::default();
                             for attr in e.attributes().flatten() {
                                 let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                 match attr.key.local_name().as_ref() {
@@ -2635,30 +2612,7 @@ impl WorksheetXml {
                             state = ParseState::SparklineGroups;
                         }
                         (ParseState::SparklineGroups, b"sparklineGroup") => {
-                            let mut group = SparklineGroup {
-                                sparkline_type: default_sparkline_type(),
-                                sparklines: Vec::new(),
-                                color_series: None,
-                                color_negative: None,
-                                color_axis: None,
-                                color_markers: None,
-                                color_first: None,
-                                color_last: None,
-                                color_high: None,
-                                color_low: None,
-                                line_weight: None,
-                                markers: false,
-                                high: false,
-                                low: false,
-                                first: false,
-                                last: false,
-                                negative: false,
-                                display_x_axis: false,
-                                display_empty_cells_as: None,
-                                manual_min: None,
-                                manual_max: None,
-                                right_to_left: false,
-                            };
+                            let mut group = SparklineGroup::default();
                             for attr in e.attributes().flatten() {
                                 let val = std::str::from_utf8(&attr.value).unwrap_or_default();
                                 match attr.key.local_name().as_ref() {

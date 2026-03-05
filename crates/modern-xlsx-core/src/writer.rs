@@ -52,17 +52,13 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         for row in &sheet.worksheet.rows {
             for cell in &row.cells {
                 if cell.cell_type == CellType::SharedString {
-                    match cell.value {
-                        Some(ref val) => {
-                            sst_builder.insert(val);
-                        }
-                        None => {
-                            return Err(ModernXlsxError::InvalidCellValue(format!(
-                                "SharedString cell {} has no value",
-                                cell.reference
-                            )));
-                        }
-                    }
+                    let Some(ref val) = cell.value else {
+                        return Err(ModernXlsxError::InvalidCellValue(format!(
+                            "SharedString cell {} has no value",
+                            cell.reference
+                        )));
+                    };
+                    sst_builder.insert(val);
                 }
             }
         }

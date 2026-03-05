@@ -168,22 +168,20 @@ impl TableDefinition {
                 col_elem.push_attribute(("totalsRowDxfId", ibuf.format(dxf_id)));
             }
 
-            if col.calculated_column_formula.is_some() {
+            if let Some(ref formula) = col.calculated_column_formula {
                 writer
                     .write_event(Event::Start(col_elem))
                     .map_err(map_err)?;
 
-                if let Some(ref formula) = col.calculated_column_formula {
-                    writer
-                        .write_event(Event::Start(BytesStart::new("calculatedColumnFormula")))
-                        .map_err(map_err)?;
-                    writer
-                        .write_event(Event::Text(BytesText::new(formula)))
-                        .map_err(map_err)?;
-                    writer
-                        .write_event(Event::End(BytesEnd::new("calculatedColumnFormula")))
-                        .map_err(map_err)?;
-                }
+                writer
+                    .write_event(Event::Start(BytesStart::new("calculatedColumnFormula")))
+                    .map_err(map_err)?;
+                writer
+                    .write_event(Event::Text(BytesText::new(formula)))
+                    .map_err(map_err)?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("calculatedColumnFormula")))
+                    .map_err(map_err)?;
 
                 writer
                     .write_event(Event::End(BytesEnd::new("tableColumn")))

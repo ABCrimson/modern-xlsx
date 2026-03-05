@@ -814,66 +814,36 @@ impl Styles {
 
                         // ----- empty border sides (e.g. <left/>) -----
                         b"left" if in_border && !in_dxf => {
-                            let side = parse_border_side_attrs(e);
-                            if side.is_some() {
-                                current_border.left = side;
-                            }
+                            current_border.left = parse_border_side_attrs(e);
                         }
                         b"right" if in_border && !in_dxf => {
-                            let side = parse_border_side_attrs(e);
-                            if side.is_some() {
-                                current_border.right = side;
-                            }
+                            current_border.right = parse_border_side_attrs(e);
                         }
                         b"top" if in_border && !in_dxf => {
-                            let side = parse_border_side_attrs(e);
-                            if side.is_some() {
-                                current_border.top = side;
-                            }
+                            current_border.top = parse_border_side_attrs(e);
                         }
                         b"bottom" if in_border && !in_dxf => {
-                            let side = parse_border_side_attrs(e);
-                            if side.is_some() {
-                                current_border.bottom = side;
-                            }
+                            current_border.bottom = parse_border_side_attrs(e);
                         }
                         b"diagonal" if in_border && !in_dxf => {
-                            let side = parse_border_side_attrs(e);
-                            if side.is_some() {
-                                current_border.diagonal = side;
-                            }
+                            current_border.diagonal = parse_border_side_attrs(e);
                         }
 
                         // DXF border sides (self-closing)
                         b"left" if in_dxf && dxf_child == DxfChild::Border => {
-                            let side = parse_border_side_attrs(e);
-                            if side.is_some() {
-                                dxf_border.left = side;
-                            }
+                            dxf_border.left = parse_border_side_attrs(e);
                         }
                         b"right" if in_dxf && dxf_child == DxfChild::Border => {
-                            let side = parse_border_side_attrs(e);
-                            if side.is_some() {
-                                dxf_border.right = side;
-                            }
+                            dxf_border.right = parse_border_side_attrs(e);
                         }
                         b"top" if in_dxf && dxf_child == DxfChild::Border => {
-                            let side = parse_border_side_attrs(e);
-                            if side.is_some() {
-                                dxf_border.top = side;
-                            }
+                            dxf_border.top = parse_border_side_attrs(e);
                         }
                         b"bottom" if in_dxf && dxf_child == DxfChild::Border => {
-                            let side = parse_border_side_attrs(e);
-                            if side.is_some() {
-                                dxf_border.bottom = side;
-                            }
+                            dxf_border.bottom = parse_border_side_attrs(e);
                         }
                         b"diagonal" if in_dxf && dxf_child == DxfChild::Border => {
-                            let side = parse_border_side_attrs(e);
-                            if side.is_some() {
-                                dxf_border.diagonal = side;
-                            }
+                            dxf_border.diagonal = parse_border_side_attrs(e);
                         }
 
                         // colour inside a DXF border side (self-closing)
@@ -1335,16 +1305,13 @@ impl Styles {
 /// Extract a `BorderSide` from attributes on a border child element (e.g. `<left style="thin">`).
 /// Returns `None` if there is no `style` attribute.
 fn parse_border_side_attrs(e: &BytesStart<'_>) -> Option<BorderSide> {
-    let mut style: Option<String> = None;
-    for attr in e.attributes().flatten() {
-        if attr.key.local_name().as_ref() == b"style" {
-            style = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-        }
-    }
-    style.map(|s| BorderSide {
-        style: s,
-        color: None,
-    })
+    e.attributes()
+        .flatten()
+        .find(|attr| attr.key.local_name().as_ref() == b"style")
+        .map(|attr| BorderSide {
+            style: std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+            color: None,
+        })
 }
 
 /// Parse attributes of an `<xf>` element into a `CellXf`.

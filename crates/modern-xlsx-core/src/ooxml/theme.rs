@@ -105,33 +105,16 @@ pub fn parse(data: &[u8]) -> Result<ThemeColors> {
             Ok(Event::Empty(ref e)) if current_slot.is_some() => {
                 let local = e.local_name();
                 let color_value = match local.as_ref() {
-                    b"sysClr" => {
-                        // Prefer lastClr attribute.
-                        let mut val = None;
-                        for attr in e.attributes().flatten() {
-                            if attr.key.local_name().as_ref() == b"lastClr" {
-                                val = Some(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
-                                );
-                            }
-                        }
-                        val
-                    }
-                    b"srgbClr" => {
-                        let mut val = None;
-                        for attr in e.attributes().flatten() {
-                            if attr.key.local_name().as_ref() == b"val" {
-                                val = Some(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
-                                );
-                            }
-                        }
-                        val
-                    }
+                    b"sysClr" => e
+                        .attributes()
+                        .flatten()
+                        .find(|a| a.key.local_name().as_ref() == b"lastClr")
+                        .map(|a| std::str::from_utf8(&a.value).unwrap_or_default().to_owned()),
+                    b"srgbClr" => e
+                        .attributes()
+                        .flatten()
+                        .find(|a| a.key.local_name().as_ref() == b"val")
+                        .map(|a| std::str::from_utf8(&a.value).unwrap_or_default().to_owned()),
                     _ => None,
                 };
 

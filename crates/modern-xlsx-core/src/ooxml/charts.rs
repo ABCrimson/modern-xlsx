@@ -1350,13 +1350,11 @@ impl ChartData {
         if bold {
             def_rpr.push_attribute(("b", "1"));
         }
-        if title.color.is_some() {
+        if let Some(ref color) = title.color {
             writer
                 .write_event(Event::Start(def_rpr))
                 .map_err(map_err)?;
-            if let Some(ref color) = title.color {
-                Self::write_solid_fill(writer, color)?;
-            }
+            Self::write_solid_fill(writer, color)?;
             writer
                 .write_event(Event::End(BytesEnd::new("a:defRPr")))
                 .map_err(map_err)?;
@@ -1383,11 +1381,9 @@ impl ChartData {
         if bold {
             rpr.push_attribute(("b", "1"));
         }
-        if title.color.is_some() {
+        if let Some(ref color) = title.color {
             writer.write_event(Event::Start(rpr)).map_err(map_err)?;
-            if let Some(ref color) = title.color {
-                Self::write_solid_fill(writer, color)?;
-            }
+            Self::write_solid_fill(writer, color)?;
             writer
                 .write_event(Event::End(BytesEnd::new("a:rPr")))
                 .map_err(map_err)?;
@@ -1880,16 +1876,14 @@ impl ChartData {
 
 /// Helper to extract `val` attribute from a `BytesStart`.
 fn attr_val(e: &BytesStart<'_>, key: &[u8]) -> Option<String> {
-    for attr in e.attributes().flatten() {
-        if attr.key.as_ref() == key {
-            return Some(
-                std::str::from_utf8(&attr.value)
-                    .unwrap_or_default()
-                    .to_owned(),
-            );
-        }
-    }
-    None
+    e.attributes()
+        .flatten()
+        .find(|attr| attr.key.as_ref() == key)
+        .map(|attr| {
+            std::str::from_utf8(&attr.value)
+                .unwrap_or_default()
+                .to_owned()
+        })
 }
 
 /// Parse the `val` attribute as `&str`.
@@ -1946,7 +1940,7 @@ impl MarkerStyle {
             "dash" => Some(Self::Dash),
             "dot" => Some(Self::Dot),
             "none" => Some(Self::None),
-            _ => Option::None,
+            _ => None,
         }
     }
 }
@@ -1983,7 +1977,7 @@ impl TickLabelPosition {
             "low" => Some(Self::Low),
             "nextTo" => Some(Self::NextTo),
             "none" => Some(Self::None),
-            _ => Option::None,
+            _ => None,
         }
     }
 }
@@ -1995,7 +1989,7 @@ impl TickMark {
             "in" => Some(Self::In),
             "out" => Some(Self::Out),
             "none" => Some(Self::None),
-            _ => Option::None,
+            _ => None,
         }
     }
 }
@@ -2117,20 +2111,33 @@ impl ChartData {
         let mut style_id: Option<u32> = None;
         let mut plot_area_layout: Option<ManualLayout> = None;
 
+        // Combo-chart tracking: secondary chart type + series.
+        let mut secondary_chart_type: Option<ChartType> = None;
+        let mut secondary_series: Vec<ChartSeries> = Vec::new();
+        let mut secondary_grouping: Option<ChartGrouping> = None;
+        let mut secondary_scatter_style: Option<ScatterStyle> = None;
+        let mut secondary_radar_style: Option<RadarStyle> = None;
+        let mut secondary_hole_size: Option<u32> = None;
+        let mut secondary_bar_dir_horizontal: Option<bool> = None;
+        let mut secondary_data_labels: Option<DataLabels> = None;
+        let mut is_secondary_chart = false;
+        let mut val_axis_count: u32 = 0;
+        let mut secondary_val_axis: Option<ChartAxis> = None;
+
         // Current series being built.
         let mut cur_ser: Option<ChartSeries> = None;
         // Current axis being built.
-        let mut cur_cat_axis = AxisBuilder::new();
-        let mut cur_val_axis = AxisBuilder::new();
+        let mut cur_cat_axis = AxisBuilder::default();
+        let mut cur_val_axis = AxisBuilder::default();
         // Current data labels.
-        let mut cur_dlbls = DataLabelsBuilder::new();
-        let mut cur_ser_dlbls = DataLabelsBuilder::new();
+        let mut cur_dlbls = DataLabelsBuilder::default();
+        let mut cur_ser_dlbls = DataLabelsBuilder::default();
         // Current legend.
-        let mut cur_legend = LegendBuilder::new();
+        let mut cur_legend = LegendBuilder::default();
         // Current title.
-        let mut cur_title = TitleBuilder::new();
-        let mut cur_cat_axis_title = TitleBuilder::new();
-        let mut cur_val_axis_title = TitleBuilder::new();
+        let mut cur_title = TitleBuilder::default();
+        let mut cur_cat_axis_title = TitleBuilder::default();
+        let mut cur_val_axis_title = TitleBuilder::default();
         // Manual layout.
         let mut layout_x: Option<f64> = None;
         let mut layout_y: Option<f64> = None;
@@ -2142,7 +2149,7 @@ impl ChartData {
         let mut cur_err_bars: Option<ErrorBarsBuilder> = None;
         // View3D.
         let mut view_3d: Option<View3D> = None;
-        let mut cur_view_3d = View3DBuilder::new();
+        let mut cur_view_3d = View3DBuilder::default();
         // Data table.
         let mut show_data_table = false;
 
@@ -2173,53 +2180,50 @@ impl ChartData {
                             ctx_stack.push(ParseCtx::PlotArea);
                         }
                         (ParseCtx::Chart, b"title") => {
-                            cur_title = TitleBuilder::new();
+                            cur_title = TitleBuilder::default();
                             ctx_stack.push(ParseCtx::Title(TitleOwner::Chart));
                         }
                         (ParseCtx::Chart, b"legend") => {
-                            cur_legend = LegendBuilder::new();
+                            cur_legend = LegendBuilder::default();
                             ctx_stack.push(ParseCtx::Legend);
                         }
                         (ParseCtx::Chart, b"view3D") => {
-                            cur_view_3d = View3DBuilder::new();
+                            cur_view_3d = View3DBuilder::default();
                             ctx_stack.push(ParseCtx::View3D);
                         }
                         // Chart type elements inside plotArea.
-                        (ParseCtx::PlotArea, b"barChart") => {
-                            // Default to Column; barDir will refine.
-                            chart_type = Some(ChartType::Column);
-                            ctx_stack.push(ParseCtx::ChartTypeElem);
-                        }
-                        (ParseCtx::PlotArea, b"lineChart") => {
-                            chart_type = Some(ChartType::Line);
-                            ctx_stack.push(ParseCtx::ChartTypeElem);
-                        }
-                        (ParseCtx::PlotArea, b"pieChart") => {
-                            chart_type = Some(ChartType::Pie);
-                            ctx_stack.push(ParseCtx::ChartTypeElem);
-                        }
-                        (ParseCtx::PlotArea, b"doughnutChart") => {
-                            chart_type = Some(ChartType::Doughnut);
-                            ctx_stack.push(ParseCtx::ChartTypeElem);
-                        }
-                        (ParseCtx::PlotArea, b"scatterChart") => {
-                            chart_type = Some(ChartType::Scatter);
-                            ctx_stack.push(ParseCtx::ChartTypeElem);
-                        }
-                        (ParseCtx::PlotArea, b"areaChart") => {
-                            chart_type = Some(ChartType::Area);
-                            ctx_stack.push(ParseCtx::ChartTypeElem);
-                        }
-                        (ParseCtx::PlotArea, b"radarChart") => {
-                            chart_type = Some(ChartType::Radar);
-                            ctx_stack.push(ParseCtx::ChartTypeElem);
-                        }
-                        (ParseCtx::PlotArea, b"bubbleChart") => {
-                            chart_type = Some(ChartType::Bubble);
-                            ctx_stack.push(ParseCtx::ChartTypeElem);
-                        }
-                        (ParseCtx::PlotArea, b"stockChart") => {
-                            chart_type = Some(ChartType::Stock);
+                        // When a second chart-type element appears, it's the
+                        // secondary chart in a combo-chart layout.
+                        (ParseCtx::PlotArea, b"barChart")
+                        | (ParseCtx::PlotArea, b"lineChart")
+                        | (ParseCtx::PlotArea, b"pieChart")
+                        | (ParseCtx::PlotArea, b"doughnutChart")
+                        | (ParseCtx::PlotArea, b"scatterChart")
+                        | (ParseCtx::PlotArea, b"areaChart")
+                        | (ParseCtx::PlotArea, b"radarChart")
+                        | (ParseCtx::PlotArea, b"bubbleChart")
+                        | (ParseCtx::PlotArea, b"stockChart") => {
+                            let ct = match local {
+                                b"barChart" => ChartType::Column, // barDir refines
+                                b"lineChart" => ChartType::Line,
+                                b"pieChart" => ChartType::Pie,
+                                b"doughnutChart" => ChartType::Doughnut,
+                                b"scatterChart" => ChartType::Scatter,
+                                b"areaChart" => ChartType::Area,
+                                b"radarChart" => ChartType::Radar,
+                                b"bubbleChart" => ChartType::Bubble,
+                                b"stockChart" => ChartType::Stock,
+                                _ => unreachable!(),
+                            };
+                            if chart_type.is_none() {
+                                // Primary chart.
+                                chart_type = Some(ct);
+                                is_secondary_chart = false;
+                            } else {
+                                // Secondary chart (combo).
+                                secondary_chart_type = Some(ct);
+                                is_secondary_chart = true;
+                            }
                             ctx_stack.push(ParseCtx::ChartTypeElem);
                         }
                         (ParseCtx::PlotArea, b"layout") => {
@@ -2235,11 +2239,11 @@ impl ChartData {
                         }
                         // Axes inside plotArea.
                         (ParseCtx::PlotArea, b"catAx") => {
-                            cur_cat_axis = AxisBuilder::new();
+                            cur_cat_axis = AxisBuilder::default();
                             ctx_stack.push(ParseCtx::CatAxis);
                         }
                         (ParseCtx::PlotArea, b"valAx") => {
-                            cur_val_axis = AxisBuilder::new();
+                            cur_val_axis = AxisBuilder::default();
                             ctx_stack.push(ParseCtx::ValAxis);
                         }
                         // Series inside chart type element.
@@ -2265,7 +2269,7 @@ impl ChartData {
                             ctx_stack.push(ParseCtx::Series);
                         }
                         (ParseCtx::ChartTypeElem, b"dLbls") => {
-                            cur_dlbls = DataLabelsBuilder::new();
+                            cur_dlbls = DataLabelsBuilder::default();
                             ctx_stack.push(ParseCtx::DataLabels);
                         }
                         // Series children.
@@ -2294,15 +2298,15 @@ impl ChartData {
                             ctx_stack.push(ParseCtx::SerMarker);
                         }
                         (ParseCtx::Series, b"dLbls") => {
-                            cur_ser_dlbls = DataLabelsBuilder::new();
+                            cur_ser_dlbls = DataLabelsBuilder::default();
                             ctx_stack.push(ParseCtx::SerDataLabels);
                         }
                         (ParseCtx::Series, b"trendline") => {
-                            cur_trendline = Some(TrendlineBuilder::new());
+                            cur_trendline = Some(TrendlineBuilder::default());
                             ctx_stack.push(ParseCtx::SerTrendline);
                         }
                         (ParseCtx::Series, b"errBars") => {
-                            cur_err_bars = Some(ErrorBarsBuilder::new());
+                            cur_err_bars = Some(ErrorBarsBuilder::default());
                             ctx_stack.push(ParseCtx::SerErrBars);
                         }
                         // spPr children.
@@ -2354,11 +2358,11 @@ impl ChartData {
                             ctx_stack.push(ParseCtx::AxisScaling(AxisKind::Val));
                         }
                         (ParseCtx::CatAxis, b"title") => {
-                            cur_cat_axis_title = TitleBuilder::new();
+                            cur_cat_axis_title = TitleBuilder::default();
                             ctx_stack.push(ParseCtx::Title(TitleOwner::CatAxis));
                         }
                         (ParseCtx::ValAxis, b"title") => {
-                            cur_val_axis_title = TitleBuilder::new();
+                            cur_val_axis_title = TitleBuilder::default();
                             ctx_stack.push(ParseCtx::Title(TitleOwner::ValAxis));
                         }
                         // Axis tick label text properties.
@@ -2437,28 +2441,54 @@ impl ChartData {
                     let ctx = current_ctx(&ctx_stack);
 
                     match (ctx, local) {
-                        // Chart-type element attributes.
+                        // Chart-type element attributes — route to
+                        // primary or secondary accumulator.
                         (ParseCtx::ChartTypeElem, b"barDir") => {
                             let val = attr_val_str(e);
-                            if val == "bar" {
-                                chart_type = Some(ChartType::Bar);
-                                bar_dir_horizontal = Some(true);
+                            let (ct, bh) = if val == "bar" {
+                                (ChartType::Bar, Some(true))
                             } else {
-                                chart_type = Some(ChartType::Column);
-                                bar_dir_horizontal = Some(false);
+                                (ChartType::Column, Some(false))
+                            };
+                            if is_secondary_chart {
+                                secondary_chart_type = Some(ct);
+                                secondary_bar_dir_horizontal = bh;
+                            } else {
+                                chart_type = Some(ct);
+                                bar_dir_horizontal = bh;
                             }
                         }
                         (ParseCtx::ChartTypeElem, b"grouping") => {
-                            grouping = ChartGrouping::from_xml(&attr_val_str(e));
+                            let g = ChartGrouping::from_xml(&attr_val_str(e));
+                            if is_secondary_chart {
+                                secondary_grouping = g;
+                            } else {
+                                grouping = g;
+                            }
                         }
                         (ParseCtx::ChartTypeElem, b"scatterStyle") => {
-                            scatter_style = ScatterStyle::from_xml(&attr_val_str(e));
+                            let s = ScatterStyle::from_xml(&attr_val_str(e));
+                            if is_secondary_chart {
+                                secondary_scatter_style = s;
+                            } else {
+                                scatter_style = s;
+                            }
                         }
                         (ParseCtx::ChartTypeElem, b"radarStyle") => {
-                            radar_style = RadarStyle::from_xml(&attr_val_str(e));
+                            let r = RadarStyle::from_xml(&attr_val_str(e));
+                            if is_secondary_chart {
+                                secondary_radar_style = r;
+                            } else {
+                                radar_style = r;
+                            }
                         }
                         (ParseCtx::ChartTypeElem, b"holeSize") => {
-                            hole_size = attr_val_str(e).parse().ok();
+                            let h = attr_val_str(e).parse().ok();
+                            if is_secondary_chart {
+                                secondary_hole_size = h;
+                            } else {
+                                hole_size = h;
+                            }
                         }
                         (ParseCtx::ChartTypeElem, b"axId") => {
                             // Axis IDs inside chart type elem — ignored (parsed from axis elements).
@@ -2834,12 +2864,21 @@ impl ChartData {
                     match (ctx, local) {
                         (ParseCtx::Series, b"ser") => {
                             if let Some(ser) = cur_ser.take() {
-                                series.push(ser);
+                                if is_secondary_chart {
+                                    secondary_series.push(ser);
+                                } else {
+                                    series.push(ser);
+                                }
                             }
                             ctx_stack.pop();
                         }
                         (ParseCtx::DataLabels, b"dLbls") => {
-                            data_labels = Some(cur_dlbls.build_and_reset());
+                            let dl = Some(cur_dlbls.build_and_reset());
+                            if is_secondary_chart {
+                                secondary_data_labels = dl;
+                            } else {
+                                data_labels = dl;
+                            }
                             ctx_stack.pop();
                         }
                         (ParseCtx::SerDataLabels, b"dLbls") => {
@@ -2876,17 +2915,23 @@ impl ChartData {
                             ctx_stack.pop();
                         }
                         (ParseCtx::CatAxis, b"catAx") => {
-                            let builder = std::mem::replace(&mut cur_cat_axis, AxisBuilder::new());
+                            let builder = std::mem::take(&mut cur_cat_axis);
                             cat_axis = Some(builder.build_with_title(
                                 cur_cat_axis_title.build_option(),
                             ));
                             ctx_stack.pop();
                         }
                         (ParseCtx::ValAxis, b"valAx") => {
-                            let builder = std::mem::replace(&mut cur_val_axis, AxisBuilder::new());
-                            val_axis = Some(builder.build_with_title(
+                            let builder = std::mem::take(&mut cur_val_axis);
+                            let axis = builder.build_with_title(
                                 cur_val_axis_title.build_option(),
-                            ));
+                            );
+                            if val_axis_count == 0 {
+                                val_axis = Some(axis);
+                            } else {
+                                secondary_val_axis = Some(axis);
+                            }
+                            val_axis_count += 1;
                             ctx_stack.pop();
                         }
                         (ParseCtx::Legend, b"legend") => {
@@ -2971,6 +3016,30 @@ impl ChartData {
             buf.clear();
         }
 
+        // Build secondary chart if a combo chart was detected.
+        let secondary_chart = secondary_chart_type.map(|ct| {
+            Box::new(ChartData {
+                chart_type: ct,
+                title: None,
+                series: secondary_series,
+                cat_axis: None,
+                val_axis: None,
+                legend: None,
+                data_labels: secondary_data_labels,
+                grouping: secondary_grouping,
+                scatter_style: secondary_scatter_style,
+                radar_style: secondary_radar_style,
+                hole_size: secondary_hole_size,
+                bar_dir_horizontal: secondary_bar_dir_horizontal,
+                style_id: None,
+                plot_area_layout: None,
+                secondary_chart: None,
+                secondary_val_axis: None,
+                show_data_table: false,
+                view_3d: None,
+            })
+        });
+
         Ok(ChartData {
             chart_type: chart_type.unwrap_or(ChartType::Bar),
             title,
@@ -2986,8 +3055,8 @@ impl ChartData {
             bar_dir_horizontal,
             style_id,
             plot_area_layout,
-            secondary_chart: None,
-            secondary_val_axis: None,
+            secondary_chart,
+            secondary_val_axis,
             show_data_table,
             view_3d,
         })
@@ -3009,6 +3078,7 @@ enum TextTarget {
 }
 
 /// Builder for accumulating axis data during parsing.
+#[derive(Default)]
 struct AxisBuilder {
     id: Option<u32>,
     cross_ax: Option<u32>,
@@ -3032,30 +3102,6 @@ struct AxisBuilder {
 }
 
 impl AxisBuilder {
-    fn new() -> Self {
-        Self {
-            id: None,
-            cross_ax: None,
-            num_fmt: None,
-            source_linked: false,
-            min: None,
-            max: None,
-            major_unit: None,
-            minor_unit: None,
-            log_base: None,
-            reversed: false,
-            tick_lbl_pos: None,
-            major_tick_mark: None,
-            minor_tick_mark: None,
-            major_gridlines: false,
-            minor_gridlines: false,
-            delete: false,
-            position: None,
-            crosses_at: None,
-            font_size: None,
-        }
-    }
-
     fn build_with_title(self, title: Option<ChartTitle>) -> ChartAxis {
         ChartAxis {
             id: self.id.unwrap_or(0),
@@ -3083,6 +3129,7 @@ impl AxisBuilder {
 }
 
 /// Builder for accumulating data labels during parsing.
+#[derive(Default)]
 struct DataLabelsBuilder {
     show_val: bool,
     show_cat_name: bool,
@@ -3093,17 +3140,6 @@ struct DataLabelsBuilder {
 }
 
 impl DataLabelsBuilder {
-    fn new() -> Self {
-        Self {
-            show_val: false,
-            show_cat_name: false,
-            show_ser_name: false,
-            show_percent: false,
-            num_fmt: None,
-            show_leader_lines: false,
-        }
-    }
-
     fn build_and_reset(&mut self) -> DataLabels {
         DataLabels {
             show_val: self.show_val,
@@ -3117,19 +3153,13 @@ impl DataLabelsBuilder {
 }
 
 /// Builder for accumulating legend during parsing.
+#[derive(Default)]
 struct LegendBuilder {
     position: Option<LegendPosition>,
     overlay: bool,
 }
 
 impl LegendBuilder {
-    fn new() -> Self {
-        Self {
-            position: None,
-            overlay: false,
-        }
-    }
-
     fn build(&self) -> ChartLegend {
         ChartLegend {
             position: self.position.unwrap_or(LegendPosition::Right),
@@ -3139,6 +3169,7 @@ impl LegendBuilder {
 }
 
 /// Builder for accumulating title text during parsing.
+#[derive(Default)]
 struct TitleBuilder {
     text: String,
     overlay: bool,
@@ -3148,16 +3179,6 @@ struct TitleBuilder {
 }
 
 impl TitleBuilder {
-    fn new() -> Self {
-        Self {
-            text: String::new(),
-            overlay: false,
-            font_size: None,
-            bold: None,
-            color: None,
-        }
-    }
-
     fn build_option(&self) -> Option<ChartTitle> {
         if self.text.is_empty() {
             return None;
@@ -3173,6 +3194,7 @@ impl TitleBuilder {
 }
 
 /// Builder for accumulating trendline data during parsing.
+#[derive(Default)]
 struct TrendlineBuilder {
     trend_type: Option<TrendlineType>,
     order: Option<u32>,
@@ -3184,18 +3206,6 @@ struct TrendlineBuilder {
 }
 
 impl TrendlineBuilder {
-    fn new() -> Self {
-        Self {
-            trend_type: None,
-            order: None,
-            period: None,
-            forward: None,
-            backward: None,
-            display_eq: false,
-            display_r_sqr: false,
-        }
-    }
-
     fn build(self) -> Option<Trendline> {
         let trend_type = self.trend_type?;
         Some(Trendline {
@@ -3211,6 +3221,7 @@ impl TrendlineBuilder {
 }
 
 /// Builder for accumulating error bars data during parsing.
+#[derive(Default)]
 struct ErrorBarsBuilder {
     err_type: Option<ErrorBarType>,
     direction: Option<ErrorBarDirection>,
@@ -3218,14 +3229,6 @@ struct ErrorBarsBuilder {
 }
 
 impl ErrorBarsBuilder {
-    fn new() -> Self {
-        Self {
-            err_type: None,
-            direction: None,
-            value: None,
-        }
-    }
-
     fn build(self) -> Option<ErrorBars> {
         let err_type = self.err_type?;
         Some(ErrorBars {
@@ -3237,6 +3240,7 @@ impl ErrorBarsBuilder {
 }
 
 /// Builder for View3D during parsing.
+#[derive(Default)]
 struct View3DBuilder {
     rot_x: Option<i32>,
     rot_y: Option<i32>,
@@ -3245,15 +3249,6 @@ struct View3DBuilder {
 }
 
 impl View3DBuilder {
-    fn new() -> Self {
-        Self {
-            rot_x: None,
-            rot_y: None,
-            perspective: None,
-            r_ang_ax: None,
-        }
-    }
-
     fn build(&self) -> Option<View3D> {
         if self.rot_x.is_none()
             && self.rot_y.is_none()
@@ -4681,5 +4676,168 @@ mod tests {
         let json2 = serde_json::to_string(&anchor2).unwrap();
         assert!(!json2.contains("extCx"));
         assert!(!json2.contains("extCy"));
+    }
+
+    #[test]
+    fn combo_chart_parse_bar_plus_line() {
+        // Combo chart: bar (primary) + line (secondary) with two valAx.
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
+              xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <c:chart>
+    <c:plotArea>
+      <c:layout/>
+      <c:barChart>
+        <c:barDir val="col"/>
+        <c:grouping val="clustered"/>
+        <c:ser>
+          <c:idx val="0"/>
+          <c:order val="0"/>
+          <c:tx><c:strRef><c:f>Sheet1!$B$1</c:f></c:strRef></c:tx>
+          <c:val><c:numRef><c:f>Sheet1!$B$2:$B$5</c:f></c:numRef></c:val>
+        </c:ser>
+        <c:axId val="111"/>
+        <c:axId val="222"/>
+      </c:barChart>
+      <c:lineChart>
+        <c:grouping val="standard"/>
+        <c:ser>
+          <c:idx val="1"/>
+          <c:order val="1"/>
+          <c:tx><c:strRef><c:f>Sheet1!$C$1</c:f></c:strRef></c:tx>
+          <c:val><c:numRef><c:f>Sheet1!$C$2:$C$5</c:f></c:numRef></c:val>
+        </c:ser>
+        <c:axId val="111"/>
+        <c:axId val="333"/>
+      </c:lineChart>
+      <c:catAx>
+        <c:axId val="111"/>
+        <c:scaling><c:orientation val="minMax"/></c:scaling>
+        <c:crossAx val="222"/>
+      </c:catAx>
+      <c:valAx>
+        <c:axId val="222"/>
+        <c:scaling><c:orientation val="minMax"/></c:scaling>
+        <c:crossAx val="111"/>
+      </c:valAx>
+      <c:valAx>
+        <c:axId val="333"/>
+        <c:scaling><c:orientation val="minMax"/></c:scaling>
+        <c:crossAx val="111"/>
+        <c:axPos val="r"/>
+      </c:valAx>
+    </c:plotArea>
+  </c:chart>
+</c:chartSpace>"#;
+
+        let chart = ChartData::parse(xml.as_bytes()).unwrap();
+
+        // Primary chart is Column (barDir=col).
+        assert_eq!(chart.chart_type, ChartType::Column);
+        assert_eq!(chart.grouping, Some(ChartGrouping::Clustered));
+        assert_eq!(chart.series.len(), 1);
+        assert_eq!(chart.series[0].name.as_deref(), Some("Sheet1!$B$1"));
+        assert_eq!(chart.series[0].val_ref, "Sheet1!$B$2:$B$5");
+
+        // Secondary chart is Line.
+        let sec = chart.secondary_chart.as_ref().expect("secondary_chart missing");
+        assert_eq!(sec.chart_type, ChartType::Line);
+        assert_eq!(sec.grouping, Some(ChartGrouping::Standard));
+        assert_eq!(sec.series.len(), 1);
+        assert_eq!(sec.series[0].name.as_deref(), Some("Sheet1!$C$1"));
+        assert_eq!(sec.series[0].val_ref, "Sheet1!$C$2:$C$5");
+        assert_eq!(sec.series[0].idx, 1);
+
+        // Primary val axis.
+        let va = chart.val_axis.as_ref().expect("val_axis missing");
+        assert_eq!(va.id, 222);
+        assert_eq!(va.cross_ax, 111);
+
+        // Secondary val axis.
+        let sva = chart.secondary_val_axis.as_ref().expect("secondary_val_axis missing");
+        assert_eq!(sva.id, 333);
+        assert_eq!(sva.cross_ax, 111);
+        assert_eq!(sva.position, Some(AxisPosition::Right));
+    }
+
+    #[test]
+    fn combo_chart_roundtrip() {
+        // Build a combo chart, write XML, parse it back, verify fields survive.
+        let primary = ChartData {
+            chart_type: ChartType::Column,
+            title: Some(ChartTitle { text: "Combo".into(), overlay: false, font_size: None, bold: None, color: None }),
+            series: vec![
+                ChartSeries { idx: 0, order: 0, name: Some("Sales".into()), cat_ref: Some("Sheet1!$A$2:$A$5".into()),
+                    val_ref: "Sheet1!$B$2:$B$5".into(), x_val_ref: None, bubble_size_ref: None,
+                    fill_color: None, line_color: None, line_width: None, marker: None,
+                    smooth: None, explosion: None, data_labels: None, trendline: None, error_bars: None },
+            ],
+            cat_axis: Some(ChartAxis {
+                id: 100, cross_ax: 200, title: None, num_fmt: None, source_linked: false,
+                min: None, max: None, major_unit: None, minor_unit: None, log_base: None,
+                reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None,
+                major_gridlines: false, minor_gridlines: false, delete: false, position: None,
+                crosses_at: None, font_size: None,
+            }),
+            val_axis: Some(ChartAxis {
+                id: 200, cross_ax: 100, title: None, num_fmt: None, source_linked: false,
+                min: None, max: None, major_unit: None, minor_unit: None, log_base: None,
+                reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None,
+                major_gridlines: false, minor_gridlines: false, delete: false, position: None,
+                crosses_at: None, font_size: None,
+            }),
+            legend: None, data_labels: None,
+            grouping: Some(ChartGrouping::Clustered),
+            scatter_style: None, radar_style: None, hole_size: None,
+            bar_dir_horizontal: Some(false),
+            style_id: None, plot_area_layout: None,
+            secondary_chart: Some(Box::new(ChartData {
+                chart_type: ChartType::Line,
+                title: None,
+                series: vec![
+                    ChartSeries { idx: 1, order: 1, name: Some("Trend".into()), cat_ref: Some("Sheet1!$A$2:$A$5".into()),
+                        val_ref: "Sheet1!$C$2:$C$5".into(), x_val_ref: None, bubble_size_ref: None,
+                        fill_color: None, line_color: None, line_width: None, marker: None,
+                        smooth: None, explosion: None, data_labels: None, trendline: None, error_bars: None },
+                ],
+                cat_axis: None, val_axis: None, legend: None, data_labels: None,
+                grouping: Some(ChartGrouping::Standard),
+                scatter_style: None, radar_style: None, hole_size: None,
+                bar_dir_horizontal: None, style_id: None, plot_area_layout: None,
+                secondary_chart: None, secondary_val_axis: None, show_data_table: false, view_3d: None,
+            })),
+            secondary_val_axis: Some(ChartAxis {
+                id: 300, cross_ax: 100, title: None, num_fmt: None, source_linked: false,
+                min: None, max: None, major_unit: None, minor_unit: None, log_base: None,
+                reversed: false, tick_lbl_pos: None, major_tick_mark: None, minor_tick_mark: None,
+                major_gridlines: false, minor_gridlines: false, delete: false,
+                position: Some(AxisPosition::Right), crosses_at: None, font_size: None,
+            }),
+            show_data_table: false, view_3d: None,
+        };
+
+        let xml_bytes = primary.to_xml().unwrap();
+        let parsed = ChartData::parse(&xml_bytes).unwrap();
+
+        // Primary.
+        assert_eq!(parsed.chart_type, ChartType::Column);
+        assert_eq!(parsed.grouping, Some(ChartGrouping::Clustered));
+        assert_eq!(parsed.series.len(), 1);
+        assert_eq!(parsed.series[0].name.as_deref(), Some("Sales"));
+
+        // Secondary.
+        let sec = parsed.secondary_chart.as_ref().expect("secondary roundtrip");
+        assert_eq!(sec.chart_type, ChartType::Line);
+        assert_eq!(sec.grouping, Some(ChartGrouping::Standard));
+        assert_eq!(sec.series.len(), 1);
+        assert_eq!(sec.series[0].name.as_deref(), Some("Trend"));
+        assert_eq!(sec.series[0].val_ref, "Sheet1!$C$2:$C$5");
+
+        // Axes.
+        assert_eq!(parsed.val_axis.as_ref().unwrap().id, 200);
+        let sva = parsed.secondary_val_axis.as_ref().expect("secondary_val_axis roundtrip");
+        assert_eq!(sva.id, 300);
+        assert_eq!(sva.cross_ax, 100);
+        assert_eq!(sva.position, Some(AxisPosition::Right));
     }
 }
