@@ -42,7 +42,7 @@ await wb.toFile('output.xlsx');
 | **Write** | 5,048 ms | 5,048 ms | 1.0x |
 | sheetToJson (10K) | 54 ms | 103 ms | **1.9x faster** |
 
-> ~25 KB JS + ~870 KB WASM. Zero runtime dependencies.
+> ~29 KB JS + ~1.6 MB WASM. Zero runtime dependencies.
 
 ## Install
 
@@ -78,14 +78,14 @@ Data crosses the WASM boundary as JSON strings for maximum throughput. The Rust 
 ## Development
 
 ```bash
-# Rust tests (157 tests)
+# Rust tests (357 tests)
 cargo test -p modern-xlsx-core
 
 # WASM build
 cd crates/modern-xlsx-wasm && wasm-pack build --target web --release \
   --out-dir ../../packages/modern-xlsx/wasm --no-opt
 
-# TypeScript build + tests (280 tests)
+# TypeScript build + tests (1210 tests)
 pnpm -C packages/modern-xlsx build
 pnpm -C packages/modern-xlsx test
 
