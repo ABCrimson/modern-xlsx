@@ -223,6 +223,8 @@ export {
   sheetToJson,
   sheetToTxt,
 } from './utils.js';
+// Chart validation
+export { validateChartData } from './validate-chart.js';
 // WASM initialization
 export { ensureReady, initWasm, initWasmSync } from './wasm-loader.js';
 // Core classes

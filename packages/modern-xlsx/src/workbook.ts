@@ -43,6 +43,7 @@ import type {
   WorksheetChartData,
   WriteOptions,
 } from './types.js';
+import { validateChartData } from './validate-chart.js';
 import {
   ensureInitialized,
   wasmRepair,
@@ -1050,16 +1051,19 @@ export class Worksheet {
   addChart(type: ChartType, configure: (builder: ChartBuilder) => void): void {
     const builder = new ChartBuilder(type);
     configure(builder);
+    const chartData = builder.build();
+    validateChartData(chartData);
     if (!this.data.worksheet.charts) {
       this.data.worksheet.charts = [];
     }
-    this.data.worksheet.charts.push(builder.build());
+    this.data.worksheet.charts.push(chartData);
   }
 
   /**
    * Adds a pre-built chart definition to this worksheet.
    */
   addChartData(chart: WorksheetChartData): void {
+    validateChartData(chart);
     if (!this.data.worksheet.charts) {
       this.data.worksheet.charts = [];
     }
