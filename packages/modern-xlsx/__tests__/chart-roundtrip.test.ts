@@ -191,4 +191,97 @@ describe('Chart roundtrip', () => {
     expect(chart?.chart.catAxis?.fontSize).toBe(1400);
     expect(chart?.chart.valAxis?.fontSize).toBe(1200);
   });
+
+  it('roundtrips a bubble chart with bubbleSizeRef and xValRef', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Data');
+    ws.cell('A1').value = 'X';
+    ws.cell('B1').value = 'Y';
+    ws.cell('C1').value = 'Size';
+    ws.cell('A2').value = '1';
+    ws.cell('B2').value = '10';
+    ws.cell('C2').value = '5';
+    ws.cell('A3').value = '2';
+    ws.cell('B3').value = '20';
+    ws.cell('C3').value = '8';
+
+    ws.addChart('bubble', (b) => {
+      b.title('Bubble Chart')
+        .addSeries({
+          name: 'Samples',
+          xValRef: 'Data!$A$2:$A$3',
+          valRef: 'Data!$B$2:$B$3',
+          bubbleSizeRef: 'Data!$C$2:$C$3',
+        })
+        .anchor({ col: 4, row: 0 }, { col: 14, row: 18 });
+    });
+
+    expect(ws.charts).toHaveLength(1);
+    expect(ws.charts[0].chart.chartType).toBe('bubble');
+
+    const buffer = await wb.toBuffer();
+    const wb2 = await readBuffer(buffer);
+    const ws2 = wb2.getSheet('Data') as Worksheet;
+
+    expect(ws2.charts).toHaveLength(1);
+    const chart = ws2.charts[0];
+    expect(chart.chart.chartType).toBe('bubble');
+    expect(chart.chart.series).toHaveLength(1);
+    expect(chart.chart.series[0].xValRef).toBe('Data!$A$2:$A$3');
+    expect(chart.chart.series[0].valRef).toBe('Data!$B$2:$B$3');
+    expect(chart.chart.series[0].bubbleSizeRef).toBe('Data!$C$2:$C$3');
+  });
+
+  it('roundtrips a stock chart with 3 HLC series', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Stock');
+    ws.cell('A1').value = 'Date';
+    ws.cell('B1').value = 'High';
+    ws.cell('C1').value = 'Low';
+    ws.cell('D1').value = 'Close';
+    ws.cell('A2').value = '2026-01-01';
+    ws.cell('B2').value = '150';
+    ws.cell('C2').value = '140';
+    ws.cell('D2').value = '145';
+    ws.cell('A3').value = '2026-01-02';
+    ws.cell('B3').value = '155';
+    ws.cell('C3').value = '142';
+    ws.cell('D3').value = '148';
+
+    ws.addChart('stock', (b) => {
+      b.title('HLC Stock Chart')
+        .addSeries({
+          name: 'High',
+          catRef: 'Stock!$A$2:$A$3',
+          valRef: 'Stock!$B$2:$B$3',
+        })
+        .addSeries({
+          name: 'Low',
+          catRef: 'Stock!$A$2:$A$3',
+          valRef: 'Stock!$C$2:$C$3',
+        })
+        .addSeries({
+          name: 'Close',
+          catRef: 'Stock!$A$2:$A$3',
+          valRef: 'Stock!$D$2:$D$3',
+        })
+        .anchor({ col: 5, row: 0 }, { col: 15, row: 20 });
+    });
+
+    expect(ws.charts).toHaveLength(1);
+    expect(ws.charts[0].chart.chartType).toBe('stock');
+    expect(ws.charts[0].chart.series).toHaveLength(3);
+
+    const buffer = await wb.toBuffer();
+    const wb2 = await readBuffer(buffer);
+    const ws2 = wb2.getSheet('Stock') as Worksheet;
+
+    expect(ws2.charts).toHaveLength(1);
+    const chart = ws2.charts[0];
+    expect(chart.chart.chartType).toBe('stock');
+    expect(chart.chart.series).toHaveLength(3);
+    expect(chart.chart.series[0].name).toBe('High');
+    expect(chart.chart.series[1].name).toBe('Low');
+    expect(chart.chart.series[2].name).toBe('Close');
+  });
 });
