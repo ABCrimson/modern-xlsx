@@ -250,11 +250,91 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             }
 
             // Generate drawing XML.
-            let drawing_xml =
+            let mut drawing_xml =
                 ChartAnchor::generate_drawing_xml(&sheet.worksheet.charts, &chart_r_ids)?;
             let drawing_path = format!("xl/drawings/drawing{sheet_num}.xml");
             let drawing_rels_path =
                 format!("xl/drawings/_rels/drawing{sheet_num}.xml.rels");
+
+            // --- Merge image anchors from preserved entries (barcode/image collision fix) ---
+            // When a worksheet has BOTH charts AND images, the image drawing XML
+            // is stored in preserved_entries at the same drawing path. We need to
+            // merge image <xdr:twoCellAnchor> blocks (containing <xdr:pic>) into
+            // the chart drawing XML, and merge image rels with remapped rIds.
+            if let Some(image_drawing_data) = workbook.preserved_entries.get(&drawing_path) {
+                let image_drawing_str = std::str::from_utf8(image_drawing_data)
+                    .unwrap_or_default();
+
+                // Extract image anchor blocks from preserved drawing XML.
+                // Each image anchor is a <xdr:twoCellAnchor ...>...</xdr:twoCellAnchor> block.
+                let image_anchors = extract_anchors_from_drawing(image_drawing_str);
+
+                if !image_anchors.is_empty() {
+                    debug!(
+                        "merging {} image anchors into chart drawing for sheet {}",
+                        image_anchors.len(),
+                        sheet_num
+                    );
+
+                    // Parse preserved image drawing rels to get image rId mappings.
+                    let image_rels = if let Some(image_rels_data) =
+                        workbook.preserved_entries.get(&drawing_rels_path)
+                    {
+                        Relationships::parse(image_rels_data)?
+                    } else {
+                        Relationships::new()
+                    };
+
+                    // Compute the next available rId number for the merged drawing rels.
+                    // Chart rIds start at rId1, so next is chart_count + 1.
+                    let mut next_rid = sheet.worksheet.charts.len() + 1;
+
+                    // Build a rId remapping: old image rId -> new rId in merged drawing.
+                    let mut rid_remap: Vec<(String, String)> = Vec::new();
+                    for rel in &image_rels.relationships {
+                        let new_rid = format!("rId{next_rid}");
+                        rid_remap.push((rel.id.clone(), new_rid.clone()));
+                        drawing_rels.add(
+                            new_rid,
+                            rel.rel_type.clone(),
+                            rel.target.clone(),
+                        );
+                        next_rid += 1;
+                    }
+
+                    // Remap rId references in the image anchor XML fragments and
+                    // insert them before </xdr:wsDr> in the chart drawing XML.
+                    let mut remapped_anchors = String::new();
+                    for anchor_xml in &image_anchors {
+                        let mut remapped = anchor_xml.clone();
+                        for (old_rid, new_rid) in &rid_remap {
+                            // Replace r:embed="rIdN" references in blipFill.
+                            remapped = remapped.replace(
+                                &format!("r:embed=\"{old_rid}\""),
+                                &format!("r:embed=\"{new_rid}\""),
+                            );
+                            // Also handle r:link if present.
+                            remapped = remapped.replace(
+                                &format!("r:link=\"{old_rid}\""),
+                                &format!("r:link=\"{new_rid}\""),
+                            );
+                        }
+                        remapped_anchors.push_str(&remapped);
+                    }
+
+                    // Splice image anchors into chart drawing XML before </xdr:wsDr>.
+                    let drawing_str = std::str::from_utf8(&drawing_xml).unwrap_or_default();
+                    if let Some(close_pos) = drawing_str.rfind("</xdr:wsDr>") {
+                        let mut merged = String::with_capacity(
+                            drawing_str.len() + remapped_anchors.len(),
+                        );
+                        merged.push_str(&drawing_str[..close_pos]);
+                        merged.push_str(&remapped_anchors);
+                        merged.push_str("</xdr:wsDr>");
+                        drawing_xml = merged.into_bytes();
+                    }
+                }
+            }
 
             content_types.add_override(format!("/{drawing_path}"), CT_DRAWING);
 
@@ -271,15 +351,29 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             generated_rels.insert(drawing_path);
             generated_rels.insert(drawing_rels_path);
 
-            // Add drawing relationship to worksheet .rels.
-            let rid_num = next_r_id(&ws_rels);
-            let rid_str = format!("rId{rid_num}");
-            ws_rels.add(
-                rid_str.clone(),
-                REL_DRAWING,
-                format!("../drawings/drawing{sheet_num}.xml"),
-            );
-            drawing_r_id_str = Some(rid_str);
+            // Add drawing relationship to worksheet .rels — but only if one
+            // does not already exist (addImage may have already added one via
+            // preserved entries that were parsed into ws_rels above).
+            let already_has_drawing = ws_rels
+                .find_by_type(REL_DRAWING)
+                .next()
+                .is_some();
+            if already_has_drawing {
+                // Reuse the existing drawing rId from preserved entries.
+                drawing_r_id_str = ws_rels
+                    .find_by_type(REL_DRAWING)
+                    .next()
+                    .map(|r| r.id.clone());
+            } else {
+                let rid_num = next_r_id(&ws_rels);
+                let rid_str = format!("rId{rid_num}");
+                ws_rels.add(
+                    rid_str.clone(),
+                    REL_DRAWING,
+                    format!("../drawings/drawing{sheet_num}.xml"),
+                );
+                drawing_r_id_str = Some(rid_str);
+            }
         }
 
         // --- Worksheet XML (must come after table/chart rIds are computed) ---
@@ -415,6 +509,33 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 pub fn write_xlsx_with_password(workbook: &WorkbookData, password: &str) -> Result<Vec<u8>> {
     let zip_bytes = write_xlsx(workbook)?;
     crate::ole2::crypto::encrypt_file(&zip_bytes, password)
+}
+
+// ---------------------------------------------------------------------------
+// Drawing merge helpers
+// ---------------------------------------------------------------------------
+
+/// Extract all `<xdr:twoCellAnchor ...>...</xdr:twoCellAnchor>` blocks from
+/// a drawing XML string. Used to merge image anchors into chart drawing XML
+/// when both images and charts exist on the same worksheet.
+fn extract_anchors_from_drawing(drawing_xml: &str) -> Vec<String> {
+    let mut anchors = Vec::new();
+    let tag_open = "<xdr:twoCellAnchor";
+    let tag_close = "</xdr:twoCellAnchor>";
+
+    let mut search_start = 0;
+    while let Some(open_pos) = drawing_xml[search_start..].find(tag_open) {
+        let abs_open = search_start + open_pos;
+        if let Some(close_pos) = drawing_xml[abs_open..].find(tag_close) {
+            let abs_close = abs_open + close_pos + tag_close.len();
+            anchors.push(drawing_xml[abs_open..abs_close].to_string());
+            search_start = abs_close;
+        } else {
+            break;
+        }
+    }
+
+    anchors
 }
 
 // ---------------------------------------------------------------------------
@@ -2294,5 +2415,331 @@ mod tests {
         let chart2 =
             std::str::from_utf8(zip_entries.get("xl/charts/chart2.xml").unwrap()).unwrap();
         assert!(chart2.contains("<c:lineChart>"), "second chart should be line");
+    }
+
+    // -----------------------------------------------------------------------
+    // Drawing merge / collision tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_extract_anchors_from_drawing() {
+        let drawing = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <xdr:twoCellAnchor editAs="oneCell">
+    <xdr:from><xdr:col>0</xdr:col></xdr:from>
+    <xdr:to><xdr:col>3</xdr:col></xdr:to>
+    <xdr:pic>
+      <xdr:blipFill><a:blip r:embed="rId1"/></xdr:blipFill>
+    </xdr:pic>
+    <xdr:clientData/>
+  </xdr:twoCellAnchor>
+  <xdr:twoCellAnchor editAs="oneCell">
+    <xdr:from><xdr:col>4</xdr:col></xdr:from>
+    <xdr:to><xdr:col>7</xdr:col></xdr:to>
+    <xdr:pic>
+      <xdr:blipFill><a:blip r:embed="rId2"/></xdr:blipFill>
+    </xdr:pic>
+    <xdr:clientData/>
+  </xdr:twoCellAnchor>
+</xdr:wsDr>"#;
+
+        let anchors = super::extract_anchors_from_drawing(drawing);
+        assert_eq!(anchors.len(), 2, "should extract 2 anchor blocks");
+        assert!(anchors[0].contains("rId1"), "first anchor should reference rId1");
+        assert!(anchors[1].contains("rId2"), "second anchor should reference rId2");
+        assert!(anchors[0].contains("<xdr:pic>"), "first anchor should contain pic");
+        assert!(anchors[1].contains("<xdr:pic>"), "second anchor should contain pic");
+    }
+
+    #[test]
+    fn test_extract_anchors_empty_drawing() {
+        let drawing = r#"<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"/>"#;
+        let anchors = super::extract_anchors_from_drawing(drawing);
+        assert!(anchors.is_empty(), "empty drawing should have no anchors");
+    }
+
+    #[test]
+    fn test_chart_and_image_drawing_merge() {
+        use crate::ooxml::charts::*;
+
+        // Build a workbook with a chart AND image drawing XML in preserved entries.
+        let mut wb = make_workbook_with_charts(vec![WorksheetChart {
+            chart: ChartData {
+                chart_type: ChartType::Bar,
+                title: Some(ChartTitle {
+                    text: "Sales".into(),
+                    overlay: false,
+                    font_size: None,
+                    bold: None,
+                    color: None,
+                }),
+                series: vec![ChartSeries {
+                    idx: 0,
+                    order: 0,
+                    name: None,
+                    cat_ref: None,
+                    val_ref: "Sheet1!$A$1:$A$5".into(),
+                    x_val_ref: None,
+                    bubble_size_ref: None,
+                    fill_color: None,
+                    line_color: None,
+                    line_width: None,
+                    marker: None,
+                    smooth: None,
+                    explosion: None,
+                    data_labels: None,
+                    trendline: None,
+                    error_bars: None,
+                }],
+                cat_axis: None,
+                val_axis: None,
+                legend: None,
+                data_labels: None,
+                grouping: None,
+                scatter_style: None,
+                radar_style: None,
+                hole_size: None,
+                bar_dir_horizontal: None,
+                style_id: None,
+                plot_area_layout: None,
+                secondary_chart: None,
+                secondary_val_axis: None,
+                show_data_table: false,
+                view_3d: None,
+            },
+            anchor: ChartAnchor {
+                from_col: 4,
+                from_row: 0,
+                from_col_off: 0,
+                from_row_off: 0,
+                to_col: 12,
+                to_row: 15,
+                to_col_off: 0,
+                to_row_off: 0,
+            },
+        }]);
+
+        // Simulate addImage: put image drawing XML in preserved entries.
+        let image_drawing = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <xdr:twoCellAnchor editAs="oneCell">
+    <xdr:from>
+      <xdr:col>0</xdr:col>
+      <xdr:colOff>0</xdr:colOff>
+      <xdr:row>5</xdr:row>
+      <xdr:rowOff>0</xdr:rowOff>
+    </xdr:from>
+    <xdr:to>
+      <xdr:col>3</xdr:col>
+      <xdr:colOff>0</xdr:colOff>
+      <xdr:row>12</xdr:row>
+      <xdr:rowOff>0</xdr:rowOff>
+    </xdr:to>
+    <xdr:pic>
+      <xdr:nvPicPr>
+        <xdr:cNvPr id="2" name="Barcode 1"/>
+        <xdr:cNvPicPr>
+          <a:picLocks noChangeAspect="1"/>
+        </xdr:cNvPicPr>
+      </xdr:nvPicPr>
+      <xdr:blipFill>
+        <a:blip r:embed="rId1"/>
+        <a:stretch>
+          <a:fillRect/>
+        </a:stretch>
+      </xdr:blipFill>
+      <xdr:spPr>
+        <a:xfrm>
+          <a:off x="0" y="0"/>
+          <a:ext cx="0" cy="0"/>
+        </a:xfrm>
+        <a:prstGeom prst="rect">
+          <a:avLst/>
+        </a:prstGeom>
+      </xdr:spPr>
+    </xdr:pic>
+    <xdr:clientData/>
+  </xdr:twoCellAnchor>
+</xdr:wsDr>"#;
+
+        let image_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
+</Relationships>"#;
+
+        // Simulate the sheet rels that addImage creates.
+        let sheet_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdDrawing1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>"#;
+
+        // Fake PNG bytes.
+        let fake_png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+        wb.preserved_entries.insert(
+            "xl/drawings/drawing1.xml".to_string(),
+            image_drawing.as_bytes().to_vec(),
+        );
+        wb.preserved_entries.insert(
+            "xl/drawings/_rels/drawing1.xml.rels".to_string(),
+            image_rels.as_bytes().to_vec(),
+        );
+        wb.preserved_entries.insert(
+            "xl/worksheets/_rels/sheet1.xml.rels".to_string(),
+            sheet_rels.as_bytes().to_vec(),
+        );
+        wb.preserved_entries.insert(
+            "xl/media/image1.png".to_string(),
+            fake_png.clone(),
+        );
+
+        // Write the workbook.
+        let bytes = write_xlsx(&wb).unwrap();
+
+        let limits = ZipSecurityLimits::default();
+        let zip_entries = read_zip_entries(&bytes, &limits).unwrap();
+
+        // The merged drawing XML should contain BOTH chart and image anchors.
+        let drawing_xml =
+            std::str::from_utf8(zip_entries.get("xl/drawings/drawing1.xml").unwrap()).unwrap();
+
+        // Chart anchor (graphicFrame).
+        assert!(
+            drawing_xml.contains("<xdr:graphicFrame"),
+            "merged drawing should contain chart graphicFrame:\n{drawing_xml}"
+        );
+        // Image anchor (pic).
+        assert!(
+            drawing_xml.contains("<xdr:pic>"),
+            "merged drawing should contain image pic:\n{drawing_xml}"
+        );
+
+        // Should have exactly 2 twoCellAnchors (1 chart + 1 image).
+        let anchor_count = drawing_xml.matches("<xdr:twoCellAnchor").count();
+        assert_eq!(
+            anchor_count, 2,
+            "should have 2 anchors (1 chart + 1 image):\n{drawing_xml}"
+        );
+
+        // The drawing rels should reference both the chart AND the image.
+        let drawing_rels = std::str::from_utf8(
+            zip_entries
+                .get("xl/drawings/_rels/drawing1.xml.rels")
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            drawing_rels.contains("chart1.xml"),
+            "drawing rels should reference chart:\n{drawing_rels}"
+        );
+        assert!(
+            drawing_rels.contains("image1.png"),
+            "drawing rels should reference image:\n{drawing_rels}"
+        );
+
+        // The image rId should be remapped (chart uses rId1, so image should be rId2).
+        assert!(
+            drawing_xml.contains("r:embed=\"rId2\""),
+            "image rId should be remapped to rId2:\n{drawing_xml}"
+        );
+
+        // Image media bytes should be present.
+        assert_eq!(
+            zip_entries.get("xl/media/image1.png").unwrap(),
+            &fake_png,
+            "image media should survive"
+        );
+
+        // Worksheet .rels should NOT have duplicate drawing relationships.
+        let ws_rels = std::str::from_utf8(
+            zip_entries
+                .get("xl/worksheets/_rels/sheet1.xml.rels")
+                .unwrap(),
+        )
+        .unwrap();
+        let drawing_rel_count = ws_rels.matches("relationships/drawing").count();
+        assert_eq!(
+            drawing_rel_count, 1,
+            "worksheet rels should have exactly 1 drawing relationship:\n{ws_rels}"
+        );
+    }
+
+    #[test]
+    fn test_chart_only_no_regression() {
+        // Ensure chart-only workbooks still work correctly after the merge changes.
+        use crate::ooxml::charts::*;
+
+        let wb = make_workbook_with_charts(vec![WorksheetChart {
+            chart: ChartData {
+                chart_type: ChartType::Line,
+                title: Some(ChartTitle {
+                    text: "Trend".into(),
+                    overlay: false,
+                    font_size: None,
+                    bold: None,
+                    color: None,
+                }),
+                series: vec![ChartSeries {
+                    idx: 0,
+                    order: 0,
+                    name: None,
+                    cat_ref: None,
+                    val_ref: "Sheet1!$A$1:$A$5".into(),
+                    x_val_ref: None,
+                    bubble_size_ref: None,
+                    fill_color: None,
+                    line_color: None,
+                    line_width: None,
+                    marker: None,
+                    smooth: None,
+                    explosion: None,
+                    data_labels: None,
+                    trendline: None,
+                    error_bars: None,
+                }],
+                cat_axis: None,
+                val_axis: None,
+                legend: None,
+                data_labels: None,
+                grouping: None,
+                scatter_style: None,
+                radar_style: None,
+                hole_size: None,
+                bar_dir_horizontal: None,
+                style_id: None,
+                plot_area_layout: None,
+                secondary_chart: None,
+                secondary_val_axis: None,
+                show_data_table: false,
+                view_3d: None,
+            },
+            anchor: ChartAnchor {
+                from_col: 0,
+                from_row: 0,
+                from_col_off: 0,
+                from_row_off: 0,
+                to_col: 8,
+                to_row: 10,
+                to_col_off: 0,
+                to_row_off: 0,
+            },
+        }]);
+
+        let bytes = write_xlsx(&wb).unwrap();
+
+        let limits = ZipSecurityLimits::default();
+        let zip_entries = read_zip_entries(&bytes, &limits).unwrap();
+
+        let drawing_xml =
+            std::str::from_utf8(zip_entries.get("xl/drawings/drawing1.xml").unwrap()).unwrap();
+        assert!(
+            drawing_xml.contains("<xdr:graphicFrame"),
+            "chart-only drawing should have graphicFrame"
+        );
+        assert!(
+            !drawing_xml.contains("<xdr:pic>"),
+            "chart-only drawing should NOT have pic"
+        );
+
+        let anchor_count = drawing_xml.matches("<xdr:twoCellAnchor").count();
+        assert_eq!(anchor_count, 1, "chart-only should have 1 anchor");
     }
 }
