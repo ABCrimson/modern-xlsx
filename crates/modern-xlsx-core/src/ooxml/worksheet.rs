@@ -9,18 +9,6 @@ use crate::{ModernXlsxError, Result};
 
 use super::SPREADSHEET_NS;
 
-fn is_false(v: &bool) -> bool {
-    !v
-}
-
-fn default_true_hf() -> bool {
-    true
-}
-
-fn is_true(v: &bool) -> bool {
-    *v
-}
-
 /// Public wrapper for JSON escaping, used by `reader::read_xlsx_json`.
 pub fn json_escape_to_pub(out: &mut String, s: &str) {
     json_escape_to(out, s);
@@ -94,13 +82,13 @@ pub struct HeaderFooter {
     pub first_header: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_footer: Option<String>,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub different_odd_even: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub different_first: bool,
-    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    #[serde(default = "crate::ooxml::default_true", skip_serializing_if = "crate::ooxml::is_true")]
     pub scale_with_doc: bool,
-    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    #[serde(default = "crate::ooxml::default_true", skip_serializing_if = "crate::ooxml::is_true")]
     pub align_with_margins: bool,
 }
 
@@ -125,9 +113,9 @@ impl Default for HeaderFooter {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutlineProperties {
-    #[serde(default = "default_true_hf")]
+    #[serde(default = "crate::ooxml::default_true")]
     pub summary_below: bool,
-    #[serde(default = "default_true_hf")]
+    #[serde(default = "crate::ooxml::default_true")]
     pub summary_right: bool,
 }
 
@@ -192,11 +180,11 @@ pub struct Row {
     pub cells: Vec<Cell>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<f64>,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub hidden: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline_level: Option<u8>,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub collapsed: bool,
 }
 
@@ -318,31 +306,31 @@ pub struct PaneSelection {
 #[serde(rename_all = "camelCase")]
 pub struct SheetViewData {
     /// Whether grid lines are visible (default: true).
-    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    #[serde(default = "crate::ooxml::default_true", skip_serializing_if = "crate::ooxml::is_true")]
     pub show_grid_lines: bool,
     /// Whether row and column headers are visible (default: true).
-    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    #[serde(default = "crate::ooxml::default_true", skip_serializing_if = "crate::ooxml::is_true")]
     pub show_row_col_headers: bool,
     /// Whether zero values are displayed (default: true).
-    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    #[serde(default = "crate::ooxml::default_true", skip_serializing_if = "crate::ooxml::is_true")]
     pub show_zeros: bool,
     /// Right-to-left display mode (default: false).
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub right_to_left: bool,
     /// Whether this sheet tab is selected (default: false).
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub tab_selected: bool,
     /// Whether the ruler is shown in Page Layout view (default: true).
-    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    #[serde(default = "crate::ooxml::default_true", skip_serializing_if = "crate::ooxml::is_true")]
     pub show_ruler: bool,
     /// Whether outline (grouping) symbols are shown (default: true).
-    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    #[serde(default = "crate::ooxml::default_true", skip_serializing_if = "crate::ooxml::is_true")]
     pub show_outline_symbols: bool,
     /// Whether white space around the page is shown in Page Layout view (default: true).
-    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    #[serde(default = "crate::ooxml::default_true", skip_serializing_if = "crate::ooxml::is_true")]
     pub show_white_space: bool,
     /// Whether the default grid color is used (default: true).
-    #[serde(default = "default_true_hf", skip_serializing_if = "is_true")]
+    #[serde(default = "crate::ooxml::default_true", skip_serializing_if = "crate::ooxml::is_true")]
     pub default_grid_color: bool,
     /// Zoom percentage (10-400).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -515,7 +503,7 @@ pub struct ColumnInfo {
     pub custom_width: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline_level: Option<u8>,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub collapsed: bool,
 }
 

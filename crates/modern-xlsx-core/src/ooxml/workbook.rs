@@ -9,22 +9,18 @@ use crate::{ModernXlsxError, Result};
 use super::SPREADSHEET_NS;
 const RELATIONSHIPS_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-fn is_false(v: &bool) -> bool {
-    !v
-}
-
 /// Workbook-level protection from `<workbookProtection>` (ECMA-376 §18.2.29).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkbookProtection {
     /// Prevent structural changes (add/delete/rename/move/copy sheets).
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub lock_structure: bool,
     /// Prevent window position/size changes.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub lock_windows: bool,
     /// Prevent revision log changes.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub lock_revision: bool,
     /// Algorithm name for workbook password hash (e.g., "SHA-512").
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -90,16 +90,11 @@ pub struct ChartData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secondary_val_axis: Option<ChartAxis>,
     /// Show data table below chart.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub show_data_table: bool,
     /// 3D rotation settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view_3d: Option<View3D>,
-}
-
-/// Helper for `skip_serializing_if`.
-fn is_false(v: &bool) -> bool {
-    !v
 }
 
 /// A data series within a chart.

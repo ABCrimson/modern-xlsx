@@ -24,20 +24,20 @@ pub struct Alignment {
     pub horizontal: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vertical: Option<String>,
-    #[serde(default, skip_serializing_if = "crate::ooxml::styles::is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub wrap_text: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_rotation: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub indent: Option<u32>,
-    #[serde(default, skip_serializing_if = "crate::ooxml::styles::is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub shrink_to_fit: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Protection {
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::ooxml::default_true")]
     pub locked: bool,
     #[serde(default)]
     pub hidden: bool,
@@ -50,14 +50,6 @@ impl Default for Protection {
             hidden: false,
         }
     }
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn is_false(v: &bool) -> bool {
-    !v
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -79,9 +71,9 @@ pub struct Font {
     pub charset: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheme: Option<String>,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub condense: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub extend: bool,
 }
 
@@ -122,9 +114,9 @@ pub struct Border {
     pub bottom: Option<BorderSide>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagonal: Option<BorderSide>,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub diagonal_up: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub diagonal_down: bool,
 }
 
@@ -146,17 +138,17 @@ pub struct CellXf {
     pub alignment: Option<Alignment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protection: Option<Protection>,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub apply_font: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub apply_fill: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub apply_border: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub apply_number_format: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub apply_alignment: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub apply_protection: bool,
 }
 

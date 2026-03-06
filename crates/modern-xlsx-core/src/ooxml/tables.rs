@@ -12,14 +12,6 @@ fn default_header_row_count() -> u32 {
     1
 }
 
-fn default_true() -> bool {
-    true
-}
-
-fn is_false(v: &bool) -> bool {
-    !v
-}
-
 /// An Excel Table (ListObject) definition from `xl/tables/table{n}.xml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +33,7 @@ pub struct TableDefinition {
     #[serde(default)]
     pub totals_row_count: u32,
     /// Whether the totals row is shown.
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::ooxml::default_true")]
     pub totals_row_shown: bool,
     /// Table columns.
     pub columns: Vec<TableColumn>,
@@ -88,13 +80,13 @@ pub struct TableStyleInfo {
     /// Built-in style name (e.g. `"TableStyleMedium2"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub show_first_column: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub show_last_column: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::ooxml::default_true")]
     pub show_row_stripes: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
     pub show_column_stripes: bool,
 }
 

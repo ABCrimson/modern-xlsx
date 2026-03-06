@@ -52,3 +52,18 @@ pub(crate) fn push_entity(buf: &mut String, name: &[u8]) {
         _ => {} // Unknown entity — drop silently
     }
 }
+
+/// Serde helper: skip serializing if the value is `false`.
+pub(crate) fn is_false(v: &bool) -> bool {
+    !v
+}
+
+/// Serde helper: skip serializing if the value is `true`.
+pub(crate) fn is_true(v: &bool) -> bool {
+    *v
+}
+
+/// Serde default that returns `true`.
+pub(crate) fn default_true() -> bool {
+    true
+}
