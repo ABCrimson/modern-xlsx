@@ -18,7 +18,7 @@ docs/plans/                  # Design and implementation plans
 ## Build Commands
 
 ```bash
-# Rust tests (357 tests)
+# Rust tests (389 tests)
 cargo test -p modern-xlsx-core
 
 # WASM build (from repo root)
@@ -27,7 +27,7 @@ cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir .
 # TypeScript build
 pnpm -C packages/modern-xlsx build
 
-# TypeScript tests (1210 tests)
+# TypeScript tests (1230 tests)
 pnpm -C packages/modern-xlsx test
 
 # Lint & format
@@ -45,6 +45,8 @@ pnpm -C packages/modern-xlsx typecheck
 - **SST behavior:** Writer expects `cellType: "sharedString"` with actual text in `value`. The writer builds the shared string table and remaps indices inline during XML generation (no worksheet clone).
 - **JSON bridge:** Data crosses the WASM boundary as JSON strings (serde_json + JSON.parse) — 8-13x faster than serde_wasm_bindgen for large workbooks.
 - **Serde:** All Rust types use `#[serde(rename_all = "camelCase")]` for JS interop.
+- **Feature gates:** `encryption` and `charts` Cargo features (both default-enabled). Encryption gates the entire `ole2` module and crypto dependencies.
+- **New OOXML parts (0.9.x):** Pivot tables (`ooxml/pivot_table.rs`), threaded comments (`ooxml/threaded_comments.rs`), slicers (`ooxml/slicers.rs`), timelines (`ooxml/timelines.rs`) — all with SAX parser + XML writer + reader/writer integration.
 
 ## Toolchain Versions
 

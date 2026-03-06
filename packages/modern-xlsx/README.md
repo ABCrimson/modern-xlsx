@@ -115,6 +115,12 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
 | Charts (bar, line, pie, etc.) | **Yes** | No | Paid |
 | Formula engine (54 functions) | **Yes** | No | No |
 | Sparklines | **Yes** | No | Paid |
+| Pivot tables (read-only) | **Yes** | No | Paid |
+| Threaded comments | **Yes** | No | No |
+| Slicers (read-only) | **Yes** | No | No |
+| Timelines (read-only) | **Yes** | No | No |
+| CLI tool (info/convert) | **Yes** | No | No |
+| Feature-gated WASM | **Yes** | No | No |
 
 ## How It Works
 
@@ -251,6 +257,18 @@ ws.addValidation('B2:B100', {
 // Comments
 ws.addComment('A1', 'Author', 'This is a comment');
 ws.removeComment('A1');
+
+// Threaded comments (modern Excel)
+const commentId = ws.addThreadedComment('A1', 'Discussion point', 'Alice');
+ws.replyToComment(commentId, 'I agree', 'Bob');
+ws.threadedComments;              // readonly ThreadedCommentData[]
+
+// Pivot tables (read-only)
+ws.pivotTables;                   // readonly PivotTableData[]
+
+// Slicers & timelines (read-only)
+ws.slicers;                       // readonly SlicerData[]
+ws.timelines;                     // readonly TimelineData[]
 
 // Page setup & margins
 ws.pageSetup = { orientation: 'landscape', paperSize: 9 };
@@ -489,6 +507,34 @@ wb.addImage('Labels', { fromCol: 5, fromRow: 0, toCol: 9, toRow: 4 }, png);
 
 See the [Barcode Guide](https://github.com/ABCrimson/modern-xlsx/blob/main/docs/guide/barcodes.md) for format comparison and usage details.
 
+### CLI Tool
+
+```bash
+# Show sheet info
+npx modern-xlsx info report.xlsx
+
+# Convert to JSON
+npx modern-xlsx convert report.xlsx output.json
+
+# Export single sheet as CSV
+npx modern-xlsx convert report.xlsx sheet1.csv --sheet 0 --format csv
+```
+
+### Error Handling
+
+```typescript
+import { ModernXlsxError } from 'modern-xlsx';
+
+try {
+  ws.replyToComment('nonexistent-id', 'text', 'author');
+} catch (e) {
+  if (e instanceof ModernXlsxError) {
+    console.log(e.code);    // 'COMMENT_NOT_FOUND'
+    console.log(e.message); // 'Comment nonexistent-id not found'
+  }
+}
+```
+
 ### Rich Text
 
 ```typescript
@@ -609,6 +655,12 @@ import type {
   ChartAnchorData, ChartGrouping, ChartLegendData,
   // Formula engine
   ASTNode, CellValue, EvalContext, FormulaFunction,
+  // Pivot tables
+  PivotTableData, PivotFieldData, PivotDataFieldData, PivotAxis, SubtotalFunction,
+  // Threaded comments
+  ThreadedCommentData, PersonData,
+  // Slicers & timelines
+  SlicerData, SlicerCacheData, TimelineData, TimelineCacheData,
 } from 'modern-xlsx';
 ```
 
