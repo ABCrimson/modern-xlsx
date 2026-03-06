@@ -244,4 +244,11 @@ jobs:
         run: pnpm -C packages/modern-xlsx build
 
       - name: Publish
-        run: cd packages/modern-xlsx && npm publish --provenance --access public
+        run: |
+          cd packages/modern-xlsx
+          VERSION=$(node -p "require('./package.json').version")
+          if echo "$VERSION" | grep -qE '[-]'; then
+            npm publish --provenance --access public --tag next
+          else
+            npm publish --provenance --access public
+          fi
