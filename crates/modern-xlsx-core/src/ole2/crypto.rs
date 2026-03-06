@@ -432,7 +432,7 @@ pub fn decrypt_package(
     }
 
     let original_size =
-        u64::from_le_bytes(encrypted_package[..8].try_into().unwrap()) as usize;
+        u64::from_le_bytes(encrypted_package[..8].try_into().unwrap_or_default()) as usize;
     let payload = &encrypted_package[8..];
 
     let block_size = info.key_block_size as usize;
@@ -897,7 +897,7 @@ pub fn decrypt_standard_package(
     }
 
     let original_size =
-        u64::from_le_bytes(encrypted_package[..8].try_into().unwrap()) as usize;
+        u64::from_le_bytes(encrypted_package[..8].try_into().unwrap_or_default()) as usize;
     let payload = &encrypted_package[8..];
 
     if payload.is_empty() {
@@ -1419,7 +1419,7 @@ mod tests {
             encrypt_package(&data_key, &salt, &payload, 16, "SHA512").unwrap();
 
         // First 8 bytes = original size.
-        let original_size = u64::from_le_bytes(encrypted[..8].try_into().unwrap());
+        let original_size = u64::from_le_bytes(encrypted[..8].try_into().unwrap_or_default());
         assert_eq!(original_size, 10000);
 
         // Total encrypted payload (after 8-byte header):

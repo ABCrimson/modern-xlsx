@@ -59,17 +59,17 @@ impl Ole2Header {
         }
         let major_version = u16::from_le_bytes([data[26], data[27]]);
         let sector_size = if major_version == 4 { 4096 } else { 512 };
-        let first_dir_sector = u32::from_le_bytes(data[48..52].try_into().unwrap());
+        let first_dir_sector = u32::from_le_bytes(data[48..52].try_into().unwrap_or_default());
 
         // Read FAT sector IDs from header (109 entries starting at offset 76)
-        let num_fat_sectors = u32::from_le_bytes(data[44..48].try_into().unwrap()) as usize;
+        let num_fat_sectors = u32::from_le_bytes(data[44..48].try_into().unwrap_or_default()) as usize;
         let mut fat_sectors = Vec::with_capacity(num_fat_sectors.min(109));
         for i in 0..num_fat_sectors.min(109) {
             let offset = 76 + i * 4;
             if offset + 4 > 512 {
                 break;
             }
-            let sid = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());
+            let sid = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap_or_default());
             if !matches!(sid, 0xFFFFFFFE | 0xFFFFFFFF) {
                 fat_sectors.push(sid);
             }
@@ -97,7 +97,7 @@ fn read_fat(data: &[u8], header: &Ole2Header) -> Vec<u32> {
         for i in 0..entries_per_sector {
             let pos = offset + i * 4;
             if pos + 4 <= data.len() {
-                fat.push(u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap()));
+                fat.push(u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap_or_default()));
             }
         }
     }
@@ -167,11 +167,11 @@ fn read_directory(data: &[u8], header: &Ole2Header, fat: &[u32]) -> Vec<DirEntry
             .map(|c| char::from_u32(u32::from(c)).unwrap_or('\u{FFFD}'))
             .collect();
 
-        let start_sector = u32::from_le_bytes(chunk[116..120].try_into().unwrap());
+        let start_sector = u32::from_le_bytes(chunk[116..120].try_into().unwrap_or_default());
         let size = if header.sector_size == 4096 {
-            u64::from_le_bytes(chunk[120..128].try_into().unwrap())
+            u64::from_le_bytes(chunk[120..128].try_into().unwrap_or_default())
         } else {
-            u32::from_le_bytes(chunk[120..124].try_into().unwrap()) as u64
+            u32::from_le_bytes(chunk[120..124].try_into().unwrap_or_default()) as u64
         };
 
         entries.push(DirEntry {

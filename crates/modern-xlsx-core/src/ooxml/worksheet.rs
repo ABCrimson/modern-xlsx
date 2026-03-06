@@ -996,27 +996,25 @@ impl WorksheetXml {
                                     b"t" => cur_cell_formula_type = Some(val.to_owned()),
                                     b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
                                     b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
-                                    b"cm" => {
-                                        if val == "1" {
-                                            cur_cell_dynamic_array = Some(true);
-                                        }
+                                    b"cm" if val == "1" => {
+                                        cur_cell_dynamic_array = Some(true);
                                     }
                                     b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
                                     b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
-                                    b"dt2D" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dt2d = Some(true);
-                                        }
+                                    b"dt2D"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dt2d = Some(true);
                                     }
-                                    b"dtr1" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dtr1 = Some(true);
-                                        }
+                                    b"dtr1"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dtr1 = Some(true);
                                     }
-                                    b"dtr2" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dtr2 = Some(true);
-                                        }
+                                    b"dtr2"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dtr2 = Some(true);
                                     }
                                     _ => {}
                                 }
@@ -1527,27 +1525,25 @@ impl WorksheetXml {
                                     b"t" => cur_cell_formula_type = Some(val.to_owned()),
                                     b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
                                     b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
-                                    b"cm" => {
-                                        if val == "1" {
-                                            cur_cell_dynamic_array = Some(true);
-                                        }
+                                    b"cm" if val == "1" => {
+                                        cur_cell_dynamic_array = Some(true);
                                     }
                                     b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
                                     b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
-                                    b"dt2D" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dt2d = Some(true);
-                                        }
+                                    b"dt2D"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dt2d = Some(true);
                                     }
-                                    b"dtr1" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dtr1 = Some(true);
-                                        }
+                                    b"dtr1"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dtr1 = Some(true);
                                     }
-                                    b"dtr2" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dtr2 = Some(true);
-                                        }
+                                    b"dtr2"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dtr2 = Some(true);
                                     }
                                     _ => {}
                                 }
@@ -2386,27 +2382,25 @@ impl WorksheetXml {
                                     b"t" => cur_cell_formula_type = Some(val.to_owned()),
                                     b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
                                     b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
-                                    b"cm" => {
-                                        if val == "1" {
-                                            cur_cell_dynamic_array = Some(true);
-                                        }
+                                    b"cm" if val == "1" => {
+                                        cur_cell_dynamic_array = Some(true);
                                     }
                                     b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
                                     b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
-                                    b"dt2D" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dt2d = Some(true);
-                                        }
+                                    b"dt2D"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dt2d = Some(true);
                                     }
-                                    b"dtr1" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dtr1 = Some(true);
-                                        }
+                                    b"dtr1"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dtr1 = Some(true);
                                     }
-                                    b"dtr2" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dtr2 = Some(true);
-                                        }
+                                    b"dtr2"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dtr2 = Some(true);
                                     }
                                     _ => {}
                                 }
@@ -2925,27 +2919,25 @@ impl WorksheetXml {
                                     b"t" => cur_cell_formula_type = Some(val.to_owned()),
                                     b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
                                     b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
-                                    b"cm" => {
-                                        if val == "1" {
-                                            cur_cell_dynamic_array = Some(true);
-                                        }
+                                    b"cm" if val == "1" => {
+                                        cur_cell_dynamic_array = Some(true);
                                     }
                                     b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
                                     b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
-                                    b"dt2D" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dt2d = Some(true);
-                                        }
+                                    b"dt2D"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dt2d = Some(true);
                                     }
-                                    b"dtr1" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dtr1 = Some(true);
-                                        }
+                                    b"dtr1"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dtr1 = Some(true);
                                     }
-                                    b"dtr2" => {
-                                        if val == "1" || val.eq_ignore_ascii_case("true") {
-                                            cur_cell_formula_dtr2 = Some(true);
-                                        }
+                                    b"dtr2"
+                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
+                                    {
+                                        cur_cell_formula_dtr2 = Some(true);
                                     }
                                     _ => {}
                                 }
@@ -4026,7 +4018,8 @@ impl WorksheetXml {
                                 .map_err(map_err)?;
                             writer
                                 .write_event(Event::Text(BytesText::new(
-                                    cell.inline_string.as_ref().unwrap(),
+                                    // inline_string presence guaranteed by has_inline guard above
+                                    cell.inline_string.as_deref().unwrap_or_default(),
                                 )))
                                 .map_err(map_err)?;
                             writer

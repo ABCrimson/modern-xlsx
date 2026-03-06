@@ -120,8 +120,7 @@ pub fn parse(data: &[u8]) -> Result<ThemeColors> {
                     _ => None,
                 };
 
-                if let Some(color) = color_value {
-                    let slot = current_slot.unwrap();
+                if let (Some(color), Some(slot)) = (color_value, current_slot) {
                     match slot {
                         "dk1" => colors.dk1 = color,
                         "lt1" => colors.lt1 = color,

@@ -1,8 +1,3 @@
-// Temporarily allow new Rust 1.95 clippy lints until Task 3–6 modernization.
-#![allow(clippy::collapsible_match)]
-#![allow(clippy::unnecessary_sort_by)]
-#![allow(clippy::explicit_counter_loop)]
-
 pub mod dates;
 pub mod errors;
 pub mod number_format;

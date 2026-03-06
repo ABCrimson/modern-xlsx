@@ -239,7 +239,7 @@ impl EncryptionInfo {
             ));
         }
 
-        let header_size = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
+        let header_size = u32::from_le_bytes(data[0..4].try_into().unwrap_or_default()) as usize;
 
         if data.len() < 4 + header_size + 68 {
             cold_path();
@@ -255,9 +255,9 @@ impl EncryptionInfo {
                 "Standard encryption header fields too short".into(),
             ));
         }
-        let alg_id = u32::from_le_bytes(header[8..12].try_into().unwrap());
-        let hash_alg_id = u32::from_le_bytes(header[12..16].try_into().unwrap());
-        let key_size = u32::from_le_bytes(header[16..20].try_into().unwrap());
+        let alg_id = u32::from_le_bytes(header[8..12].try_into().unwrap_or_default());
+        let hash_alg_id = u32::from_le_bytes(header[12..16].try_into().unwrap_or_default());
+        let key_size = u32::from_le_bytes(header[16..20].try_into().unwrap_or_default());
 
         // CSP name: UTF-16LE from offset 32 to end of header
         let csp_bytes = &header[32..];
@@ -272,7 +272,7 @@ impl EncryptionInfo {
         let v = &data[4 + header_size..];
         let salt = v[0..16].to_vec();
         let encrypted_verifier = v[16..32].to_vec();
-        let verifier_hash_size = u32::from_le_bytes(v[32..36].try_into().unwrap());
+        let verifier_hash_size = u32::from_le_bytes(v[32..36].try_into().unwrap_or_default());
         let encrypted_verifier_hash = v[36..68].to_vec();
 
         Ok(EncryptionInfo::Standard(StandardEncryptionInfo {

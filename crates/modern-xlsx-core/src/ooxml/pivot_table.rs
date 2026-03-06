@@ -444,10 +444,8 @@ impl PivotCacheDefinitionData {
                         .and_then(|s| s.parse().ok());
                 }
             }
-            b"cacheSource" => {
-                if is_start {
-                    *in_cache_source = true;
-                }
+            b"cacheSource" if is_start => {
+                *in_cache_source = true;
             }
             b"worksheetSource" if *in_cache_source => {
                 for attr in e.attributes().flatten() {
@@ -464,10 +462,8 @@ impl PivotCacheDefinitionData {
                     }
                 }
             }
-            b"cacheFields" => {
-                if is_start {
-                    *in_cache_fields = true;
-                }
+            b"cacheFields" if is_start => {
+                *in_cache_fields = true;
             }
             b"cacheField" if *in_cache_fields => {
                 let mut field = CacheFieldData {
@@ -489,10 +485,8 @@ impl PivotCacheDefinitionData {
                     fields.push(field);
                 }
             }
-            b"sharedItems" if current_cache_field.is_some() => {
-                if is_start {
-                    *in_shared_items = true;
-                }
+            b"sharedItems" if current_cache_field.is_some() && is_start => {
+                *in_shared_items = true;
             }
             b"s" | b"n" | b"b" | b"d" | b"m" | b"e"
                 if *in_shared_items && current_cache_field.is_some() =>
@@ -1111,10 +1105,8 @@ impl PivotTableData {
                     }
                 }
             }
-            b"pivotFields" if !*in_pivot_fields => {
-                if is_start {
-                    *in_pivot_fields = true;
-                }
+            b"pivotFields" if !*in_pivot_fields && is_start => {
+                *in_pivot_fields = true;
             }
             b"pivotField" if *in_pivot_fields => {
                 // OOXML defaults: compact=true, outline=true.
@@ -1158,10 +1150,8 @@ impl PivotTableData {
                     pivot_fields.push(field);
                 }
             }
-            b"items" if current_field.is_some() => {
-                if is_start {
-                    *in_items = true;
-                }
+            b"items" if current_field.is_some() && is_start => {
+                *in_items = true;
             }
             b"item" if *in_items => {
                 if let Some(ref mut field) = *current_field {
@@ -1185,26 +1175,19 @@ impl PivotTableData {
                     field.items.push(item);
                 }
             }
-            b"rowFields" => {
-                if is_start {
-                    *in_row_fields = true;
-                }
+            b"rowFields" if is_start => {
+                *in_row_fields = true;
             }
-            b"colFields" => {
-                if is_start {
-                    *in_col_fields = true;
-                }
+            b"colFields" if is_start => {
+                *in_col_fields = true;
             }
             b"field" if *in_row_fields || *in_col_fields => {
-                let mut x: i32 = 0;
-                for attr in e.attributes().flatten() {
-                    if attr.key.local_name().as_ref() == b"x" {
-                        x = std::str::from_utf8(&attr.value)
-                            .ok()
-                            .and_then(|s| s.parse().ok())
-                            .unwrap_or(0);
-                    }
-                }
+                let x: i32 = e
+                    .attributes()
+                    .flatten()
+                    .find(|a| a.key.local_name().as_ref() == b"x")
+                    .and_then(|a| std::str::from_utf8(&a.value).ok()?.parse().ok())
+                    .unwrap_or(0);
                 let field_ref = PivotFieldRef { x };
                 if *in_row_fields {
                     row_fields.push(field_ref);
@@ -1212,10 +1195,8 @@ impl PivotTableData {
                     col_fields.push(field_ref);
                 }
             }
-            b"dataFields" => {
-                if is_start {
-                    *in_data_fields = true;
-                }
+            b"dataFields" if is_start => {
+                *in_data_fields = true;
             }
             b"dataField" if *in_data_fields => {
                 let mut df = PivotDataFieldData {
@@ -1253,10 +1234,8 @@ impl PivotTableData {
                 }
                 data_fields.push(df);
             }
-            b"pageFields" => {
-                if is_start {
-                    *in_page_fields = true;
-                }
+            b"pageFields" if is_start => {
+                *in_page_fields = true;
             }
             b"pageField" if *in_page_fields => {
                 let mut pf = PivotPageFieldData {

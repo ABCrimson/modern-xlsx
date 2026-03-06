@@ -121,8 +121,8 @@ fn col_to_letters_buf(col: u32, buf: &mut [u8; 3]) -> usize {
 pub fn col_to_letters(col: u32) -> String {
     let mut buf = [0u8; 3];
     let len = col_to_letters_buf(col, &mut buf);
-    // col_to_letters_buf only writes ASCII uppercase letters — always valid UTF-8
-    std::str::from_utf8(&buf[..len]).unwrap().to_owned()
+    // SAFETY: col_to_letters_buf only writes ASCII uppercase letters — always valid UTF-8
+    unsafe { std::str::from_utf8_unchecked(&buf[..len]) }.to_owned()
 }
 
 /// Convert A1-style column letters to a zero-based column index.

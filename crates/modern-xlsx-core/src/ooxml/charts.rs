@@ -3004,17 +3004,13 @@ impl ChartData {
                         }
                     }
                 }
-                Ok(Event::Text(ref e)) => {
-                    if capturing_text {
-                        text_buf.push_str(
-                            std::str::from_utf8(e.as_ref()).unwrap_or_default(),
-                        );
-                    }
+                Ok(Event::Text(ref e)) if capturing_text => {
+                    text_buf.push_str(
+                        std::str::from_utf8(e.as_ref()).unwrap_or_default(),
+                    );
                 }
-                Ok(Event::GeneralRef(ref e)) => {
-                    if capturing_text {
-                        push_entity(&mut text_buf, e.as_ref());
-                    }
+                Ok(Event::GeneralRef(ref e)) if capturing_text => {
+                    push_entity(&mut text_buf, e.as_ref());
                 }
                 Ok(Event::Eof) => break,
                 Err(err) => {
@@ -3488,12 +3484,10 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                     _ => {}
                 }
             }
-            Ok(Event::Text(ref e)) => {
-                if text_target != DrawingTextTarget::None {
-                    text_buf.push_str(
-                        std::str::from_utf8(e.as_ref()).unwrap_or_default(),
-                    );
-                }
+            Ok(Event::Text(ref e)) if text_target != DrawingTextTarget::None => {
+                text_buf.push_str(
+                    std::str::from_utf8(e.as_ref()).unwrap_or_default(),
+                );
             }
             Ok(Event::Eof) => break,
             Err(err) => {

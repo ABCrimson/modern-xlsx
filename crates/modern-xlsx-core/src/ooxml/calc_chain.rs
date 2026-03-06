@@ -43,30 +43,30 @@ pub fn parse(data: &[u8]) -> Result<Vec<CalcChainEntry>> {
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e)) => {
-                if e.local_name().as_ref() == b"c" {
-                    let mut cell_ref = String::new();
-                    let mut sheet_id: u32 = 0;
+            Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e))
+                if e.local_name().as_ref() == b"c" =>
+            {
+                let mut cell_ref = String::new();
+                let mut sheet_id: u32 = 0;
 
-                    for attr in e.attributes().flatten() {
-                        match attr.key.local_name().as_ref() {
-                            b"r" => {
-                                cell_ref = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .to_owned();
-                            }
-                            b"i" => {
-                                let val =
-                                    std::str::from_utf8(&attr.value).unwrap_or_default();
-                                sheet_id = val.parse::<u32>().unwrap_or(0);
-                            }
-                            _ => {}
+                for attr in e.attributes().flatten() {
+                    match attr.key.local_name().as_ref() {
+                        b"r" => {
+                            cell_ref = std::str::from_utf8(&attr.value)
+                                .unwrap_or_default()
+                                .to_owned();
                         }
+                        b"i" => {
+                            let val =
+                                std::str::from_utf8(&attr.value).unwrap_or_default();
+                            sheet_id = val.parse::<u32>().unwrap_or(0);
+                        }
+                        _ => {}
                     }
+                }
 
-                    if !cell_ref.is_empty() {
-                        entries.push(CalcChainEntry { cell_ref, sheet_id });
-                    }
+                if !cell_ref.is_empty() {
+                    entries.push(CalcChainEntry { cell_ref, sheet_id });
                 }
             }
             Ok(Event::Eof) => break,

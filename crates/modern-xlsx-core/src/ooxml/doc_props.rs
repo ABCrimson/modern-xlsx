@@ -96,10 +96,8 @@ pub fn parse_core(data: &[u8]) -> Result<DocProperties> {
                     _ => {}
                 }
             }
-            Ok(Event::Text(ref e)) => {
-                if current_element.is_some() {
-                    text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
-                }
+            Ok(Event::Text(ref e)) if current_element.is_some() => {
+                text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
             }
             Ok(Event::End(_)) => {
                 if let Some(ref elem) = current_element {
@@ -165,10 +163,8 @@ pub fn parse_app(props: &mut DocProperties, data: &[u8]) -> Result<()> {
                     _ => {}
                 }
             }
-            Ok(Event::Text(ref e)) => {
-                if current_element.is_some() {
-                    text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
-                }
+            Ok(Event::Text(ref e)) if current_element.is_some() => {
+                text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
             }
             Ok(Event::End(_)) => {
                 if let Some(ref elem) = current_element {

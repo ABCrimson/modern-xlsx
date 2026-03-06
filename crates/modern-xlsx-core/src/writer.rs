@@ -295,19 +295,18 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
                     // Compute the next available rId number from actual rels (resilient
                     // to future changes in chart rId numbering scheme).
-                    let mut next_rid = drawing_rels.next_r_id();
+                    let base_rid = drawing_rels.next_r_id();
 
                     // Build a rId remapping: old image rId -> new rId in merged drawing.
                     let mut rid_remap: Vec<(String, String)> = Vec::new();
-                    for rel in &image_rels.relationships {
-                        let new_rid = format!("rId{next_rid}");
+                    for (rid_num, rel) in (base_rid..).zip(image_rels.relationships.iter()) {
+                        let new_rid = format!("rId{rid_num}");
                         rid_remap.push((rel.id.clone(), new_rid.clone()));
                         drawing_rels.add(
                             new_rid,
                             rel.rel_type.clone(),
                             rel.target.clone(),
                         );
-                        next_rid += 1;
                     }
 
                     // Remap rId references in the image anchor XML fragments and

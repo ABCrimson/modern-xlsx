@@ -217,15 +217,15 @@ impl WorkbookXml {
                     current_dn_value
                         .push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
                 }
-                Ok(Event::End(ref e)) => {
-                    if e.local_name().as_ref() == b"definedName" && in_defined_name {
-                        defined_names.push(DefinedName {
-                            name: std::mem::take(&mut current_dn_name),
-                            value: std::mem::take(&mut current_dn_value),
-                            sheet_id: current_dn_sheet_id.take(),
-                        });
-                        in_defined_name = false;
-                    }
+                Ok(Event::End(ref e))
+                    if e.local_name().as_ref() == b"definedName" && in_defined_name =>
+                {
+                    defined_names.push(DefinedName {
+                        name: std::mem::take(&mut current_dn_name),
+                        value: std::mem::take(&mut current_dn_value),
+                        sheet_id: current_dn_sheet_id.take(),
+                    });
+                    in_defined_name = false;
                 }
                 Ok(Event::Eof) => break,
                 Err(err) => {

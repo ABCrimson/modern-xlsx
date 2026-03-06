@@ -112,7 +112,8 @@ fn parse_common(data: &[u8], limits: &ZipSecurityLimits, password: Option<&str>)
                 Ole2Kind::EncryptedXlsx => {
                     if let Some(pw) = password {
                         decrypted = Some(crate::ole2::detect::decrypt_file(data, pw)?);
-                        actual_data = decrypted.as_deref().unwrap();
+                        // SAFETY: we just assigned Some above
+                        actual_data = decrypted.as_deref().unwrap_or_default();
                     } else {
                         cold_path();
                         return Err(crate::ole2::encryption_info::build_encrypted_error(data));
