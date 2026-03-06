@@ -18,7 +18,7 @@ jobs:
     name: Rust
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@beta
@@ -46,7 +46,7 @@ jobs:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@beta
@@ -61,7 +61,7 @@ jobs:
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "25"
           cache: "pnpm"
@@ -81,7 +81,7 @@ jobs:
         node-version: ["24", "25"]
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@beta
@@ -120,7 +120,7 @@ jobs:
 
       - name: Track WASM size
         run: |
-          WASM_SIZE=$(stat -c%s packages/modern-xlsx/wasm/modern_xlsx_wasm_bg.wasm)
+          WASM_SIZE=$(stat -c%s packages/modern-xlsx/wasm/modern_xlsx_wasm_bg.wasm 2>/dev/null || stat -f%z packages/modern-xlsx/wasm/modern_xlsx_wasm_bg.wasm 2>/dev/null || wc -c < packages/modern-xlsx/wasm/modern_xlsx_wasm_bg.wasm)
           echo "WASM binary size: ${WASM_SIZE} bytes ($(( WASM_SIZE / 1024 )) KB)"
           if [ "$WASM_SIZE" -gt 2097152 ]; then
             echo "::warning::WASM binary exceeds 2 MB threshold (${WASM_SIZE} bytes)"
@@ -131,7 +131,7 @@ jobs:
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "${{ matrix.node-version }}"
           cache: "pnpm"
@@ -151,16 +151,71 @@ jobs:
       - name: Build
         run: pnpm -C packages/modern-xlsx build
 
+  browser:
+    name: Browser Tests
+    needs: rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@beta
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Cache WASM artifact
+        id: cache-wasm
+        uses: actions/cache@v5
+        with:
+          path: packages/modern-xlsx/wasm/
+          key: ${{ runner.os }}-wasm-${{ hashFiles('crates/**/*.rs', 'Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-wasm-
+
+      - name: Build WASM
+        if: steps.cache-wasm.outputs.cache-hit != 'true'
+        run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "25"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm -C packages/modern-xlsx exec playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: pnpm -C packages/modern-xlsx test:browser
+
   publish:
     name: Publish to npm
-    needs: [rust, typescript]
+    needs: [rust, typescript, browser]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@beta
@@ -177,7 +232,7 @@ jobs:
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "25"
           registry-url: "https://registry.npmjs.org"

@@ -681,7 +681,7 @@ pub(super) enum ParseState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::writer::{col_index_to_letter, format_f64};
+    use super::writer::col_index_to_letter;
     use pretty_assertions::assert_eq;
 
     fn sample_worksheet_xml() -> &'static str {

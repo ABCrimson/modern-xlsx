@@ -147,6 +147,12 @@ pub struct StreamingWriter {
     inner: Option<modern_xlsx_core::streaming_writer::StreamingWriterCore>,
 }
 
+impl Default for StreamingWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[wasm_bindgen]
 impl StreamingWriter {
     /// Create a new streaming XLSX writer.

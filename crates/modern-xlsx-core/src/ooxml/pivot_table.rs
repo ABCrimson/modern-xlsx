@@ -1456,8 +1456,8 @@ mod tests {
         assert_eq!(pt.location.first_data_col, Some(1));
         assert_eq!(pt.pivot_fields.len(), 3);
         assert_eq!(pt.pivot_fields[0].axis, Some(PivotAxis::AxisRow));
-        assert_eq!(pt.pivot_fields[0].compact, false);
-        assert_eq!(pt.pivot_fields[0].outline, false);
+        assert!(!pt.pivot_fields[0].compact);
+        assert!(!pt.pivot_fields[0].outline);
         assert_eq!(pt.pivot_fields[0].items.len(), 2);
         assert_eq!(pt.pivot_fields[0].items[0].x, Some(0));
         assert_eq!(pt.pivot_fields[0].items[1].t.as_deref(), Some("default"));
