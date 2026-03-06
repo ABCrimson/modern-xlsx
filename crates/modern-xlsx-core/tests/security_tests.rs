@@ -5,6 +5,7 @@
 //! - Password verification path works correctly (wrong passwords rejected)
 //! - Malformed/truncated EncryptionInfo bytes produce errors, not panics
 //! - Truncated/empty EncryptedPackage data produces errors, not panics
+#![cfg(feature = "encryption")]
 
 use modern_xlsx_core::ole2::encryption_info::EncryptionInfo;
 

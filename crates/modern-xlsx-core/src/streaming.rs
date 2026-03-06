@@ -8,6 +8,7 @@ use core::hint::cold_path;
 
 use crate::dates::DateSystem;
 use crate::errors::ModernXlsxError;
+#[cfg(feature = "encryption")]
 use crate::ole2::detect::{classify_ole2, detect_format, FileFormat, Ole2Kind};
 use crate::ooxml::shared_strings::SharedStringTable;
 use crate::ooxml::styles::Styles;
@@ -64,38 +65,62 @@ impl StreamingReader {
         use crate::ooxml::relationships::Relationships;
         use crate::zip::reader::read_zip_entries;
 
-        use crate::ole2::detect::{ERR_LEGACY_XLS, ERR_NOT_XLSX, ERR_OLE2_UNKNOWN};
-
         // Format detection with optional decryption.
-        let decrypted: Option<Vec<u8>>;
-        let actual_data: &[u8] = match detect_format(data) {
-            FileFormat::Zip => data,
-            FileFormat::Ole2 => match classify_ole2(data)? {
-                Ole2Kind::EncryptedXlsx => {
-                    if let Some(pw) = password {
-                        decrypted = Some(crate::ole2::detect::decrypt_file(data, pw)?);
-                        decrypted.as_deref().unwrap()
-                    } else {
-                        cold_path();
-                        return Err(crate::ole2::encryption_info::build_encrypted_error(data));
+        // `decrypted` owns the decrypted bytes when encryption is used; `actual_data`
+        // borrows either `data` or `decrypted`.
+        #[cfg(feature = "encryption")]
+        #[allow(unused_assignments)]
+        let mut decrypted: Option<Vec<u8>> = None;
+        let actual_data: &[u8];
+
+        #[cfg(feature = "encryption")]
+        {
+            use crate::ole2::detect::{ERR_LEGACY_XLS, ERR_NOT_XLSX, ERR_OLE2_UNKNOWN};
+
+            match detect_format(data) {
+                FileFormat::Zip => {
+                    actual_data = data;
+                }
+                FileFormat::Ole2 => match classify_ole2(data)? {
+                    Ole2Kind::EncryptedXlsx => {
+                        if let Some(pw) = password {
+                            decrypted = Some(crate::ole2::detect::decrypt_file(data, pw)?);
+                            actual_data = decrypted.as_deref().unwrap();
+                        } else {
+                            cold_path();
+                            return Err(crate::ole2::encryption_info::build_encrypted_error(data));
+                        }
                     }
-                }
-                Ole2Kind::LegacyXls => {
+                    Ole2Kind::LegacyXls => {
+                        cold_path();
+                        return Err(ModernXlsxError::LegacyFormat(ERR_LEGACY_XLS.into()));
+                    }
+                    Ole2Kind::Unknown => {
+                        cold_path();
+                        return Err(ModernXlsxError::UnrecognizedFormat(
+                            ERR_OLE2_UNKNOWN.into(),
+                        ));
+                    }
+                },
+                FileFormat::Unknown => {
                     cold_path();
-                    return Err(ModernXlsxError::LegacyFormat(ERR_LEGACY_XLS.into()));
+                    return Err(ModernXlsxError::UnrecognizedFormat(ERR_NOT_XLSX.into()));
                 }
-                Ole2Kind::Unknown => {
-                    cold_path();
-                    return Err(ModernXlsxError::UnrecognizedFormat(
-                        ERR_OLE2_UNKNOWN.into(),
-                    ));
-                }
-            },
-            FileFormat::Unknown => {
-                cold_path();
-                return Err(ModernXlsxError::UnrecognizedFormat(ERR_NOT_XLSX.into()));
             }
-        };
+        }
+
+        #[cfg(not(feature = "encryption"))]
+        {
+            let _ = password;
+            const ZIP_MAGIC: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
+            if !data.starts_with(&ZIP_MAGIC) {
+                cold_path();
+                return Err(ModernXlsxError::UnrecognizedFormat(
+                    "Not a valid XLSX file (expected ZIP header). Enable the 'encryption' feature for OLE2/encrypted file support.".into(),
+                ));
+            }
+            actual_data = data;
+        }
 
         let mut entries = read_zip_entries(actual_data, limits)?;
 

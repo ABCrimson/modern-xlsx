@@ -6,6 +6,7 @@
 pub mod dates;
 pub mod errors;
 pub mod number_format;
+#[cfg(feature = "encryption")]
 pub mod ole2;
 pub mod ooxml;
 pub mod reader;

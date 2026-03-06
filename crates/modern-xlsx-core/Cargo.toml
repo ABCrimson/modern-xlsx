@@ -17,19 +17,32 @@ thiserror.workspace = true
 log.workspace = true
 itoa.workspace = true
 serde_json.workspace = true
-digest.workspace = true
-sha2.workspace = true
-sha1.workspace = true
-zeroize.workspace = true
-aes.workspace = true
-cbc.workspace = true
-hmac.workspace = true
-constant_time_eq.workspace = true
-getrandom.workspace = true
 rayon = { version = "1.10", optional = true }
 
+# Cryptography — optional, behind "encryption" feature
+digest = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+sha1 = { workspace = true, optional = true }
+zeroize = { workspace = true, optional = true }
+aes = { workspace = true, optional = true }
+cbc = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
+constant_time_eq = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
+
 [features]
-default = []
+default = ["encryption"]
+encryption = [
+    "dep:digest",
+    "dep:sha2",
+    "dep:sha1",
+    "dep:zeroize",
+    "dep:aes",
+    "dep:cbc",
+    "dep:hmac",
+    "dep:constant_time_eq",
+    "dep:getrandom",
+]
 parallel = ["rayon"]
 
 [dev-dependencies]

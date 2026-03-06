@@ -798,6 +798,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 ///
 /// The output is compatible with Microsoft Excel, LibreOffice, and our own
 /// `read_xlsx_json_with_password` / `readBuffer(data, { password })` read path.
+#[cfg(feature = "encryption")]
 pub fn write_xlsx_with_password(workbook: &WorkbookData, password: &str) -> Result<Vec<u8>> {
     let zip_bytes = write_xlsx(workbook)?;
     crate::ole2::crypto::encrypt_file(&zip_bytes, password)
