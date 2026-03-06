@@ -177,6 +177,12 @@ pub struct WorksheetXml {
     /// Threaded comments (Microsoft 365 modern comments) attached to this worksheet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub threaded_comments: Vec<super::threaded_comments::ThreadedCommentData>,
+    /// Slicers attached to this worksheet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slicers: Vec<super::slicers::SlicerData>,
+    /// Timelines attached to this worksheet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub timelines: Vec<super::timelines::TimelineData>,
     /// Non-sparkline extension XML preserved as raw strings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preserved_extensions: Vec<String>,
@@ -2097,6 +2103,8 @@ impl WorksheetXml {
             charts: Vec::new(),
             pivot_tables: Vec::new(),
             threaded_comments: Vec::new(),
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions,
         })
     }
@@ -5029,6 +5037,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -5121,6 +5131,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -5214,6 +5226,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -5262,6 +5276,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -5382,6 +5398,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -5532,6 +5550,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -5635,6 +5655,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -5703,6 +5725,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -5781,6 +5805,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -5885,6 +5911,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -5976,6 +6004,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -6055,6 +6085,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -6141,6 +6173,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -6248,6 +6282,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
 
@@ -6307,6 +6343,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
@@ -6347,6 +6385,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
@@ -6407,6 +6447,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
@@ -6444,6 +6486,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
@@ -6488,6 +6532,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
@@ -6535,6 +6581,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
@@ -6576,6 +6624,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
@@ -6705,6 +6755,8 @@ mod tests {
             charts: vec![],
             pivot_tables: vec![],
             threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: vec![],
         }
     }

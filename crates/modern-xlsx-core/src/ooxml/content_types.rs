@@ -40,6 +40,10 @@ pub(crate) const CT_THREADED_COMMENTS: &str =
     "application/vnd.ms-excel.threadedcomments+xml";
 pub(crate) const CT_PERSONS: &str =
     "application/vnd.ms-excel.person+xml";
+pub(crate) const CT_SLICER: &str = "application/vnd.ms-excel.slicer+xml";
+pub(crate) const CT_SLICER_CACHE: &str = "application/vnd.ms-excel.slicerCache+xml";
+pub(crate) const CT_TIMELINE: &str = "application/vnd.ms-excel.timeline+xml";
+pub(crate) const CT_TIMELINE_CACHE: &str = "application/vnd.ms-excel.timelineCache+xml";
 
 const TYPES_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-types";
 

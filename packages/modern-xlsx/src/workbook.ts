@@ -26,6 +26,7 @@ import type {
   PaneSelectionData,
   PivotTableData,
   RepairResult,
+  SlicerData,
   RowData,
   SheetData,
   SheetProtectionData,
@@ -37,6 +38,7 @@ import type {
   TableDefinitionData,
   ThemeColorsData,
   ThreadedCommentData,
+  TimelineData,
   ValidationReport,
   ViewMode,
   WorkbookData,
@@ -1132,6 +1134,16 @@ export class Worksheet {
   /** Returns all pivot tables on this sheet. */
   get pivotTables(): readonly PivotTableData[] {
     return this.data.worksheet.pivotTables ?? [];
+  }
+
+  /** Returns all slicers on this sheet. */
+  get slicers(): readonly SlicerData[] {
+    return this.data.worksheet.slicers ?? [];
+  }
+
+  /** Returns all timelines on this sheet. */
+  get timelines(): readonly TimelineData[] {
+    return this.data.worksheet.timelines ?? [];
   }
 
   /**

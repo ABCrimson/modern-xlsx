@@ -87,6 +87,8 @@ fn main() {
         charts: vec![],
         pivot_tables: vec![],
         threaded_comments: vec![],
+        slicers: vec![],
+        timelines: vec![],
         preserved_extensions: vec![],
     };
     let wb = WorkbookData {
@@ -107,6 +109,8 @@ fn main() {
         pivot_caches: Vec::new(),
         pivot_cache_records: Vec::new(),
         persons: Vec::new(),
+        slicer_caches: Vec::new(),
+        timeline_caches: Vec::new(),
         preserved_entries: Default::default(),
     };
 

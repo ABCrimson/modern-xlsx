@@ -19,13 +19,16 @@ use crate::ooxml::{
     pivot_table::{PivotCacheDefinitionData, PivotCacheRecordsData, PivotTableData},
     relationships::{
         Relationships, REL_COMMENTS, REL_DRAWING, REL_PIVOT_CACHE_DEF, REL_PIVOT_CACHE_REC,
-        REL_PIVOT_TABLE, REL_TABLE, REL_THREADED_COMMENTS,
+        REL_PIVOT_TABLE, REL_SLICER, REL_SLICER_CACHE, REL_TABLE, REL_THREADED_COMMENTS,
+        REL_TIMELINE, REL_TIMELINE_CACHE,
     },
     shared_strings::SharedStringTable,
+    slicers::{self, SlicerCacheData, SlicerData},
     styles::Styles,
     tables::TableDefinition,
     theme,
     threaded_comments::{self, PersonData, ThreadedCommentData},
+    timelines::{self, TimelineCacheData, TimelineData},
     workbook::{SheetState, WorkbookXml},
     worksheet::WorksheetXml,
 };
@@ -468,6 +471,118 @@ fn resolve_persons(ctx: &mut ReaderContext) -> Result<Vec<PersonData>> {
     }
 }
 
+/// Resolve slicers per worksheet via REL_SLICER in each sheet's .rels.
+fn resolve_slicers(ctx: &mut ReaderContext) -> Result<Vec<Vec<SlicerData>>> {
+    let mut sheet_slicers = vec![Vec::new(); ctx.sheet_targets.len()];
+
+    for (i, (_name, sheet_path, _state)) in ctx.sheet_targets.iter().enumerate() {
+        let rels_path = derive_rels_path(sheet_path);
+
+        if let Some(rels_data) = ctx.entries.get(&rels_path) {
+            let ws_rels = Relationships::parse(rels_data)?;
+
+            for rel in ws_rels.find_by_type(REL_SLICER) {
+                let slicer_path = resolve_rel_target(sheet_path, &rel.target);
+
+                if let Some(slicer_data) = ctx.entries.get(&slicer_path) {
+                    debug!("parsing slicers from: {}", slicer_path);
+                    sheet_slicers[i] = slicers::parse_slicers(slicer_data)?;
+                    ctx.known_dynamic.insert(slicer_path);
+                } else {
+                    warn!("slicer file not found: {}", slicer_path);
+                }
+            }
+        }
+    }
+
+    Ok(sheet_slicers)
+}
+
+/// Resolve slicer cache definitions from workbook .rels.
+fn resolve_slicer_caches(ctx: &mut ReaderContext) -> Result<Vec<SlicerCacheData>> {
+    let mut caches: Vec<SlicerCacheData> = Vec::new();
+
+    let cache_targets: Vec<String> = ctx
+        .wb_rels
+        .find_by_type(REL_SLICER_CACHE)
+        .map(|rel| {
+            if rel.target.starts_with('/') {
+                rel.target.trim_start_matches('/').to_string()
+            } else {
+                format!("xl/{}", rel.target)
+            }
+        })
+        .collect();
+
+    for cache_path in cache_targets {
+        if let Some(cache_data) = ctx.entries.get(&cache_path) {
+            debug!("parsing slicer cache from: {}", cache_path);
+            caches.push(SlicerCacheData::parse(cache_data)?);
+            ctx.known_dynamic.insert(cache_path);
+        } else {
+            warn!("slicer cache file not found: {}", cache_path);
+        }
+    }
+
+    Ok(caches)
+}
+
+/// Resolve timelines per worksheet via REL_TIMELINE in each sheet's .rels.
+fn resolve_timelines(ctx: &mut ReaderContext) -> Result<Vec<Vec<TimelineData>>> {
+    let mut sheet_timelines = vec![Vec::new(); ctx.sheet_targets.len()];
+
+    for (i, (_name, sheet_path, _state)) in ctx.sheet_targets.iter().enumerate() {
+        let rels_path = derive_rels_path(sheet_path);
+
+        if let Some(rels_data) = ctx.entries.get(&rels_path) {
+            let ws_rels = Relationships::parse(rels_data)?;
+
+            for rel in ws_rels.find_by_type(REL_TIMELINE) {
+                let tl_path = resolve_rel_target(sheet_path, &rel.target);
+
+                if let Some(tl_data) = ctx.entries.get(&tl_path) {
+                    debug!("parsing timelines from: {}", tl_path);
+                    sheet_timelines[i] = timelines::parse_timelines(tl_data)?;
+                    ctx.known_dynamic.insert(tl_path);
+                } else {
+                    warn!("timeline file not found: {}", tl_path);
+                }
+            }
+        }
+    }
+
+    Ok(sheet_timelines)
+}
+
+/// Resolve timeline cache definitions from workbook .rels.
+fn resolve_timeline_caches(ctx: &mut ReaderContext) -> Result<Vec<TimelineCacheData>> {
+    let mut caches: Vec<TimelineCacheData> = Vec::new();
+
+    let cache_targets: Vec<String> = ctx
+        .wb_rels
+        .find_by_type(REL_TIMELINE_CACHE)
+        .map(|rel| {
+            if rel.target.starts_with('/') {
+                rel.target.trim_start_matches('/').to_string()
+            } else {
+                format!("xl/{}", rel.target)
+            }
+        })
+        .collect();
+
+    for cache_path in cache_targets {
+        if let Some(cache_data) = ctx.entries.get(&cache_path) {
+            debug!("parsing timeline cache from: {}", cache_path);
+            caches.push(TimelineCacheData::parse(cache_data)?);
+            ctx.known_dynamic.insert(cache_path);
+        } else {
+            warn!("timeline cache file not found: {}", cache_path);
+        }
+    }
+
+    Ok(caches)
+}
+
 /// Collect all ZIP entries that were not parsed into preserved_entries.
 ///
 /// Takes ownership of entries via `drain()` to avoid cloning large byte
@@ -526,6 +641,10 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
     let (pivot_caches, pivot_cache_records) = resolve_pivot_caches(&mut ctx)?;
     let sheet_threaded = resolve_threaded_comments(&mut ctx)?;
     let persons = resolve_persons(&mut ctx)?;
+    let sheet_slicers = resolve_slicers(&mut ctx)?;
+    let slicer_caches = resolve_slicer_caches(&mut ctx)?;
+    let sheet_timelines = resolve_timelines(&mut ctx)?;
+    let timeline_caches = resolve_timeline_caches(&mut ctx)?;
 
     // Parse each worksheet XML.
     // When the "parallel" feature is enabled, sheets are parsed concurrently.
@@ -566,6 +685,20 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
         }
     }
 
+    // Attach slicers to their respective worksheets.
+    for (sheet, sl) in sheets.iter_mut().zip(sheet_slicers) {
+        if !sl.is_empty() {
+            sheet.worksheet.slicers = sl;
+        }
+    }
+
+    // Attach timelines to their respective worksheets.
+    for (sheet, tl) in sheets.iter_mut().zip(sheet_timelines) {
+        if !tl.is_empty() {
+            sheet.worksheet.timelines = tl;
+        }
+    }
+
     let preserved_entries = collect_preserved(&mut ctx);
 
     Ok(WorkbookData {
@@ -582,6 +715,8 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
         pivot_caches,
         pivot_cache_records,
         persons,
+        slicer_caches,
+        timeline_caches,
         preserved_entries,
     })
 }
@@ -628,6 +763,10 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
     let (pivot_caches, pivot_cache_records) = resolve_pivot_caches(&mut ctx)?;
     let sheet_threaded = resolve_threaded_comments(&mut ctx)?;
     let persons = resolve_persons(&mut ctx)?;
+    let sheet_slicers = resolve_slicers(&mut ctx)?;
+    let slicer_caches = resolve_slicer_caches(&mut ctx)?;
+    let sheet_timelines = resolve_timelines(&mut ctx)?;
+    let timeline_caches = resolve_timeline_caches(&mut ctx)?;
 
     // --- Build JSON output ---
     // Estimate ~80 bytes per cell × 10 cells/row × number of rows.
@@ -689,6 +828,28 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
             out.push_str(",\"threadedComments\":");
             out.push_str(
                 &serde_json::to_string(&sheet_threaded[i]).map_err(serde_err)?,
+            );
+            out.push('}');
+        }
+
+        // Inject slicers into the worksheet JSON (before the closing '}').
+        if !sheet_slicers[i].is_empty() {
+            debug_assert_eq!(out.as_bytes().last(), Some(&b'}'));
+            out.pop();
+            out.push_str(",\"slicers\":");
+            out.push_str(
+                &serde_json::to_string(&sheet_slicers[i]).map_err(serde_err)?,
+            );
+            out.push('}');
+        }
+
+        // Inject timelines into the worksheet JSON (before the closing '}').
+        if !sheet_timelines[i].is_empty() {
+            debug_assert_eq!(out.as_bytes().last(), Some(&b'}'));
+            out.pop();
+            out.push_str(",\"timelines\":");
+            out.push_str(
+                &serde_json::to_string(&sheet_timelines[i]).map_err(serde_err)?,
             );
             out.push('}');
         }
@@ -765,6 +926,18 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
     if !persons.is_empty() {
         out.push_str(",\"persons\":");
         out.push_str(&serde_json::to_string(&persons).map_err(serde_err)?);
+    }
+
+    // slicerCaches
+    if !slicer_caches.is_empty() {
+        out.push_str(",\"slicerCaches\":");
+        out.push_str(&serde_json::to_string(&slicer_caches).map_err(serde_err)?);
+    }
+
+    // timelineCaches
+    if !timeline_caches.is_empty() {
+        out.push_str(",\"timelineCaches\":");
+        out.push_str(&serde_json::to_string(&timeline_caches).map_err(serde_err)?);
     }
 
     // preservedEntries
@@ -961,6 +1134,8 @@ mod tests {
             charts: Vec::new(),
             pivot_tables: Vec::new(),
             threaded_comments: Vec::new(),
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1082,6 +1257,8 @@ mod tests {
             charts: Vec::new(),
             pivot_tables: Vec::new(),
             threaded_comments: Vec::new(),
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1178,6 +1355,8 @@ mod tests {
             charts: Vec::new(),
             pivot_tables: Vec::new(),
             threaded_comments: Vec::new(),
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1350,6 +1529,8 @@ mod tests {
             charts: Vec::new(),
             pivot_tables: Vec::new(),
             threaded_comments: Vec::new(),
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1487,6 +1668,8 @@ mod tests {
                 charts: Vec::new(),
                 pivot_tables: Vec::new(),
                 threaded_comments: Vec::new(),
+                slicers: Vec::new(),
+                timelines: Vec::new(),
                 preserved_extensions: Vec::new(),
             };
             let ws_xml = ws.to_xml().unwrap();
@@ -1588,6 +1771,8 @@ mod tests {
                     charts: Vec::new(),
                     pivot_tables: Vec::new(),
                     threaded_comments: Vec::new(),
+                    slicers: Vec::new(),
+                    timelines: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -1603,6 +1788,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1686,6 +1873,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1722,6 +1911,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1738,6 +1929,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 

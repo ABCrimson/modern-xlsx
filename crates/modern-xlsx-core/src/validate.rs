@@ -1147,6 +1147,8 @@ mod tests {
             charts: Vec::new(),
             pivot_tables: Vec::new(),
             threaded_comments: Vec::new(),
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: Vec::new(),
         }
     }
@@ -1170,6 +1172,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: Default::default(),
         }
     }

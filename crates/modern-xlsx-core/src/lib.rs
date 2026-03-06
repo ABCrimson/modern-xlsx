@@ -77,6 +77,12 @@ pub struct WorkbookData {
     /// Persons list for threaded comments (xl/persons/person.xml).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub persons: Vec<crate::ooxml::threaded_comments::PersonData>,
+    /// Slicer cache definitions from xl/slicerCaches/.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slicer_caches: Vec<crate::ooxml::slicers::SlicerCacheData>,
+    /// Timeline cache definitions from xl/timelineCaches/.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub timeline_caches: Vec<crate::ooxml::timelines::TimelineCacheData>,
     /// Opaque ZIP entries not parsed by the reader (drawings, media, charts, etc.)
     /// Preserved through roundtrip without modification.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

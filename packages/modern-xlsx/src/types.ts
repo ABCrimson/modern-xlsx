@@ -623,6 +623,53 @@ export interface PivotTableData {
 }
 
 // ---------------------------------------------------------------------------
+// Slicers
+// ---------------------------------------------------------------------------
+
+export type SortOrder = 'ascending' | 'descending';
+
+export interface SlicerItem {
+  n: string;
+  s: boolean;
+}
+
+export interface SlicerData {
+  name: string;
+  caption?: string;
+  cacheName: string;
+  columnName?: string;
+  sortOrder?: SortOrder;
+  startItem?: number;
+}
+
+export interface SlicerCacheData {
+  name: string;
+  sourceName?: string;
+  items: SlicerItem[];
+}
+
+// ---------------------------------------------------------------------------
+// Timelines
+// ---------------------------------------------------------------------------
+
+export type TimelineLevel = 'years' | 'quarters' | 'months' | 'days';
+
+export interface TimelineData {
+  name: string;
+  caption?: string;
+  cacheName: string;
+  sourceName?: string;
+  level?: TimelineLevel;
+}
+
+export interface TimelineCacheData {
+  name: string;
+  sourceName?: string;
+  selectionStart?: string;
+  selectionEnd?: string;
+}
+
+// ---------------------------------------------------------------------------
 // WorksheetData
 // ---------------------------------------------------------------------------
 
@@ -671,6 +718,8 @@ export interface WorksheetData {
   charts?: WorksheetChartData[];
   pivotTables?: PivotTableData[];
   threadedComments?: ThreadedCommentData[];
+  slicers?: SlicerData[];
+  timelines?: TimelineData[];
 }
 
 // ---------------------------------------------------------------------------
@@ -910,6 +959,10 @@ export interface WorkbookData {
   protection?: WorkbookProtectionData | null;
   /** Persons list for threaded comments (workbook-level). */
   persons?: PersonData[];
+  /** Slicer cache definitions (workbook-level). */
+  slicerCaches?: SlicerCacheData[];
+  /** Timeline cache definitions (workbook-level). */
+  timelineCaches?: TimelineCacheData[];
   /** Opaque ZIP entries preserved through roundtrip (drawings, media, charts, etc.) */
   preservedEntries?: Record<string, number[]>;
 }

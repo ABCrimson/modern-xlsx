@@ -33,6 +33,14 @@ pub(crate) const REL_THREADED_COMMENTS: &str =
     "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment";
 pub(crate) const REL_PERSONS: &str =
     "http://schemas.microsoft.com/office/2017/10/relationships/person";
+pub(crate) const REL_SLICER: &str =
+    "http://schemas.microsoft.com/office/2007/relationships/slicer";
+pub(crate) const REL_SLICER_CACHE: &str =
+    "http://schemas.microsoft.com/office/2007/relationships/slicerCache";
+pub(crate) const REL_TIMELINE: &str =
+    "http://schemas.microsoft.com/office/2011/relationships/timeline";
+pub(crate) const REL_TIMELINE_CACHE: &str =
+    "http://schemas.microsoft.com/office/2011/relationships/timelineCache";
 
 const RELS_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
 

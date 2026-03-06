@@ -14,15 +14,16 @@ use crate::ooxml::{
     comments,
     content_types::{
         ContentTypes, CT_CHART, CT_COMMENTS, CT_CUSTOM_XML_PROPS, CT_DRAWING, CT_EXTERNAL_LINK,
-        CT_PERSONS, CT_PIVOT_CACHE_DEF, CT_PIVOT_CACHE_REC, CT_PIVOT_TABLE, CT_TABLE,
-        CT_THREADED_COMMENTS, CT_XML,
+        CT_PERSONS, CT_PIVOT_CACHE_DEF, CT_PIVOT_CACHE_REC, CT_PIVOT_TABLE, CT_SLICER,
+        CT_SLICER_CACHE, CT_TABLE, CT_THREADED_COMMENTS, CT_TIMELINE, CT_TIMELINE_CACHE, CT_XML,
     },
     relationships::{
         Relationships, REL_CHART, REL_COMMENTS, REL_DRAWING, REL_PERSONS, REL_PIVOT_CACHE_DEF,
-        REL_PIVOT_CACHE_REC, REL_PIVOT_TABLE, REL_TABLE, REL_THREADED_COMMENTS,
+        REL_PIVOT_CACHE_REC, REL_PIVOT_TABLE, REL_SLICER, REL_SLICER_CACHE, REL_TABLE,
+        REL_THREADED_COMMENTS, REL_TIMELINE, REL_TIMELINE_CACHE,
     },
     shared_strings::SharedStringTableBuilder,
-    threaded_comments,
+    slicers, threaded_comments, timelines,
     workbook::{SheetInfo, SheetState, WorkbookXml},
     worksheet::CellType,
 };
@@ -158,6 +159,8 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     let mut global_table_id: u32 = 0;
     let mut global_chart_id: u32 = 0;
     let mut global_pivot_id: u32 = 0;
+    let mut global_slicer_id: u32 = 0;
+    let mut global_timeline_id: u32 = 0;
     let mut generated_rels: HashSet<String> = HashSet::new();
 
     for (i, sheet) in workbook.sheets.iter().enumerate() {
@@ -167,8 +170,15 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         let has_charts = !sheet.worksheet.charts.is_empty();
         let has_pivot_tables = !sheet.worksheet.pivot_tables.is_empty();
         let has_threaded_comments = !sheet.worksheet.threaded_comments.is_empty();
-        let needs_rels =
-            has_comments || has_tables || has_charts || has_pivot_tables || has_threaded_comments;
+        let has_slicers = !sheet.worksheet.slicers.is_empty();
+        let has_timelines = !sheet.worksheet.timelines.is_empty();
+        let needs_rels = has_comments
+            || has_tables
+            || has_charts
+            || has_pivot_tables
+            || has_threaded_comments
+            || has_slicers
+            || has_timelines;
 
         // Build (or merge) the worksheet .rels when we need to add relationships.
         let rels_path = format!("xl/worksheets/_rels/sheet{sheet_num}.xml.rels");
@@ -464,6 +474,62 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             }
         }
 
+        // --- Slicers ---
+        if has_slicers {
+            global_slicer_id += 1;
+            debug!(
+                "writing {} slicers for sheet {}",
+                sheet.worksheet.slicers.len(),
+                sheet_num
+            );
+            let slicer_xml = slicers::write_slicers(&sheet.worksheet.slicers)?;
+            let slicer_path = format!("xl/slicers/slicer{global_slicer_id}.xml");
+
+            content_types.add_override(format!("/{slicer_path}"), CT_SLICER);
+
+            entries.push(ZipEntry {
+                name: slicer_path,
+                data: slicer_xml,
+            });
+
+            if ws_rels.find_by_type(REL_SLICER).next().is_none() {
+                let rid_num = ws_rels.next_r_id();
+                ws_rels.add(
+                    format!("rId{rid_num}"),
+                    REL_SLICER,
+                    format!("../slicers/slicer{global_slicer_id}.xml"),
+                );
+            }
+        }
+
+        // --- Timelines ---
+        if has_timelines {
+            global_timeline_id += 1;
+            debug!(
+                "writing {} timelines for sheet {}",
+                sheet.worksheet.timelines.len(),
+                sheet_num
+            );
+            let tl_xml = timelines::write_timelines(&sheet.worksheet.timelines)?;
+            let tl_path = format!("xl/timelines/timeline{global_timeline_id}.xml");
+
+            content_types.add_override(format!("/{tl_path}"), CT_TIMELINE);
+
+            entries.push(ZipEntry {
+                name: tl_path,
+                data: tl_xml,
+            });
+
+            if ws_rels.find_by_type(REL_TIMELINE).next().is_none() {
+                let rid_num = ws_rels.next_r_id();
+                ws_rels.add(
+                    format!("rId{rid_num}"),
+                    REL_TIMELINE,
+                    format!("../timelines/timeline{global_timeline_id}.xml"),
+                );
+            }
+        }
+
         // --- Write worksheet .rels ---
         if needs_rels {
             generated_rels.insert(rels_path.clone());
@@ -569,6 +635,88 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 REL_PERSONS,
                 "persons/person.xml",
             );
+            entry.data = existing_wb_rels.to_xml()?;
+        }
+    }
+
+    // 5d. Write workbook-level slicer caches.
+    if !workbook.slicer_caches.is_empty() {
+        let mut wb_rels_extra = Relationships::new();
+
+        for (ci, cache) in workbook.slicer_caches.iter().enumerate() {
+            let cache_id = ci + 1;
+            let cache_xml = cache.to_xml()?;
+            let cache_path = format!("xl/slicerCaches/slicerCache{cache_id}.xml");
+
+            content_types.add_override(format!("/{cache_path}"), CT_SLICER_CACHE);
+
+            entries.push(ZipEntry {
+                name: cache_path.clone(),
+                data: cache_xml,
+            });
+
+            wb_rels_extra.add(
+                format!("rId_sc{cache_id}"),
+                REL_SLICER_CACHE,
+                format!("slicerCaches/slicerCache{cache_id}.xml"),
+            );
+
+            generated_rels.insert(cache_path);
+        }
+
+        if !wb_rels_extra.relationships.is_empty()
+            && let Some(entry) =
+                entries.iter_mut().find(|e| e.name == "xl/_rels/workbook.xml.rels")
+        {
+            let mut existing_wb_rels = Relationships::parse(&entry.data)?;
+            for rel in &wb_rels_extra.relationships {
+                existing_wb_rels.add(
+                    format!("rId{}", existing_wb_rels.next_r_id()),
+                    rel.rel_type.clone(),
+                    rel.target.clone(),
+                );
+            }
+            entry.data = existing_wb_rels.to_xml()?;
+        }
+    }
+
+    // 5e. Write workbook-level timeline caches.
+    if !workbook.timeline_caches.is_empty() {
+        let mut wb_rels_extra = Relationships::new();
+
+        for (ci, cache) in workbook.timeline_caches.iter().enumerate() {
+            let cache_id = ci + 1;
+            let cache_xml = cache.to_xml()?;
+            let cache_path = format!("xl/timelineCaches/timelineCache{cache_id}.xml");
+
+            content_types.add_override(format!("/{cache_path}"), CT_TIMELINE_CACHE);
+
+            entries.push(ZipEntry {
+                name: cache_path.clone(),
+                data: cache_xml,
+            });
+
+            wb_rels_extra.add(
+                format!("rId_tc{cache_id}"),
+                REL_TIMELINE_CACHE,
+                format!("timelineCaches/timelineCache{cache_id}.xml"),
+            );
+
+            generated_rels.insert(cache_path);
+        }
+
+        if !wb_rels_extra.relationships.is_empty()
+            && let Some(entry) =
+                entries.iter_mut().find(|e| e.name == "xl/_rels/workbook.xml.rels")
+        {
+            let mut existing_wb_rels = Relationships::parse(&entry.data)?;
+            for rel in &wb_rels_extra.relationships {
+                existing_wb_rels.add(
+                    format!("rId{}", existing_wb_rels.next_r_id()),
+                    rel.rel_type.clone(),
+                    rel.target.clone(),
+                );
+            }
             entry.data = existing_wb_rels.to_xml()?;
         }
     }
@@ -733,6 +881,8 @@ mod tests {
                     charts: Vec::new(),
                     pivot_tables: Vec::new(),
                     threaded_comments: Vec::new(),
+                    slicers: Vec::new(),
+                    timelines: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -748,6 +898,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         }
     }
@@ -782,6 +934,8 @@ mod tests {
                     charts: Vec::new(),
                     pivot_tables: Vec::new(),
                     threaded_comments: Vec::new(),
+                    slicers: Vec::new(),
+                    timelines: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -797,6 +951,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -832,6 +988,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
         let result = write_xlsx(&wb);
@@ -869,6 +1027,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -899,6 +1059,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -915,6 +1077,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1257,6 +1421,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1287,6 +1453,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1303,6 +1471,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1369,6 +1539,8 @@ mod tests {
             charts: Vec::new(),
             pivot_tables: Vec::new(),
             threaded_comments: Vec::new(),
+            slicers: Vec::new(),
+            timelines: Vec::new(),
             preserved_extensions: Vec::new(),
         };
 
@@ -1438,6 +1610,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1468,6 +1642,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1484,6 +1660,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1810,6 +1988,8 @@ mod tests {
                     charts: Vec::new(),
                     pivot_tables: Vec::new(),
                     threaded_comments: Vec::new(),
+                    slicers: Vec::new(),
+                    timelines: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -1825,6 +2005,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1934,6 +2116,8 @@ mod tests {
                 charts: Vec::new(),
                 pivot_tables: Vec::new(),
                 threaded_comments: Vec::new(),
+                slicers: Vec::new(),
+                timelines: Vec::new(),
                 preserved_extensions: Vec::new(),
             },
         };
@@ -1955,6 +2139,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -2024,6 +2210,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -2054,6 +2242,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -2084,6 +2274,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -2100,6 +2292,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -2152,6 +2346,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -2182,6 +2378,8 @@ mod tests {
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
                         threaded_comments: Vec::new(),
+                        slicers: Vec::new(),
+                        timelines: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -2198,6 +2396,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -2332,6 +2532,8 @@ mod tests {
                     charts,
                     pivot_tables: Vec::new(),
                     threaded_comments: Vec::new(),
+                    slicers: Vec::new(),
+                    timelines: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -2347,6 +2549,8 @@ mod tests {
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
             persons: Vec::new(),
+            slicer_caches: Vec::new(),
+            timeline_caches: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         }
     }
