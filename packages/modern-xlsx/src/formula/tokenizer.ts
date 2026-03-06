@@ -68,11 +68,6 @@ const UNARY_CONTEXT: ReadonlySet<TokenType> = new Set<TokenType>([
   'array_row_sep',
 ]);
 
-/** Read character at position using charAt (always returns string, never undefined). */
-function at(s: string, i: number): string {
-  return s.charAt(i);
-}
-
 function isDigit(ch: string): boolean {
   return ch >= '0' && ch <= '9';
 }
@@ -97,7 +92,7 @@ export function tokenize(formula: string): TokenizeResult {
 
   // Strip leading `=`
   let offset = 0;
-  if (formula.length > 0 && at(formula, 0) === '=') {
+  if (formula.length > 0 && formula.charAt(0) === '=') {
     offset = 1;
   }
 
@@ -105,7 +100,7 @@ export function tokenize(formula: string): TokenizeResult {
   let arrayDepth = 0;
 
   while (pos < formula.length) {
-    const ch = at(formula, pos);
+    const ch = formula.charAt(pos);
 
     // (a) Whitespace — skip
     if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
@@ -120,9 +115,9 @@ export function tokenize(formula: string): TokenizeResult {
       let value = '';
       let terminated = false;
       while (pos < formula.length) {
-        if (at(formula, pos) === '"') {
+        if (formula.charAt(pos) === '"') {
           // Check for escaped quote ""
-          if (pos + 1 < formula.length && at(formula, pos + 1) === '"') {
+          if (pos + 1 < formula.length && formula.charAt(pos + 1) === '"') {
             value += '"';
             pos += 2;
           } else {
@@ -131,7 +126,7 @@ export function tokenize(formula: string): TokenizeResult {
             break;
           }
         } else {
-          value += at(formula, pos);
+          value += formula.charAt(pos);
           pos++;
         }
       }
@@ -143,28 +138,31 @@ export function tokenize(formula: string): TokenizeResult {
     }
 
     // (c) Number: digit, or `.` followed by digit
-    if (isDigit(ch) || (ch === '.' && pos + 1 < formula.length && isDigit(at(formula, pos + 1)))) {
+    if (
+      isDigit(ch) ||
+      (ch === '.' && pos + 1 < formula.length && isDigit(formula.charAt(pos + 1)))
+    ) {
       const start = pos;
       // Consume integer part
-      while (pos < formula.length && isDigit(at(formula, pos))) {
+      while (pos < formula.length && isDigit(formula.charAt(pos))) {
         pos++;
       }
       // Consume decimal part
-      if (pos < formula.length && at(formula, pos) === '.') {
+      if (pos < formula.length && formula.charAt(pos) === '.') {
         pos++;
-        while (pos < formula.length && isDigit(at(formula, pos))) {
+        while (pos < formula.length && isDigit(formula.charAt(pos))) {
           pos++;
         }
       }
       // Consume exponent part
-      if (pos < formula.length && (at(formula, pos) === 'e' || at(formula, pos) === 'E')) {
+      if (pos < formula.length && (formula.charAt(pos) === 'e' || formula.charAt(pos) === 'E')) {
         const expStart = pos;
         pos++;
-        if (pos < formula.length && (at(formula, pos) === '+' || at(formula, pos) === '-')) {
+        if (pos < formula.length && (formula.charAt(pos) === '+' || formula.charAt(pos) === '-')) {
           pos++;
         }
         const digitStart = pos;
-        while (pos < formula.length && isDigit(at(formula, pos))) {
+        while (pos < formula.length && isDigit(formula.charAt(pos))) {
           pos++;
         }
         if (pos === digitStart) {
@@ -194,9 +192,9 @@ export function tokenize(formula: string): TokenizeResult {
         let end = pos + 1;
         while (
           end < formula.length &&
-          at(formula, end) !== ' ' &&
-          at(formula, end) !== ',' &&
-          at(formula, end) !== ')'
+          formula.charAt(end) !== ' ' &&
+          formula.charAt(end) !== ',' &&
+          formula.charAt(end) !== ')'
         ) {
           end++;
         }
@@ -270,7 +268,7 @@ export function tokenize(formula: string): TokenizeResult {
 
     // (k) Two-char operators: <>, <=, >=
     if (pos + 1 < formula.length) {
-      const next = at(formula, pos + 1);
+      const next = formula.charAt(pos + 1);
       if ((ch === '<' && (next === '>' || next === '=')) || (ch === '>' && next === '=')) {
         const value = ch + next;
         tokens.push({ type: 'operator', value, start: pos, end: pos + 2 });
@@ -313,9 +311,9 @@ export function tokenize(formula: string): TokenizeResult {
       pos++; // skip opening quote
       let terminated = false;
       while (pos < formula.length) {
-        if (at(formula, pos) === "'") {
+        if (formula.charAt(pos) === "'") {
           // Check for escaped quote ''
-          if (pos + 1 < formula.length && at(formula, pos + 1) === "'") {
+          if (pos + 1 < formula.length && formula.charAt(pos + 1) === "'") {
             pos += 2;
           } else {
             pos++; // skip closing quote
@@ -331,23 +329,23 @@ export function tokenize(formula: string): TokenizeResult {
         continue;
       }
       // Expect `!` after closing quote
-      if (pos < formula.length && at(formula, pos) === '!') {
+      if (pos < formula.length && formula.charAt(pos) === '!') {
         pos++; // skip `!`
         // Scan cell reference after `!`
         // Allow $ prefix
-        if (pos < formula.length && at(formula, pos) === '$') {
+        if (pos < formula.length && formula.charAt(pos) === '$') {
           pos++;
         }
         // Column letters
-        while (pos < formula.length && isAlpha(at(formula, pos))) {
+        while (pos < formula.length && isAlpha(formula.charAt(pos))) {
           pos++;
         }
         // Allow $ before row
-        if (pos < formula.length && at(formula, pos) === '$') {
+        if (pos < formula.length && formula.charAt(pos) === '$') {
           pos++;
         }
         // Row digits
-        while (pos < formula.length && isDigit(at(formula, pos))) {
+        while (pos < formula.length && isDigit(formula.charAt(pos))) {
           pos++;
         }
         const fullValue = formula.slice(start, pos);
@@ -364,29 +362,29 @@ export function tokenize(formula: string): TokenizeResult {
     if (isAlpha(ch) || ch === '_') {
       const start = pos;
       // Consume identifier characters
-      while (pos < formula.length && isIdentChar(at(formula, pos))) {
+      while (pos < formula.length && isIdentChar(formula.charAt(pos))) {
         pos++;
       }
       const ident = formula.slice(start, pos);
 
       // Check if followed by `!` → sheet-qualified reference
-      if (pos < formula.length && at(formula, pos) === '!') {
+      if (pos < formula.length && formula.charAt(pos) === '!') {
         pos++; // skip `!`
         const refStart = pos;
         // Allow $ prefix
-        if (pos < formula.length && at(formula, pos) === '$') {
+        if (pos < formula.length && formula.charAt(pos) === '$') {
           pos++;
         }
         // Column letters
-        while (pos < formula.length && isAlpha(at(formula, pos))) {
+        while (pos < formula.length && isAlpha(formula.charAt(pos))) {
           pos++;
         }
         // Allow $ before row
-        if (pos < formula.length && at(formula, pos) === '$') {
+        if (pos < formula.length && formula.charAt(pos) === '$') {
           pos++;
         }
         // Row digits
-        while (pos < formula.length && isDigit(at(formula, pos))) {
+        while (pos < formula.length && isDigit(formula.charAt(pos))) {
           pos++;
         }
         const refPart = formula.slice(refStart, pos);
@@ -402,7 +400,7 @@ export function tokenize(formula: string): TokenizeResult {
       }
 
       // Check if followed by `(` → function
-      if (pos < formula.length && at(formula, pos) === '(') {
+      if (pos < formula.length && formula.charAt(pos) === '(') {
         tokens.push({ type: 'function', value: ident, start, end: pos });
         continue;
       }
@@ -421,11 +419,11 @@ export function tokenize(formula: string): TokenizeResult {
       }
 
       // Check for absolute-row cell ref: letters followed by $digits (e.g. A$1)
-      if (pos < formula.length && at(formula, pos) === '$' && /^[A-Z]{1,3}$/i.test(ident)) {
+      if (pos < formula.length && formula.charAt(pos) === '$' && /^[A-Z]{1,3}$/i.test(ident)) {
         const savedPos = pos;
         pos++; // skip $
-        if (pos < formula.length && isDigit(at(formula, pos))) {
-          while (pos < formula.length && isDigit(at(formula, pos))) {
+        if (pos < formula.length && isDigit(formula.charAt(pos))) {
+          while (pos < formula.length && isDigit(formula.charAt(pos))) {
             pos++;
           }
           const value = formula.slice(start, pos);
@@ -446,15 +444,15 @@ export function tokenize(formula: string): TokenizeResult {
       const start = pos;
       pos++; // skip `$`
       // Column letters
-      while (pos < formula.length && isAlpha(at(formula, pos))) {
+      while (pos < formula.length && isAlpha(formula.charAt(pos))) {
         pos++;
       }
       // Allow $ before row
-      if (pos < formula.length && at(formula, pos) === '$') {
+      if (pos < formula.length && formula.charAt(pos) === '$') {
         pos++;
       }
       // Row digits
-      while (pos < formula.length && isDigit(at(formula, pos))) {
+      while (pos < formula.length && isDigit(formula.charAt(pos))) {
         pos++;
       }
       const value = formula.slice(start, pos);

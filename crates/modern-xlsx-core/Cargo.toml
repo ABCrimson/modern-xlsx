@@ -16,6 +16,7 @@ chrono.workspace = true
 thiserror.workspace = true
 log.workspace = true
 itoa.workspace = true
+ryu.workspace = true
 serde_json.workspace = true
 rayon = { version = "1.10", optional = true }
 

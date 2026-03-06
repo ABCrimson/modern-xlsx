@@ -7,7 +7,7 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 10_000,
     hookTimeout: 10_000,
-    pool: 'forks',
+    pool: 'threads',
     globals: false,
     setupFiles: ['__tests__/setup.ts'],
   },

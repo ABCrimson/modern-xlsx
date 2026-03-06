@@ -1,4 +1,5 @@
 use core::hint::cold_path;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
@@ -50,9 +51,9 @@ pub struct Relationship {
     /// The relationship identifier (e.g. "rId1").
     pub id: String,
     /// The relationship type URI.
-    pub rel_type: String,
+    pub rel_type: Cow<'static, str>,
     /// The target part path, relative to the source.
-    pub target: String,
+    pub target: Cow<'static, str>,
 }
 
 /// A collection of OPC relationships, as found in `.rels` files.
@@ -77,8 +78,8 @@ impl Relationships {
     pub fn add(
         &mut self,
         id: impl Into<String>,
-        rel_type: impl Into<String>,
-        target: impl Into<String>,
+        rel_type: impl Into<Cow<'static, str>>,
+        target: impl Into<Cow<'static, str>>,
     ) {
         let id = id.into();
         let idx = self.relationships.len();
@@ -127,17 +128,27 @@ impl Relationships {
     /// - rId(N+2) for styles (`styles.xml`)
     pub fn workbook_rels(sheet_count: usize) -> Self {
         let mut rels = Self::new();
+        let mut ibuf = itoa::Buffer::new();
         for i in 1..=sheet_count {
+            let mut rid = String::with_capacity(12);
+            rid.push_str("rId");
+            rid.push_str(ibuf.format(i));
             rels.add(
-                format!("rId{i}"),
+                rid,
                 REL_WORKSHEET,
                 format!("worksheets/sheet{i}.xml"),
             );
         }
         let ss_id = sheet_count + 1;
-        rels.add(format!("rId{ss_id}"), REL_SHARED_STRINGS, "sharedStrings.xml");
+        let mut rid_ss = String::with_capacity(12);
+        rid_ss.push_str("rId");
+        rid_ss.push_str(ibuf.format(ss_id));
+        rels.add(rid_ss, REL_SHARED_STRINGS, "sharedStrings.xml");
         let st_id = sheet_count + 2;
-        rels.add(format!("rId{st_id}"), REL_STYLES, "styles.xml");
+        let mut rid_st = String::with_capacity(12);
+        rid_st.push_str("rId");
+        rid_st.push_str(ibuf.format(st_id));
+        rels.add(rid_st, REL_STYLES, "styles.xml");
         rels
     }
 
@@ -151,20 +162,22 @@ impl Relationships {
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e)) => {
                     if e.local_name().as_ref() == b"Relationship" {
-                        let (mut id, mut rel_type, mut target) =
-                            (String::new(), String::new(), String::new());
+                        let (mut id, mut rel_type, mut target): (String, Cow<'static, str>, Cow<'static, str>) =
+                            (String::new(), Cow::Owned(String::new()), Cow::Owned(String::new()));
                         for attr in e.attributes().flatten() {
                             match attr.key.local_name().as_ref() {
                                 b"Id" => {
                                     id = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
                                 }
                                 b"Type" => {
-                                    rel_type =
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    rel_type = Cow::Owned(
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    );
                                 }
                                 b"Target" => {
-                                    target =
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    target = Cow::Owned(
+                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    );
                                 }
                                 _ => {}
                             }
@@ -210,8 +223,8 @@ impl Relationships {
         for rel in &self.relationships {
             let mut elem = BytesStart::new("Relationship");
             elem.push_attribute(("Id", rel.id.as_str()));
-            elem.push_attribute(("Type", rel.rel_type.as_str()));
-            elem.push_attribute(("Target", rel.target.as_str()));
+            elem.push_attribute(("Type", rel.rel_type.as_ref()));
+            elem.push_attribute(("Target", rel.target.as_ref()));
             writer
                 .write_event(Event::Empty(elem))
                 .map_err(|e| ModernXlsxError::XmlWrite(format!("writing Relationship: {e}")))?;

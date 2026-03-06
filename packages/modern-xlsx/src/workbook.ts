@@ -1,5 +1,5 @@
-import type { DrawBarcodeOptions, ImageAnchor } from './barcode.js';
-import { generateBarcode, generateDrawingRels, generateDrawingXml } from './barcode.js';
+import type { DrawBarcodeOptions, ImageAnchor } from './barcode/index.js';
+import { generateBarcode, generateDrawingRels, generateDrawingXml } from './barcode/index.js';
 import { columnToLetter, decodeCellRef } from './cell-ref.js';
 import { ChartBuilder } from './chart-builder.js';
 import { isDateFormatCode, serialToDate } from './dates.js';
@@ -97,6 +97,7 @@ export class Workbook {
   private readonly data: WorkbookData;
   private readonly imageAnchors = new Map<string, { anchor: ImageAnchor; imageIndex: number }[]>();
   private readonly imageRels = new Map<string, { rId: string; target: string }[]>();
+  private _sheetIndex = new Map<string, number>();
 
   /** Create a new workbook, optionally seeded with existing data from a read operation. */
   constructor(data?: Partial<WorkbookData>) {
@@ -114,6 +115,15 @@ export class Workbook {
     if (data?.protection) this.data.protection = data.protection;
     if (data?.persons) this.data.persons = data.persons;
     if (data?.preservedEntries) this.data.preservedEntries = data.preservedEntries;
+    this._rebuildSheetIndex();
+  }
+
+  private _rebuildSheetIndex(): void {
+    this._sheetIndex = new Map<string, number>();
+    for (let i = 0; i < this.data.sheets.length; i++) {
+      const sheet = this.data.sheets[i];
+      if (sheet) this._sheetIndex.set(sheet.name, i);
+    }
   }
 
   /** Returns an array of all sheet names in order. */
@@ -143,7 +153,9 @@ export class Workbook {
 
   /** Returns the worksheet with the given name, or `undefined` if not found. */
   getSheet(name: string): Worksheet | undefined {
-    const sheet = this.data.sheets.find((s) => s.name === name);
+    const idx = this._sheetIndex.get(name);
+    if (idx === undefined) return undefined;
+    const sheet = this.data.sheets[idx];
     return sheet ? new Worksheet(sheet, this.data.styles, this.data) : undefined;
   }
 
@@ -175,6 +187,7 @@ export class Workbook {
       },
     };
     this.data.sheets.push(sheetData);
+    this._rebuildSheetIndex();
     return new Worksheet(sheetData, this.data.styles, this.data);
   }
 
@@ -189,6 +202,7 @@ export class Workbook {
         : nameOrIndex;
     if (idx < 0 || idx >= this.data.sheets.length) return false;
     this.data.sheets.splice(idx, 1);
+    this._rebuildSheetIndex();
     return true;
   }
 
@@ -205,6 +219,7 @@ export class Workbook {
     const [sheet] = this.data.sheets.splice(fromIndex, 1);
     if (!sheet) return;
     this.data.sheets.splice(toIndex, 0, sheet);
+    this._rebuildSheetIndex();
   }
 
   /**
@@ -226,6 +241,7 @@ export class Workbook {
     clone.name = newName;
     const idx = insertIndex ?? this.data.sheets.length;
     this.data.sheets.splice(idx, 0, clone);
+    this._rebuildSheetIndex();
     return new Worksheet(clone, this.data.styles, this.data);
   }
 
@@ -247,6 +263,7 @@ export class Workbook {
     const sheet = this.data.sheets[idx];
     if (!sheet) throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet not found: ${nameOrIndex}`);
     sheet.name = newName;
+    this._rebuildSheetIndex();
   }
 
   /**

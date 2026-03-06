@@ -94,7 +94,7 @@ cargo clippy -p modern-xlsx-core -- -D warnings
 pnpm -C packages/modern-xlsx lint
 ```
 
-**Toolchain:** Rust 1.94.0 (Edition 2024) / TypeScript 6.0 / pnpm 11 / Biome 2.4
+**Toolchain:** Rust 1.95.0 (Edition 2024) / TypeScript 6.0 / pnpm 11 / Biome 2.4
 
 ## License
 

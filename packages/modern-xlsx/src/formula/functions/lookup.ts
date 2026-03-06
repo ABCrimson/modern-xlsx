@@ -85,11 +85,6 @@ function compareForMatch(a: CellValue, b: CellValue): number {
     .localeCompare(String(b ?? '').toLowerCase());
 }
 
-/** Safely get an element from an array by index. */
-function at<T>(arr: T[], idx: number): T | undefined {
-  return arr[idx];
-}
-
 /** Resolve the optional `approx` argument (defaults to true). */
 function resolveApprox(
   args: ASTNode[],
@@ -98,7 +93,7 @@ function resolveApprox(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): boolean | string {
   if (args.length <= argIndex) return true;
-  const arg = at(args, argIndex);
+  const arg = args[argIndex];
   if (!arg) return true;
   const aVal = evaluate(arg, ctx);
   if (isError(aVal)) return aVal;
@@ -144,9 +139,9 @@ function vlookupImpl(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): CellValue {
   if (args.length < 3) return '#VALUE!';
-  const arg0 = at(args, 0);
-  const arg1 = at(args, 1);
-  const arg2 = at(args, 2);
+  const arg0 = args[0];
+  const arg1 = args[1];
+  const arg2 = args[2];
   if (!arg0 || !arg1 || !arg2) return '#VALUE!';
 
   const lookupVal = evaluate(arg0, ctx);
@@ -167,10 +162,10 @@ function vlookupImpl(
 
   if (approx) {
     const idx = approxSearchAsc(firstCol, lookupVal);
-    return idx === -1 ? '#N/A' : (at(matrix, idx)?.[colIdx - 1] ?? null);
+    return idx === -1 ? '#N/A' : (matrix[idx]?.[colIdx - 1] ?? null);
   }
   const idx = exactSearch(firstCol, lookupVal);
-  return idx === -1 ? '#N/A' : (at(matrix, idx)?.[colIdx - 1] ?? null);
+  return idx === -1 ? '#N/A' : (matrix[idx]?.[colIdx - 1] ?? null);
 }
 
 function hlookupImpl(
@@ -179,9 +174,9 @@ function hlookupImpl(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): CellValue {
   if (args.length < 3) return '#VALUE!';
-  const arg0 = at(args, 0);
-  const arg1 = at(args, 1);
-  const arg2 = at(args, 2);
+  const arg0 = args[0];
+  const arg1 = args[1];
+  const arg2 = args[2];
   if (!arg0 || !arg1 || !arg2) return '#VALUE!';
 
   const lookupVal = evaluate(arg0, ctx);
@@ -202,10 +197,10 @@ function hlookupImpl(
 
   if (approx) {
     const idx = approxSearchAsc(firstRow, lookupVal);
-    return idx === -1 ? '#N/A' : (at(matrix, rowIdx - 1)?.[idx] ?? null);
+    return idx === -1 ? '#N/A' : (matrix[rowIdx - 1]?.[idx] ?? null);
   }
   const idx = exactSearch(firstRow, lookupVal);
-  return idx === -1 ? '#N/A' : (at(matrix, rowIdx - 1)?.[idx] ?? null);
+  return idx === -1 ? '#N/A' : (matrix[rowIdx - 1]?.[idx] ?? null);
 }
 
 // ---------------------------------------------------------------------------
@@ -218,8 +213,8 @@ function indexImpl(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): CellValue {
   if (args.length < 2) return '#VALUE!';
-  const arg0 = at(args, 0);
-  const arg1 = at(args, 1);
+  const arg0 = args[0];
+  const arg1 = args[1];
   if (!arg0 || !arg1) return '#VALUE!';
 
   const matrix = resolveMatrix(arg0, ctx, evaluate);
@@ -229,7 +224,7 @@ function indexImpl(
 
   let colIdx = 1;
   if (args.length >= 3) {
-    const arg2 = at(args, 2);
+    const arg2 = args[2];
     if (!arg2) return '#VALUE!';
     const cVal = toNumber(evaluate(arg2, ctx));
     if (typeof cVal === 'string') return cVal;
@@ -249,8 +244,8 @@ function matchImpl(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): CellValue {
   if (args.length < 2) return '#VALUE!';
-  const arg0 = at(args, 0);
-  const arg1 = at(args, 1);
+  const arg0 = args[0];
+  const arg1 = args[1];
   if (!arg0 || !arg1) return '#VALUE!';
 
   const lookupVal = evaluate(arg0, ctx);
@@ -260,7 +255,7 @@ function matchImpl(
 
   let matchType = 1;
   if (args.length >= 3) {
-    const arg2 = at(args, 2);
+    const arg2 = args[2];
     if (!arg2) return '#VALUE!';
     const mtVal = toNumber(evaluate(arg2, ctx));
     if (typeof mtVal === 'string') return mtVal;
@@ -313,13 +308,13 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
   // ---- CHOOSE ------------------------------------------------------------
   registry.set('CHOOSE', (args, ctx, evaluate): CellValue => {
     if (args.length < 2) return '#VALUE!';
-    const arg0 = at(args, 0);
+    const arg0 = args[0];
     if (!arg0) return '#VALUE!';
     const idxVal = toNumber(evaluate(arg0, ctx));
     if (typeof idxVal === 'string') return idxVal;
     const idx = Math.floor(idxVal);
     if (idx < 1 || idx >= args.length) return '#VALUE!';
-    const argN = at(args, idx);
+    const argN = args[idx];
     if (!argN) return '#VALUE!';
     return evaluate(argN, ctx);
   });
@@ -327,7 +322,7 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
   // ---- ROW ---------------------------------------------------------------
   registry.set('ROW', (args): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const arg = at(args, 0);
+    const arg = args[0];
     if (!arg) return '#VALUE!';
     switch (arg.type) {
       case 'cell_ref':
@@ -342,7 +337,7 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
   // ---- COLUMN ------------------------------------------------------------
   registry.set('COLUMN', (args): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const arg = at(args, 0);
+    const arg = args[0];
     if (!arg) return '#VALUE!';
     switch (arg.type) {
       case 'cell_ref':
@@ -357,7 +352,7 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
   // ---- ROWS --------------------------------------------------------------
   registry.set('ROWS', (args): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const arg = at(args, 0);
+    const arg = args[0];
     if (!arg) return '#VALUE!';
     switch (arg.type) {
       case 'range':
@@ -372,7 +367,7 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
   // ---- COLUMNS -----------------------------------------------------------
   registry.set('COLUMNS', (args): CellValue => {
     if (args.length < 1) return '#VALUE!';
-    const arg = at(args, 0);
+    const arg = args[0];
     if (!arg) return '#VALUE!';
     switch (arg.type) {
       case 'range':

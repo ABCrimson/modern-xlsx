@@ -8,7 +8,7 @@
 
 import { columnToLetter, decodeCellRef, encodeRange } from './cell-ref.js';
 import { StyleBuilder } from './style-builder.js';
-import type { AlignmentData, BorderStyle, FontData, StylesData } from './types.js';
+import type { AlignmentData, BorderStyle, FontData, PatternType, StylesData } from './types.js';
 import type { Workbook, Worksheet } from './workbook.js';
 
 // ---------------------------------------------------------------------------
@@ -262,25 +262,29 @@ function buildCellOverrideStyle(wb: Workbook, baseIdx: number, override: CellSty
   // Merge fill
   const baseFill = styles.fills[base?.fillId ?? 0];
   if (override.fill) {
+    const pattern = (override.fill.pattern ?? baseFill?.patternType ?? 'none') as PatternType;
     sb.fill({
-      pattern: (override.fill.pattern ?? baseFill?.patternType ?? 'none') as 'solid' | 'none',
+      pattern,
       fgColor: override.fill.fgColor ?? baseFill?.fgColor ?? null,
     });
   } else if (baseFill && baseFill.patternType !== 'none') {
-    sb.fill({ pattern: baseFill.patternType as 'solid', fgColor: baseFill.fgColor });
+    sb.fill({ pattern: baseFill.patternType as PatternType, fgColor: baseFill.fgColor });
   }
 
   // Merge border
   const baseBorder = styles.borders[base?.borderId ?? 0];
   if (override.border || baseBorder) {
-    const merged = {
-      left: override.border?.left ?? baseBorder?.left ?? undefined,
-      right: override.border?.right ?? baseBorder?.right ?? undefined,
-      top: override.border?.top ?? baseBorder?.top ?? undefined,
-      bottom: override.border?.bottom ?? baseBorder?.bottom ?? undefined,
-    };
-    if (merged.left || merged.right || merged.top || merged.bottom) {
-      sb.border(merged as Parameters<StyleBuilder['border']>[0]);
+    const left = override.border?.left ?? baseBorder?.left;
+    const right = override.border?.right ?? baseBorder?.right;
+    const top = override.border?.top ?? baseBorder?.top;
+    const bottom = override.border?.bottom ?? baseBorder?.bottom;
+    if (left || right || top || bottom) {
+      const borderOpts: Parameters<StyleBuilder['border']>[0] = {};
+      if (left) borderOpts.left = left;
+      if (right) borderOpts.right = right;
+      if (top) borderOpts.top = top;
+      if (bottom) borderOpts.bottom = bottom;
+      sb.border(borderOpts);
     }
   }
 

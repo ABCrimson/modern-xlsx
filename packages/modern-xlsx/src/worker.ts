@@ -28,22 +28,14 @@ function ensureInit(wasmUrl?: string): Promise<void> {
   return initPromise;
 }
 
-export interface WorkerRequest {
-  id: number;
-  type: 'init' | 'read' | 'write';
-  wasmUrl?: string;
-  data?: Uint8Array;
-  json?: string;
-  password?: string;
-}
+export type WorkerRequest =
+  | { id: number; type: 'init'; wasmUrl?: string }
+  | { id: number; type: 'read'; data: Uint8Array; wasmUrl?: string; password?: string }
+  | { id: number; type: 'write'; json: string; wasmUrl?: string; password?: string };
 
-export interface WorkerResponse {
-  id: number;
-  type: 'result' | 'error';
-  data?: Uint8Array;
-  json?: string;
-  error?: string;
-}
+export type WorkerResponse =
+  | { id: number; type: 'result'; data?: Uint8Array; json?: string }
+  | { id: number; type: 'error'; error: string };
 
 // Use globalThis directly — worker scripts run in DedicatedWorkerGlobalScope
 // but we cast to avoid requiring lib.webworker.d.ts in the main tsconfig.
@@ -53,10 +45,10 @@ const _self = globalThis as unknown as {
 };
 
 _self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
-  const { id, type, wasmUrl, data, json, password } = event.data;
-  handleMessage(id, type, wasmUrl, data, json, password).catch((err) => {
+  const msg = event.data;
+  handleMessage(msg).catch((err) => {
     const response: WorkerResponse = {
-      id,
+      id: msg.id,
       type: 'error',
       error: err instanceof Error ? err.message : String(err),
     };
@@ -64,43 +56,33 @@ _self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
   });
 });
 
-async function handleMessage(
-  id: number,
-  type: string,
-  wasmUrl?: string,
-  data?: Uint8Array,
-  json?: string,
-  password?: string,
-): Promise<void> {
-  switch (type) {
+async function handleMessage(msg: WorkerRequest): Promise<void> {
+  switch (msg.type) {
     case 'init': {
-      await ensureInit(wasmUrl);
-      const response: WorkerResponse = { id, type: 'result' };
+      await ensureInit(msg.wasmUrl);
+      const response: WorkerResponse = { id: msg.id, type: 'result' };
       _self.postMessage(response);
       break;
     }
 
     case 'read': {
-      await ensureInit(wasmUrl);
-      if (!data) throw new Error('read requires data (Uint8Array)');
-      const resultJson = password ? _wasmReadWithPasswordJson(data, password) : _wasmReadJson(data);
-      const response: WorkerResponse = { id, type: 'result', json: resultJson };
+      await ensureInit(msg.wasmUrl);
+      const resultJson = msg.password
+        ? _wasmReadWithPasswordJson(msg.data, msg.password)
+        : _wasmReadJson(msg.data);
+      const response: WorkerResponse = { id: msg.id, type: 'result', json: resultJson };
       _self.postMessage(response);
       break;
     }
 
     case 'write': {
-      await ensureInit(wasmUrl);
-      if (!json) throw new Error('write requires json (WorkbookData)');
-      const resultData = password
-        ? _wasmWriteWithPasswordJson(json, password)
-        : _wasmWriteJson(json);
-      const response: WorkerResponse = { id, type: 'result', data: resultData };
+      await ensureInit(msg.wasmUrl);
+      const resultData = msg.password
+        ? _wasmWriteWithPasswordJson(msg.json, msg.password)
+        : _wasmWriteJson(msg.json);
+      const response: WorkerResponse = { id: msg.id, type: 'result', data: resultData };
       _self.postMessage(response, [resultData.buffer]);
       break;
     }
-
-    default:
-      throw new Error(`Unknown message type: ${type}`);
   }
 }

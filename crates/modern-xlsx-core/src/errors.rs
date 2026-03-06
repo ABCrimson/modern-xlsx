@@ -58,4 +58,10 @@ pub enum ModernXlsxError {
     Io(#[from] std::io::Error),
 }
 
+impl From<serde_json::Error> for ModernXlsxError {
+    fn from(e: serde_json::Error) -> Self {
+        ModernXlsxError::XmlParse(e.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, ModernXlsxError>;

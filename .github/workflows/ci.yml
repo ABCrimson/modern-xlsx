@@ -42,10 +42,44 @@ jobs:
       - name: Test
         run: cargo test -p modern-xlsx-core
 
-  typescript:
-    name: TypeScript
-    needs: rust
+  security:
+    name: Security Audit
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@beta
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Cargo Audit
+        run: cargo audit
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "25"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: npm audit
+        run: cd packages/modern-xlsx && npm audit --omit=dev || true
+
+  typescript:
+    name: TypeScript (Node ${{ matrix.node-version }}, ${{ matrix.os }})
+    needs: rust
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        node-version: ["24", "25"]
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -64,11 +98,34 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Install wasm-pack
+      - name: Install wasm-pack (Linux)
+        if: runner.os == 'Linux'
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
+      - name: Install wasm-pack (Windows)
+        if: runner.os == 'Windows'
+        run: cargo install wasm-pack
+
+      - name: Cache WASM artifact
+        id: cache-wasm
+        uses: actions/cache@v5
+        with:
+          path: packages/modern-xlsx/wasm/
+          key: ${{ runner.os }}-wasm-${{ hashFiles('crates/**/*.rs', 'Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-wasm-
+
       - name: Build WASM
+        if: steps.cache-wasm.outputs.cache-hit != 'true'
         run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt
+
+      - name: Track WASM size
+        run: |
+          WASM_SIZE=$(stat -c%s packages/modern-xlsx/wasm/modern_xlsx_wasm_bg.wasm)
+          echo "WASM binary size: ${WASM_SIZE} bytes ($(( WASM_SIZE / 1024 )) KB)"
+          if [ "$WASM_SIZE" -gt 2097152 ]; then
+            echo "::warning::WASM binary exceeds 2 MB threshold (${WASM_SIZE} bytes)"
+          fi
+        shell: bash
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -76,7 +133,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "25"
+          node-version: "${{ matrix.node-version }}"
           cache: "pnpm"
 
       - name: Install dependencies

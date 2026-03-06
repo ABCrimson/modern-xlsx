@@ -31,6 +31,28 @@ use crate::zip::writer::{write_zip, ZipEntry};
 use crate::{ModernXlsxError, Result, WorkbookData};
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Format an rId string (e.g. "rId3") without `format!()` heap overhead.
+#[inline]
+fn make_rid(num: impl itoa::Integer) -> String {
+    let mut s = String::with_capacity(12);
+    s.push_str("rId");
+    s.push_str(itoa::Buffer::new().format(num));
+    s
+}
+
+/// Format a prefixed rId string (e.g. "rId_pc3") without `format!()`.
+#[inline]
+fn make_prefixed_rid(prefix: &str, num: impl itoa::Integer) -> String {
+    let mut s = String::with_capacity(prefix.len() + 10);
+    s.push_str(prefix);
+    s.push_str(itoa::Buffer::new().format(num));
+    s
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -88,7 +110,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             .map(|(i, s)| SheetInfo {
                 name: s.name.clone(),
                 sheet_id: (i + 1) as u32,
-                r_id: format!("rId{}", i + 1),
+                r_id: make_rid(i + 1),
                 state: match s.state.as_deref() {
                     Some("hidden") => SheetState::Hidden,
                     Some("veryHidden") => SheetState::VeryHidden,
@@ -213,7 +235,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 });
 
                 let rid_num = ws_rels.next_r_id();
-                let rid = format!("rId{rid_num}");
+                let rid = make_rid(rid_num);
                 ws_rels.add(
                     rid.clone(),
                     REL_TABLE,
@@ -248,7 +270,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                     data: chart_xml,
                 });
 
-                let rid = format!("rId{}", ci + 1);
+                let rid = make_rid(ci + 1);
                 drawing_rels.add(
                     rid.clone(),
                     REL_CHART,
@@ -300,7 +322,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                     // Build a rId remapping: old image rId -> new rId in merged drawing.
                     let mut rid_remap: Vec<(String, String)> = Vec::with_capacity(image_rels.relationships.len());
                     for (rid_num, rel) in (base_rid..).zip(image_rels.relationships.iter()) {
-                        let new_rid = format!("rId{rid_num}");
+                        let new_rid = make_rid(rid_num);
                         rid_remap.push((rel.id.clone(), new_rid.clone()));
                         drawing_rels.add(
                             new_rid,
@@ -367,7 +389,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 drawing_r_id_str = Some(existing.id.clone());
             } else {
                 let rid_num = ws_rels.next_r_id();
-                let rid_str = format!("rId{rid_num}");
+                let rid_str = make_rid(rid_num);
                 ws_rels.add(
                     rid_str.clone(),
                     REL_DRAWING,
@@ -409,7 +431,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             if ws_rels.find_by_type(REL_COMMENTS).next().is_none() {
                 let rid_num = ws_rels.next_r_id();
                 ws_rels.add(
-                    format!("rId{rid_num}"),
+                    make_rid(rid_num),
                     REL_COMMENTS,
                     format!("../comments{sheet_num}.xml"),
                 );
@@ -438,7 +460,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             if ws_rels.find_by_type(REL_THREADED_COMMENTS).next().is_none() {
                 let rid_num = ws_rels.next_r_id();
                 ws_rels.add(
-                    format!("rId{rid_num}"),
+                    make_rid(rid_num),
                     REL_THREADED_COMMENTS,
                     format!("../threadedComments/threadedComment{sheet_num}.xml"),
                 );
@@ -466,7 +488,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
                 let rid_num = ws_rels.next_r_id();
                 ws_rels.add(
-                    format!("rId{rid_num}"),
+                    make_rid(rid_num),
                     REL_PIVOT_TABLE,
                     format!("../pivotTables/pivotTable{global_pivot_id}.xml"),
                 );
@@ -494,7 +516,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             if ws_rels.find_by_type(REL_SLICER).next().is_none() {
                 let rid_num = ws_rels.next_r_id();
                 ws_rels.add(
-                    format!("rId{rid_num}"),
+                    make_rid(rid_num),
                     REL_SLICER,
                     format!("../slicers/slicer{global_slicer_id}.xml"),
                 );
@@ -522,7 +544,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             if ws_rels.find_by_type(REL_TIMELINE).next().is_none() {
                 let rid_num = ws_rels.next_r_id();
                 ws_rels.add(
-                    format!("rId{rid_num}"),
+                    make_rid(rid_num),
                     REL_TIMELINE,
                     format!("../timelines/timeline{global_timeline_id}.xml"),
                 );
@@ -556,7 +578,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             });
 
             wb_rels_extra.add(
-                format!("rId_pc{cache_id}"),
+                make_prefixed_rid("rId_pc", cache_id),
                 REL_PIVOT_CACHE_DEF,
                 format!("pivotCache/pivotCacheDefinition{cache_id}.xml"),
             );
@@ -576,7 +598,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 // Write cache definition .rels pointing to the records file.
                 let mut cache_rels = Relationships::new();
                 cache_rels.add(
-                    "rId1".to_string(),
+                    "rId1",
                     REL_PIVOT_CACHE_REC,
                     format!("pivotCacheRecords{cache_id}.xml"),
                 );
@@ -601,7 +623,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 let mut existing_wb_rels = Relationships::parse(&entry.data)?;
                 for rel in &wb_rels_extra.relationships {
                     existing_wb_rels.add(
-                        format!("rId{}", existing_wb_rels.next_r_id()),
+                        make_rid(existing_wb_rels.next_r_id()),
                         rel.rel_type.clone(),
                         rel.target.clone(),
                     );
@@ -630,7 +652,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             let mut existing_wb_rels = Relationships::parse(&entry.data)?;
             let rid_num = existing_wb_rels.next_r_id();
             existing_wb_rels.add(
-                format!("rId{rid_num}"),
+                make_rid(rid_num),
                 REL_PERSONS,
                 "persons/person.xml",
             );
@@ -655,7 +677,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             });
 
             wb_rels_extra.add(
-                format!("rId_sc{cache_id}"),
+                make_prefixed_rid("rId_sc", cache_id),
                 REL_SLICER_CACHE,
                 format!("slicerCaches/slicerCache{cache_id}.xml"),
             );
@@ -670,7 +692,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             let mut existing_wb_rels = Relationships::parse(&entry.data)?;
             for rel in &wb_rels_extra.relationships {
                 existing_wb_rels.add(
-                    format!("rId{}", existing_wb_rels.next_r_id()),
+                    make_rid(existing_wb_rels.next_r_id()),
                     rel.rel_type.clone(),
                     rel.target.clone(),
                 );
@@ -696,7 +718,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             });
 
             wb_rels_extra.add(
-                format!("rId_tc{cache_id}"),
+                make_prefixed_rid("rId_tc", cache_id),
                 REL_TIMELINE_CACHE,
                 format!("timelineCaches/timelineCache{cache_id}.xml"),
             );
@@ -711,7 +733,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             let mut existing_wb_rels = Relationships::parse(&entry.data)?;
             for rel in &wb_rels_extra.relationships {
                 existing_wb_rels.add(
-                    format!("rId{}", existing_wb_rels.next_r_id()),
+                    make_rid(existing_wb_rels.next_r_id()),
                     rel.rel_type.clone(),
                     rel.target.clone(),
                 );

@@ -5,7 +5,7 @@ export type {
   DrawBarcodeOptions,
   ImageAnchor,
   RenderOptions,
-} from './barcode.js';
+} from './barcode/index.js';
 export {
   encodeCode39,
   encodeCode128,
@@ -20,7 +20,7 @@ export {
   generateDrawingRels,
   generateDrawingXml,
   renderBarcodePNG,
-} from './barcode.js';
+} from './barcode/index.js';
 // Cell reference utilities
 export type { CellAddress, CellRange, SplitCellRef } from './cell-ref.js';
 export {

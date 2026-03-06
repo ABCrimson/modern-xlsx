@@ -574,7 +574,7 @@ const runs = new RichTextBuilder()
 Single `<script>` tag — no bundler required:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.9.0/dist/modern-xlsx.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.9.1/dist/modern-xlsx.min.js"></script>
 <script>
   (async () => {
     await ModernXlsx.initWasm();
@@ -586,7 +586,7 @@ Single `<script>` tag — no bundler required:
 </script>
 ```
 
-Also available via unpkg: `https://unpkg.com/modern-xlsx@0.9.0/dist/modern-xlsx.min.js`
+Also available via unpkg: `https://unpkg.com/modern-xlsx@0.9.1/dist/modern-xlsx.min.js`
 
 ### Web Worker (Off-Thread)
 
@@ -664,6 +664,67 @@ import type {
   // Slicers & timelines
   SlicerData, SlicerCacheData, TimelineData, TimelineCacheData,
 } from 'modern-xlsx';
+```
+
+### Pivot Tables (Read-Only)
+
+```typescript
+const wb = await readAsync(buffer);
+const ws = wb.getSheet('PivotReport');
+
+// Access pivot table metadata
+for (const pt of ws.pivotTables) {
+  console.log(pt.name, pt.location);
+}
+
+// Access pivot cache data
+for (const cache of wb.pivotCaches) {
+  console.log(cache.fields.map(f => f.name));
+}
+```
+
+### Threaded Comments
+
+```typescript
+const ws = wb.getSheet('Sheet1');
+
+// Add a threaded comment
+ws.addThreadedComment('A1', 'Review this value', 'Alice');
+ws.replyToComment('A1', 'Looks correct to me', 'Bob');
+
+// Read threaded comments
+for (const tc of ws.threadedComments) {
+  console.log(tc.ref, tc.text, tc.author);
+}
+```
+
+### Slicers & Timelines (Read-Only)
+
+```typescript
+const ws = wb.getSheet('Dashboard');
+
+// Access slicer metadata
+for (const slicer of ws.slicers) {
+  console.log(slicer.name, slicer.caption);
+}
+
+// Access timeline metadata
+for (const tl of ws.timelines) {
+  console.log(tl.name, tl.caption);
+}
+```
+
+### CLI Tool
+
+```bash
+# Get workbook info
+modern-xlsx info report.xlsx
+
+# Convert to JSON
+modern-xlsx convert report.xlsx output.json
+
+# Convert to CSV
+modern-xlsx convert report.xlsx output.csv
 ```
 
 ## License

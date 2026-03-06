@@ -6,7 +6,7 @@ Thanks for your interest in contributing! This guide will help you get started.
 
 ### Prerequisites
 
-- **Rust** 1.94.0+ with `wasm32-unknown-unknown` target
+- **Rust** 1.95.0+ with `wasm32-unknown-unknown` target
 - **Node.js** 25+
 - **pnpm** 11+
 - **wasm-pack** (for building the WASM bridge)
@@ -38,10 +38,10 @@ pnpm -C packages/modern-xlsx build
 ### Test
 
 ```bash
-# Rust tests (157 tests)
+# Rust tests (389 tests)
 cargo test -p modern-xlsx-core
 
-# TypeScript tests (280 tests)
+# TypeScript tests (1,230 tests)
 pnpm -C packages/modern-xlsx test
 
 # Lint

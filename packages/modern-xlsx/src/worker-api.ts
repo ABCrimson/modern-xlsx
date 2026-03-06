@@ -44,14 +44,14 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
   >();
 
   worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
-    const { id, type, error } = event.data;
-    const handler = pending.get(id);
+    const resp = event.data;
+    const handler = pending.get(resp.id);
     if (!handler) return;
-    pending.delete(id);
-    if (type === 'error') {
-      handler.reject(new Error(error ?? 'Unknown worker error'));
+    pending.delete(resp.id);
+    if (resp.type === 'error') {
+      handler.reject(new Error(resp.error));
     } else {
-      handler.resolve(event.data);
+      handler.resolve(resp);
     }
   });
 
@@ -63,44 +63,40 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
     pending.clear();
   });
 
-  function send(
-    request: Omit<WorkerRequest, 'id'>,
-    transfer?: Transferable[],
-  ): Promise<WorkerResponse> {
+  function send(request: WorkerRequest, transfer?: Transferable[]): Promise<WorkerResponse> {
     if (terminated) {
       return Promise.reject(new Error('Worker has crashed or been terminated'));
     }
     const { promise, resolve, reject } = Promise.withResolvers<WorkerResponse>();
-    const id = nextId++;
-    pending.set(id, { resolve, reject });
-    const msg: WorkerRequest = { ...request, id, ...(wasmUrl != null && { wasmUrl }) };
+    pending.set(request.id, { resolve, reject });
     if (transfer) {
-      worker.postMessage(msg, transfer);
+      worker.postMessage(request, transfer);
     } else {
-      worker.postMessage(msg);
+      worker.postMessage(request);
     }
     return promise;
   }
 
   return {
     async readBuffer(data: Uint8Array, options?: { password?: string }): Promise<WorkbookData> {
+      const id = nextId++;
       // Transfer the buffer to the worker (zero-copy)
-      const response = await send(
-        { type: 'read', data, ...(options?.password != null && { password: options.password }) },
-        [data.buffer],
-      );
-      if (!response.json) throw new Error('Worker returned no data');
+      const msg: WorkerRequest = { id, type: 'read', data };
+      if (wasmUrl != null) msg.wasmUrl = wasmUrl;
+      if (options?.password != null) msg.password = options.password;
+      const response = await send(msg, [data.buffer]);
+      if (response.type !== 'result' || !response.json) throw new Error('Worker returned no data');
       return JSON.parse(response.json) as WorkbookData;
     },
 
     async writeBuffer(data: WorkbookData, options?: { password?: string }): Promise<Uint8Array> {
+      const id = nextId++;
       const json = JSON.stringify(data);
-      const response = await send({
-        type: 'write',
-        json,
-        ...(options?.password != null && { password: options.password }),
-      });
-      if (!response.data) throw new Error('Worker returned no data');
+      const msg: WorkerRequest = { id, type: 'write', json };
+      if (wasmUrl != null) msg.wasmUrl = wasmUrl;
+      if (options?.password != null) msg.password = options.password;
+      const response = await send(msg);
+      if (response.type !== 'result' || !response.data) throw new Error('Worker returned no data');
       return response.data;
     },
 

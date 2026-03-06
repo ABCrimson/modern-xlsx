@@ -16,7 +16,6 @@ modern-xlsx-core = { path = "../modern-xlsx-core", features = ["encryption"] }
 wasm-bindgen.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde-wasm-bindgen.workspace = true
 js-sys.workspace = true
 web-sys.workspace = true
 log.workspace = true
@@ -25,4 +24,4 @@ log.workspace = true
 wasm-bindgen-test.workspace = true
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-Oz", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+wasm-opt = ["-Oz", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--vacuous-drops"]
