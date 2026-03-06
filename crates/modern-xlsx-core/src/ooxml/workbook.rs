@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 
@@ -227,6 +229,7 @@ impl WorkbookXml {
                 }
                 Ok(Event::Eof) => break,
                 Err(err) => {
+                    cold_path();
                     return Err(ModernXlsxError::XmlParse(format!(
                         "error parsing workbook.xml: {err}"
                     )));

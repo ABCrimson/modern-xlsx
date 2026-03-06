@@ -3,6 +3,7 @@
 //! Decompresses a `.xlsx` ZIP archive, parses all OPC / SpreadsheetML parts,
 //! and assembles them into a [`WorkbookData`] struct.
 
+use core::hint::cold_path;
 use std::collections::{BTreeMap, HashSet};
 
 use log::{debug, warn};
@@ -92,19 +93,23 @@ fn parse_common(data: &[u8], limits: &ZipSecurityLimits, password: Option<&str>)
                     decrypted = Some(crate::ole2::detect::decrypt_file(data, pw)?);
                     decrypted.as_deref().unwrap()
                 } else {
+                    cold_path();
                     return Err(crate::ole2::encryption_info::build_encrypted_error(data));
                 }
             }
             Ole2Kind::LegacyXls => {
+                cold_path();
                 return Err(ModernXlsxError::LegacyFormat(ERR_LEGACY_XLS.into()));
             }
             Ole2Kind::Unknown => {
+                cold_path();
                 return Err(ModernXlsxError::UnrecognizedFormat(
                     ERR_OLE2_UNKNOWN.into(),
                 ));
             }
         },
         FileFormat::Unknown => {
+            cold_path();
             return Err(ModernXlsxError::UnrecognizedFormat(ERR_NOT_XLSX.into()));
         }
     };

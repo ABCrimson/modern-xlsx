@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 use crate::errors::ModernXlsxError;
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -56,6 +58,7 @@ impl EncryptionInfo {
     /// Parse the raw EncryptionInfo stream bytes.
     pub fn parse(stream: &[u8]) -> Result<Self> {
         if stream.len() < 8 {
+            cold_path();
             return Err(ModernXlsxError::PasswordProtected(
                 "EncryptionInfo stream too short".into(),
             ));
@@ -180,6 +183,7 @@ impl EncryptionInfo {
                 }
                 Ok(Event::Eof) => break,
                 Err(e) => {
+                    cold_path();
                     return Err(ModernXlsxError::PasswordProtected(format!(
                         "Failed to parse Agile encryption XML: {e}"
                     )));
@@ -229,6 +233,7 @@ impl EncryptionInfo {
         //   data[4+headerSize..] = EncryptionVerifier
         //     salt (16), encrypted verifier (16), hash size (4), encrypted hash (32)
         if data.len() < 4 {
+            cold_path();
             return Err(ModernXlsxError::PasswordProtected(
                 "Standard encryption header too short".into(),
             ));
@@ -237,6 +242,7 @@ impl EncryptionInfo {
         let header_size = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
 
         if data.len() < 4 + header_size + 68 {
+            cold_path();
             return Err(ModernXlsxError::PasswordProtected(
                 "Standard encryption data too short for verifier".into(),
             ));
@@ -244,6 +250,7 @@ impl EncryptionInfo {
 
         let header = &data[4..4 + header_size];
         if header.len() < 32 {
+            cold_path();
             return Err(ModernXlsxError::PasswordProtected(
                 "Standard encryption header fields too short".into(),
             ));
@@ -343,6 +350,7 @@ fn decode_base64(input: &str) -> Result<Vec<u8>> {
         }
         let val = DECODE[b as usize];
         if val == 255 {
+            cold_path();
             return Err(ModernXlsxError::PasswordProtected(format!(
                 "Invalid base64 character: {}",
                 b as char
@@ -400,7 +408,10 @@ mod tests {
                 assert!(!a.encrypted_hmac_key.is_empty());
                 assert!(!a.encrypted_hmac_value.is_empty());
             }
-            other => unreachable!("Expected Agile encryption, got {other:?}"),
+            other => {
+                cold_path();
+                unreachable!("Expected Agile encryption, got {other:?}")
+            }
         }
     }
 
@@ -429,7 +440,10 @@ mod tests {
                 assert_eq!(a.key_hash_alg, "SHA256");
                 assert_eq!(a.pw_spin_count, 50000);
             }
-            other => unreachable!("Expected Agile encryption, got {other:?}"),
+            other => {
+                cold_path();
+                unreachable!("Expected Agile encryption, got {other:?}")
+            }
         }
     }
 
@@ -473,7 +487,10 @@ mod tests {
                 assert_eq!(s.verifier_hash_size, 20);
                 assert_eq!(s.encrypted_verifier_hash.len(), 32);
             }
-            other => unreachable!("Expected Standard encryption, got {other:?}"),
+            other => {
+                cold_path();
+                unreachable!("Expected Standard encryption, got {other:?}")
+            }
         }
     }
 

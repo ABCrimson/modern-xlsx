@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 use crate::errors::{ModernXlsxError, Result};
 
 /// Sector size for v3 format (2^9 = 512 bytes).
@@ -159,6 +161,7 @@ pub fn write_ole2(streams: &[(&str, &[u8])]) -> Result<Vec<u8>> {
     }
 
     if fat_sectors > MAX_HEADER_DIFAT {
+        cold_path();
         return Err(ModernXlsxError::ZipWrite(format!(
             "OLE2 document too large: requires {fat_sectors} FAT sectors (max {MAX_HEADER_DIFAT})"
         )));

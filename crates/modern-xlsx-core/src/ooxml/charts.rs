@@ -1,5 +1,7 @@
 //! Chart definitions — `xl/charts/chart{n}.xml`.
 
+use core::hint::cold_path;
+
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
@@ -2208,7 +2210,10 @@ impl ChartData {
                                 b"radarChart" => ChartType::Radar,
                                 b"bubbleChart" => ChartType::Bubble,
                                 b"stockChart" => ChartType::Stock,
-                                _ => unreachable!(),
+                                _ => {
+                                    cold_path();
+                                    unreachable!()
+                                }
                             };
                             if chart_type.is_none() {
                                 // Primary chart.
@@ -3002,6 +3007,7 @@ impl ChartData {
                 }
                 Ok(Event::Eof) => break,
                 Err(err) => {
+                    cold_path();
                     return Err(ModernXlsxError::XmlParse(format!(
                         "chart parse error: {err}"
                     )));
@@ -3482,6 +3488,7 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
             }
             Ok(Event::Eof) => break,
             Err(err) => {
+                cold_path();
                 return Err(ModernXlsxError::XmlParse(format!(
                     "drawing parse error: {err}"
                 )));

@@ -4,6 +4,8 @@
 //! the entire XML into memory. The streaming writer writes rows
 //! incrementally to ZIP entries.
 
+use core::hint::cold_path;
+
 use crate::dates::DateSystem;
 use crate::errors::ModernXlsxError;
 use crate::ole2::detect::{classify_ole2, detect_format, FileFormat, Ole2Kind};
@@ -74,19 +76,23 @@ impl StreamingReader {
                         decrypted = Some(crate::ole2::detect::decrypt_file(data, pw)?);
                         decrypted.as_deref().unwrap()
                     } else {
+                        cold_path();
                         return Err(crate::ole2::encryption_info::build_encrypted_error(data));
                     }
                 }
                 Ole2Kind::LegacyXls => {
+                    cold_path();
                     return Err(ModernXlsxError::LegacyFormat(ERR_LEGACY_XLS.into()));
                 }
                 Ole2Kind::Unknown => {
+                    cold_path();
                     return Err(ModernXlsxError::UnrecognizedFormat(
                         ERR_OLE2_UNKNOWN.into(),
                     ));
                 }
             },
             FileFormat::Unknown => {
+                cold_path();
                 return Err(ModernXlsxError::UnrecognizedFormat(ERR_NOT_XLSX.into()));
             }
         };

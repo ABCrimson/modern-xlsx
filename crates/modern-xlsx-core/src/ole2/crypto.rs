@@ -6,6 +6,8 @@
 //! HMAC integrity verification, and full file encryption for OOXML encryption
 //! (SHA-512/SHA-256/SHA-1, AES-128/AES-256).
 
+use core::hint::cold_path;
+
 use aes::{Aes128, Aes256};
 use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::{NoPadding, Pkcs7}};
 use hmac::{Hmac, Mac};
@@ -380,11 +382,13 @@ pub fn verify_password_agile(
     // 6. Constant-time comparison (truncate to hash_size)
     let hash_len = info.pw_hash_size as usize;
     if computed.len() < hash_len || verifier_hash.len() < hash_len {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "Incorrect password.".into(),
         ));
     }
     if !constant_time_eq::constant_time_eq(&computed[..hash_len], &verifier_hash[..hash_len]) {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "Incorrect password.".into(),
         ));
@@ -421,6 +425,7 @@ pub fn decrypt_package(
     encrypted_package: &[u8],
 ) -> Result<Vec<u8>> {
     if encrypted_package.len() < 8 {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "EncryptedPackage too short".into(),
         ));
@@ -498,11 +503,13 @@ pub fn verify_hmac(
 
     // 4. Constant-time compare
     if computed.len() < hash_len || expected_hmac.len() < hash_len {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "HMAC verification failed — truncated hash".into(),
         ));
     }
     if !constant_time_eq::constant_time_eq(&computed[..hash_len], &expected_hmac[..hash_len]) {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "HMAC verification failed — file may be corrupted or tampered with.".into(),
         ));
@@ -563,6 +570,7 @@ pub fn compute_and_encrypt_hmac(
         "SHA512" => 64,
         "SHA256" => 32,
         _ => {
+            cold_path();
             return Err(ModernXlsxError::PasswordProtected(format!(
                 "Unsupported hash algorithm for HMAC: {hash_alg}"
             )));
@@ -728,6 +736,7 @@ fn aes_ecb_decrypt_no_pad(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     use aes::cipher::{BlockDecrypt, KeyInit, generic_array::GenericArray};
 
     if !data.len().is_multiple_of(16) {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "AES-ECB data length must be a multiple of 16".into(),
         ));
@@ -751,6 +760,7 @@ fn aes_ecb_decrypt_no_pad(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
             }
         }
         n => {
+            cold_path();
             return Err(ModernXlsxError::PasswordProtected(format!(
                 "Unsupported AES key length for ECB: {n} bytes (expected 16 or 32)"
             )));
@@ -768,6 +778,7 @@ fn aes_ecb_encrypt_no_pad(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     use aes::cipher::{BlockEncrypt, KeyInit, generic_array::GenericArray};
 
     if !data.len().is_multiple_of(16) {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "AES-ECB data length must be a multiple of 16".into(),
         ));
@@ -791,6 +802,7 @@ fn aes_ecb_encrypt_no_pad(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
             }
         }
         n => {
+            cold_path();
             return Err(ModernXlsxError::PasswordProtected(format!(
                 "Unsupported AES key length for ECB: {n} bytes (expected 16 or 32)"
             )));
@@ -848,6 +860,7 @@ pub fn verify_password_standard(
     // 5. Compare first verifier_hash_size bytes
     let hash_len = info.verifier_hash_size as usize;
     if verifier_hash.len() < hash_len || decrypted_verifier_hash.len() < hash_len {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "Incorrect password.".into(),
         ));
@@ -856,6 +869,7 @@ pub fn verify_password_standard(
         &verifier_hash[..hash_len],
         &decrypted_verifier_hash[..hash_len],
     ) {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "Incorrect password.".into(),
         ));
@@ -876,6 +890,7 @@ pub fn decrypt_standard_package(
     encrypted_package: &[u8],
 ) -> Result<Vec<u8>> {
     if encrypted_package.len() < 8 {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "EncryptedPackage too short".into(),
         ));
@@ -886,6 +901,7 @@ pub fn decrypt_standard_package(
     let payload = &encrypted_package[8..];
 
     if payload.is_empty() {
+        cold_path();
         return Err(ModernXlsxError::PasswordProtected(
             "EncryptedPackage has no encrypted data".into(),
         ));
@@ -1373,7 +1389,10 @@ mod tests {
         let info = crate::ole2::encryption_info::EncryptionInfo::parse(&enc_info_stream).unwrap();
         let agile = match info {
             crate::ole2::encryption_info::EncryptionInfo::Agile(a) => a,
-            other => unreachable!("Expected Agile encryption info, got {other:?}"),
+            other => {
+                cold_path();
+                unreachable!("Expected Agile encryption info, got {other:?}")
+            }
         };
 
         // Verify password and get data key.

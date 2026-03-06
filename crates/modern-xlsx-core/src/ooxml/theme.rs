@@ -4,6 +4,8 @@
 //! `<a:clrScheme>`. The full theme XML is preserved verbatim through
 //! `preserved_entries` for roundtrip fidelity — this module only reads colors.
 
+use core::hint::cold_path;
+
 use quick_xml::events::Event;
 use quick_xml::Reader;
 
@@ -156,6 +158,7 @@ pub fn parse(data: &[u8]) -> Result<ThemeColors> {
             }
             Ok(Event::Eof) => break,
             Err(err) => {
+                cold_path();
                 return Err(ModernXlsxError::XmlParse(format!(
                     "error parsing theme XML: {err}"
                 )));

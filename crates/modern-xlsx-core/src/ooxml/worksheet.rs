@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 
@@ -2058,6 +2060,7 @@ impl WorksheetXml {
                 }
                 Ok(Event::Eof) => break,
                 Err(err) => {
+                    cold_path();
                     return Err(ModernXlsxError::XmlParse(format!(
                         "error parsing worksheet XML: {err}"
                     )));
@@ -3510,6 +3513,7 @@ impl WorksheetXml {
 
                 Ok(Event::Eof) => break,
                 Err(err) => {
+                    cold_path();
                     return Err(ModernXlsxError::XmlParse(format!(
                         "error parsing worksheet XML: {err}"
                     )));

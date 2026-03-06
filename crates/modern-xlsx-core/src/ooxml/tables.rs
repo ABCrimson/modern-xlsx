@@ -1,5 +1,7 @@
 //! Excel Table (ListObject) definitions — `xl/tables/table{n}.xml`.
 
+use core::hint::cold_path;
+
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
@@ -353,6 +355,7 @@ impl TableDefinition {
                 }
                 Ok(Event::Eof) => break,
                 Err(err) => {
+                    cold_path();
                     return Err(crate::ModernXlsxError::XmlParse(format!(
                         "table parse error: {err}"
                     )));

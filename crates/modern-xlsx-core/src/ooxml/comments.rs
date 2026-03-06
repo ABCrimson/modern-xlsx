@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
@@ -151,6 +153,7 @@ pub fn parse_comments(data: &[u8]) -> Result<Vec<Comment>> {
             Ok(Event::Eof) => break,
             Ok(_) => {}
             Err(e) => {
+                cold_path();
                 return Err(ModernXlsxError::XmlParse(format!(
                     "error parsing comments XML: {e}"
                 )));

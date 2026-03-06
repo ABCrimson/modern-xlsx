@@ -3,6 +3,8 @@
 //! Handles `xl/calcChain.xml` which records the calculation order for formula
 //! cells. Each entry maps a cell reference to a sheet ID.
 
+use core::hint::cold_path;
+
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
 use quick_xml::{Reader, Writer};
 
@@ -69,6 +71,7 @@ pub fn parse(data: &[u8]) -> Result<Vec<CalcChainEntry>> {
             }
             Ok(Event::Eof) => break,
             Err(err) => {
+                cold_path();
                 return Err(ModernXlsxError::XmlParse(format!(
                     "error parsing calcChain.xml: {err}"
                 )));

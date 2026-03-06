@@ -3,6 +3,7 @@
 //! Assembles all XML parts from a [`WorkbookData`] struct and zips them into a
 //! complete `.xlsx` file.
 
+use core::hint::cold_path;
 use std::collections::HashSet;
 
 use log::{debug, trace};
@@ -37,6 +38,7 @@ use crate::{ModernXlsxError, Result, WorkbookData};
 /// Returns the raw bytes of the resulting ZIP (`.xlsx`) file.
 pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     if workbook.sheets.is_empty() {
+        cold_path();
         return Err(ModernXlsxError::InvalidCellValue(
             "workbook must contain at least one sheet".into(),
         ));
@@ -53,6 +55,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             for cell in &row.cells {
                 if cell.cell_type == CellType::SharedString {
                     let Some(ref val) = cell.value else {
+                        cold_path();
                         return Err(ModernXlsxError::InvalidCellValue(format!(
                             "SharedString cell {} has no value",
                             cell.reference

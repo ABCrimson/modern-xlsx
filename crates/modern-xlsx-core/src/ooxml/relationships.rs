@@ -1,3 +1,4 @@
+use core::hint::cold_path;
 use std::collections::HashMap;
 
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
@@ -148,6 +149,7 @@ impl Relationships {
                 Ok(Event::Eof) => break,
                 Ok(_) => {}
                 Err(e) => {
+                    cold_path();
                     return Err(ModernXlsxError::XmlParse(format!(
                         "error parsing .rels XML: {e}"
                     )));

@@ -1,3 +1,4 @@
+use core::hint::cold_path;
 use std::collections::HashMap;
 
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
@@ -233,7 +234,8 @@ impl SharedStringTable {
                 }
                 Ok(Event::Eof) => break,
                 Err(err) => {
-                    return Err(ModernXlsxError::XmlParse(err.to_string()))
+                    cold_path();
+                    return Err(ModernXlsxError::XmlParse(err.to_string()));
                 }
                 _ => {}
             }

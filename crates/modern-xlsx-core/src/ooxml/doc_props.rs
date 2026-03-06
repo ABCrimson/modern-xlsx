@@ -3,6 +3,8 @@
 //! Handles `docProps/core.xml` (Dublin Core metadata) and `docProps/app.xml`
 //! (extended application properties).
 
+use core::hint::cold_path;
+
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 
@@ -125,6 +127,7 @@ pub fn parse_core(data: &[u8]) -> Result<DocProperties> {
             }
             Ok(Event::Eof) => break,
             Err(err) => {
+                cold_path();
                 return Err(ModernXlsxError::XmlParse(format!(
                     "error parsing docProps/core.xml: {err}"
                 )));
@@ -187,6 +190,7 @@ pub fn parse_app(props: &mut DocProperties, data: &[u8]) -> Result<()> {
             }
             Ok(Event::Eof) => break,
             Err(err) => {
+                cold_path();
                 return Err(ModernXlsxError::XmlParse(format!(
                     "error parsing docProps/app.xml: {err}"
                 )));

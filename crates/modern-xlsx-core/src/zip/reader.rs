@@ -1,3 +1,4 @@
+use core::hint::cold_path;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
@@ -53,6 +54,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
 
         // Path traversal guard: reject `..` components
         if name.split('/').any(|component| component == "..") {
+            cold_path();
             return Err(ModernXlsxError::Security(format!(
                 "path traversal detected in ZIP entry: {name}"
             )));
@@ -60,6 +62,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
 
         // Path traversal guard: reject absolute paths (leading `/` or `\`)
         if name.starts_with('/') || name.starts_with('\\') {
+            cold_path();
             return Err(ModernXlsxError::Security(format!(
                 "absolute path detected in ZIP entry: {name}"
             )));
@@ -67,6 +70,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
 
         // Also check for backslash-based traversal
         if name.split('\\').any(|component| component == "..") {
+            cold_path();
             return Err(ModernXlsxError::Security(format!(
                 "path traversal detected in ZIP entry: {name}"
             )));
@@ -86,6 +90,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
         if compressed_size > 0 {
             let ratio = decompressed_size as f64 / compressed_size as f64;
             if ratio > limits.max_compression_ratio {
+                cold_path();
                 return Err(ModernXlsxError::Security(format!(
                     "compression ratio {ratio:.1} exceeds limit {} for entry: {name}",
                     limits.max_compression_ratio
@@ -93,6 +98,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
             }
         } else if declared_size > 0 {
             // compressed_size is 0 but there is data — suspicious
+            cold_path();
             return Err(ModernXlsxError::Security(format!(
                 "zero compressed size with non-zero data for entry: {name}"
             )));
@@ -101,6 +107,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
         // Total decompressed size guard
         total_decompressed += decompressed_size;
         if total_decompressed > limits.max_decompressed_size {
+            cold_path();
             return Err(ModernXlsxError::Security(format!(
                 "total decompressed size {} exceeds limit {}",
                 total_decompressed, limits.max_decompressed_size

@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 use crate::{ModernXlsxError, Result};
 
 /// A cell reference (zero-based column and row).
@@ -14,6 +16,7 @@ impl CellRef {
     /// and the row is converted from the 1-based number to a 0-based index.
     pub fn parse(s: &str) -> Result<Self> {
         if s.is_empty() {
+            cold_path();
             return Err(ModernXlsxError::InvalidCellRef("empty string".into()));
         }
 
@@ -24,6 +27,7 @@ impl CellRef {
             .ok_or_else(|| ModernXlsxError::InvalidCellRef(format!("no row number in '{s}'")))?;
 
         if first_digit == 0 {
+            cold_path();
             return Err(ModernXlsxError::InvalidCellRef(format!(
                 "no column letters in '{s}'"
             )));
@@ -34,6 +38,7 @@ impl CellRef {
 
         // Verify col_part is all ASCII letters.
         if !col_part.bytes().all(|b| b.is_ascii_alphabetic()) {
+            cold_path();
             return Err(ModernXlsxError::InvalidCellRef(format!(
                 "invalid column letters in '{s}'"
             )));
@@ -46,6 +51,7 @@ impl CellRef {
         })?;
 
         if row_1based == 0 {
+            cold_path();
             return Err(ModernXlsxError::InvalidCellRef(format!(
                 "row number must be >= 1, got 0 in '{s}'"
             )));
@@ -124,6 +130,7 @@ pub fn col_to_letters(col: u32) -> String {
 /// "A" → 0, "B" → 1, ..., "Z" → 25, "AA" → 26, ..., "XFD" → 16383
 pub fn letters_to_col(s: &str) -> Result<u32> {
     if s.is_empty() {
+        cold_path();
         return Err(ModernXlsxError::InvalidCellRef(
             "empty column letters".into(),
         ));
@@ -133,6 +140,7 @@ pub fn letters_to_col(s: &str) -> Result<u32> {
     for byte in s.bytes() {
         let c = byte.to_ascii_uppercase();
         if !c.is_ascii_uppercase() {
+            cold_path();
             return Err(ModernXlsxError::InvalidCellRef(format!(
                 "invalid character '{}' in column letters",
                 c as char

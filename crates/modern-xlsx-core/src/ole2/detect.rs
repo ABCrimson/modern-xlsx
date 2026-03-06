@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 use super::crypto::SensitiveKey;
 use crate::errors::ModernXlsxError;
 
@@ -50,6 +52,7 @@ struct Ole2Header {
 impl Ole2Header {
     fn parse(data: &[u8]) -> Result<Self> {
         if data.len() < 512 {
+            cold_path();
             return Err(ModernXlsxError::UnrecognizedFormat(
                 "File too small for OLE2 header".into(),
             ));

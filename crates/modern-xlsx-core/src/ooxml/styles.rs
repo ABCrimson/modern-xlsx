@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
 use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
@@ -1039,7 +1041,10 @@ impl Styles {
                 }
 
                 Ok(Event::Eof) => break,
-                Err(err) => return Err(ModernXlsxError::XmlParse(err.to_string())),
+                Err(err) => {
+                    cold_path();
+                    return Err(ModernXlsxError::XmlParse(err.to_string()));
+                }
                 _ => {}
             }
             buf.clear();

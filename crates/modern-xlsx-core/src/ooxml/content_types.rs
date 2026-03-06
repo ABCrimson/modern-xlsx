@@ -1,3 +1,4 @@
+use core::hint::cold_path;
 use std::collections::BTreeMap;
 
 use quick_xml::events::{BytesDecl, BytesStart, Event};
@@ -136,6 +137,7 @@ impl ContentTypes {
                 Ok(Event::Eof) => break,
                 Ok(_) => {}
                 Err(e) => {
+                    cold_path();
                     return Err(ModernXlsxError::XmlParse(format!(
                         "error parsing [Content_Types].xml: {e}"
                     )));

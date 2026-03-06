@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 
@@ -61,6 +63,7 @@ fn fractional_to_time(frac: f64) -> (u32, u32, u32, u32) {
 /// - No leap-year bug; straightforward day addition.
 pub fn serial_to_date(serial: f64, system: DateSystem) -> Result<DateTimeComponents> {
     if serial < 0.0 {
+        cold_path();
         return Err(ModernXlsxError::InvalidDate(format!(
             "serial number must be non-negative, got {serial}"
         )));
