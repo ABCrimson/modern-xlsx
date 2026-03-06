@@ -133,7 +133,7 @@ Benchmarks on a 100,000-row workbook (Node.js, single thread):
                     └────────────────────────────┘
 ```
 
-Data crosses the WASM boundary as a JSON string — 8-13x faster than `serde_wasm_bindgen` for large workbooks. The Rust core handles all ZIP compression, XML parsing, shared string tables, and style resolution.
+Data crosses the WASM boundary as a JSON string — 8-13x faster than `serde_wasm_bindgen` for large workbooks. The Rust core (Rust 1.95, Edition 2024) handles all ZIP compression, XML parsing, shared string tables, and style resolution. Error paths use `cold_path()` hints for optimal branch layout, and hot-path helpers are `#[inline]`-annotated for maximum throughput.
 
 ---
 
@@ -526,7 +526,7 @@ const runs = new RichTextBuilder()
 Single `<script>` tag — no bundler required:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.8.5/dist/modern-xlsx.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.8.6/dist/modern-xlsx.min.js"></script>
 <script>
   (async () => {
     await ModernXlsx.initWasm();
@@ -538,7 +538,7 @@ Single `<script>` tag — no bundler required:
 </script>
 ```
 
-Also available via unpkg: `https://unpkg.com/modern-xlsx@0.8.5/dist/modern-xlsx.min.js`
+Also available via unpkg: `https://unpkg.com/modern-xlsx@0.8.6/dist/modern-xlsx.min.js`
 
 ### Web Worker (Off-Thread)
 
