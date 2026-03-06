@@ -1,0 +1,2 @@
+# Force LF line endings everywhere (prevents CRLF issues on Windows CI)
+* text=auto eol=lf
