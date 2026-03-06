@@ -3,6 +3,12 @@ import { generateBarcode, generateDrawingRels, generateDrawingXml } from './barc
 import { columnToLetter, decodeCellRef } from './cell-ref.js';
 import { ChartBuilder } from './chart-builder.js';
 import { isDateFormatCode, serialToDate } from './dates.js';
+import {
+  COMMENT_NOT_FOUND,
+  INVALID_ARGUMENT,
+  ModernXlsxError,
+  SHEET_NOT_FOUND,
+} from './errors.js';
 import { getBuiltinFormat } from './format-cell.js';
 import { StyleBuilder } from './style-builder.js';
 import type {
@@ -160,7 +166,7 @@ export class Workbook {
   addSheet(name: string): Worksheet {
     validateSheetName(name);
     if (this.data.sheets.some((s) => s.name === name)) {
-      throw new Error(`Sheet "${name}" already exists`);
+      throw new ModernXlsxError(INVALID_ARGUMENT, `Sheet "${name}" already exists`);
     }
     const sheetData: SheetData = {
       name,
@@ -196,10 +202,10 @@ export class Workbook {
    */
   moveSheet(fromIndex: number, toIndex: number): void {
     if (fromIndex < 0 || fromIndex >= this.data.sheets.length) {
-      throw new Error(`Invalid source index: ${fromIndex}`);
+      throw new ModernXlsxError(INVALID_ARGUMENT, `Invalid source index: ${fromIndex}`);
     }
     if (toIndex < 0 || toIndex >= this.data.sheets.length) {
-      throw new Error(`Invalid destination index: ${toIndex}`);
+      throw new ModernXlsxError(INVALID_ARGUMENT, `Invalid destination index: ${toIndex}`);
     }
     const [sheet] = this.data.sheets.splice(fromIndex, 1) as [SheetData];
     this.data.sheets.splice(toIndex, 0, sheet);
@@ -211,14 +217,14 @@ export class Workbook {
    */
   cloneSheet(sourceIndex: number, newName: string, insertIndex?: number): Worksheet {
     if (sourceIndex < 0 || sourceIndex >= this.data.sheets.length) {
-      throw new Error(`Invalid source index: ${sourceIndex}`);
+      throw new ModernXlsxError(INVALID_ARGUMENT, `Invalid source index: ${sourceIndex}`);
     }
     validateSheetName(newName);
     if (this.data.sheets.some((s) => s.name === newName)) {
-      throw new Error(`Sheet "${newName}" already exists`);
+      throw new ModernXlsxError(INVALID_ARGUMENT, `Sheet "${newName}" already exists`);
     }
     const source = this.data.sheets[sourceIndex];
-    if (!source) throw new Error(`Invalid source index: ${sourceIndex}`);
+    if (!source) throw new ModernXlsxError(INVALID_ARGUMENT, `Invalid source index: ${sourceIndex}`);
     const clone: SheetData = structuredClone(source);
     clone.name = newName;
     const idx = insertIndex ?? this.data.sheets.length;
@@ -235,14 +241,14 @@ export class Workbook {
         ? this.data.sheets.findIndex((s) => s.name === nameOrIndex)
         : nameOrIndex;
     if (idx < 0 || idx >= this.data.sheets.length) {
-      throw new Error(`Sheet not found: ${nameOrIndex}`);
+      throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet not found: ${nameOrIndex}`);
     }
     validateSheetName(newName);
     if (this.data.sheets.some((s, i) => s.name === newName && i !== idx)) {
-      throw new Error(`Sheet "${newName}" already exists`);
+      throw new ModernXlsxError(INVALID_ARGUMENT, `Sheet "${newName}" already exists`);
     }
     const sheet = this.data.sheets[idx];
-    if (!sheet) throw new Error(`Sheet not found: ${nameOrIndex}`);
+    if (!sheet) throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet not found: ${nameOrIndex}`);
     sheet.name = newName;
   }
 
@@ -255,14 +261,14 @@ export class Workbook {
         ? this.data.sheets.findIndex((s) => s.name === nameOrIndex)
         : nameOrIndex;
     if (idx < 0 || idx >= this.data.sheets.length) {
-      throw new Error(`Sheet not found: ${nameOrIndex}`);
+      throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet not found: ${nameOrIndex}`);
     }
     const target = this.data.sheets[idx];
-    if (!target) throw new Error(`Sheet not found: ${nameOrIndex}`);
+    if (!target) throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet not found: ${nameOrIndex}`);
     if (target.state === 'hidden' || target.state === 'veryHidden') return;
     const visibleCount = this.data.sheets.filter((s) => !s.state || s.state === 'visible').length;
     if (visibleCount <= 1) {
-      throw new Error('Cannot hide the last visible sheet');
+      throw new ModernXlsxError(INVALID_ARGUMENT, 'Cannot hide the last visible sheet');
     }
     target.state = 'hidden';
   }
@@ -276,10 +282,10 @@ export class Workbook {
         ? this.data.sheets.findIndex((s) => s.name === nameOrIndex)
         : nameOrIndex;
     if (idx < 0 || idx >= this.data.sheets.length) {
-      throw new Error(`Sheet not found: ${nameOrIndex}`);
+      throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet not found: ${nameOrIndex}`);
     }
     const sheet = this.data.sheets[idx];
-    if (!sheet) throw new Error(`Sheet not found: ${nameOrIndex}`);
+    if (!sheet) throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet not found: ${nameOrIndex}`);
     sheet.state = null;
   }
 
@@ -519,7 +525,7 @@ export class Workbook {
     format: 'png' | 'jpeg' | 'gif' = 'png',
   ): void {
     const sheetIndex = this.data.sheets.findIndex((s) => s.name === sheetName);
-    if (sheetIndex === -1) throw new Error(`Sheet "${sheetName}" not found`);
+    if (sheetIndex === -1) throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet "${sheetName}" not found`);
 
     if (!this.data.preservedEntries) {
       this.data.preservedEntries = {};
@@ -632,6 +638,16 @@ export class Worksheet {
   /** Sets the sheet visibility state. */
   set state(value: SheetState) {
     this.data.state = value === 'visible' ? null : value;
+  }
+
+  /** Returns the worksheet dimension string from the source file, or `null` if not set. */
+  get dimension(): string | null {
+    return this.data.worksheet.dimension;
+  }
+
+  /** Returns the number of populated rows in the sheet. */
+  get rowCount(): number {
+    return this.data.worksheet.rows.length;
   }
 
   /** Returns all rows in the sheet, sorted by 1-based row index. */
@@ -807,7 +823,7 @@ export class Worksheet {
   // --- Pane selections ---
 
   /** Returns per-pane selection state, or empty array. */
-  get paneSelections(): PaneSelectionData[] {
+  get paneSelections(): readonly PaneSelectionData[] {
     return this.data.worksheet.paneSelections ?? [];
   }
 
@@ -987,7 +1003,7 @@ export class Worksheet {
   replyToComment(commentId: string, text: string, author: string): string {
     const parent = this.data.worksheet.threadedComments?.find((c) => c.id === commentId);
     if (!parent) {
-      throw new Error(`Comment ${commentId} not found`);
+      throw new ModernXlsxError(COMMENT_NOT_FOUND, `Comment ${commentId} not found`);
     }
     const wb = this.workbookData;
     if (!wb) {
@@ -1333,7 +1349,7 @@ export class Worksheet {
   // -------------------------------------------------------------------------
 
   /** Returns all sparkline groups on this sheet. */
-  get sparklineGroups(): SparklineGroupData[] {
+  get sparklineGroups(): readonly SparklineGroupData[] {
     return this.data.worksheet.sparklineGroups ?? [];
   }
 
@@ -1508,15 +1524,24 @@ const INVALID_SHEET_CHARS = /[\\/*?[\]:]/;
 /** Validate an Excel sheet name per ECMA-376 §18.3.1.73 constraints. */
 function validateSheetName(name: string): void {
   if (name.length === 0) {
-    throw new Error('Sheet name must not be empty');
+    throw new ModernXlsxError(INVALID_ARGUMENT, 'Sheet name must not be empty');
   }
   if (name.length > 31) {
-    throw new Error(`Sheet name must be 31 characters or fewer (got ${name.length})`);
+    throw new ModernXlsxError(
+      INVALID_ARGUMENT,
+      `Sheet name must be 31 characters or fewer (got ${name.length})`,
+    );
   }
   if (INVALID_SHEET_CHARS.test(name)) {
-    throw new Error(`Sheet name contains invalid characters: \\ / * ? [ ] :`);
+    throw new ModernXlsxError(
+      INVALID_ARGUMENT,
+      `Sheet name contains invalid characters: \\ / * ? [ ] :`,
+    );
   }
   if (name.startsWith("'") || name.endsWith("'")) {
-    throw new Error('Sheet name must not start or end with an apostrophe');
+    throw new ModernXlsxError(
+      INVALID_ARGUMENT,
+      'Sheet name must not start or end with an apostrophe',
+    );
   }
 }

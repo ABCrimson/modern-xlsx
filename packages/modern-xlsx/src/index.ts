@@ -39,6 +39,15 @@ export type { AddSeriesOptions, AxisOptions } from './chart-builder.js';
 export { ChartBuilder } from './chart-builder.js';
 // Chart style presets
 export { CHART_STYLE_PALETTES, getChartStylePalette } from './chart-styles.js';
+// Errors
+export {
+  COMMENT_NOT_FOUND,
+  INVALID_ARGUMENT,
+  INVALID_CELL_REF,
+  ModernXlsxError,
+  SHEET_NOT_FOUND,
+  WASM_INIT_FAILED,
+} from './errors.js';
 // Date utilities
 export {
   dateToSerial,

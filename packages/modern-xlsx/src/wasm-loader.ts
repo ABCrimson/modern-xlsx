@@ -10,6 +10,7 @@ import init, {
   version as wasmVersion,
 } from '../wasm/modern_xlsx_wasm.js';
 
+import { ModernXlsxError, WASM_INIT_FAILED } from './errors.js';
 import type { RepairResult, ValidationReport, WorkbookData } from './types.js';
 
 let initPromise: Promise<void> | null = null;
@@ -88,7 +89,7 @@ export async function ensureReady(wasmSource?: string | URL): Promise<void> {
 
 export function ensureInitialized(): void {
   if (!initialized) {
-    throw new Error('WASM not initialized. Call initWasm() first.');
+    throw new ModernXlsxError(WASM_INIT_FAILED, 'WASM not initialized. Call initWasm() first.');
   }
 }
 
