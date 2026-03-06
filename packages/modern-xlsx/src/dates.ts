@@ -185,13 +185,10 @@ export function isDateFormatCode(formatCode: string): boolean {
       continue;
     }
 
-    // Date/time tokens (case-insensitive)
+    // Date/time tokens (case-insensitive); 'm' is ambiguous (month vs minutes)
+    // but if present, likely date
     const lower = ch.toLowerCase();
-    if (lower === 'y' || lower === 'd' || lower === 'h' || lower === 's') {
-      return true;
-    }
-    // 'm' is ambiguous (month vs minutes) — but if present, likely date
-    if (lower === 'm') {
+    if (lower === 'y' || lower === 'm' || lower === 'd' || lower === 'h' || lower === 's') {
       return true;
     }
     // AM/PM marker

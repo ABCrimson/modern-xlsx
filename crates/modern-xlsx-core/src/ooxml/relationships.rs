@@ -56,7 +56,7 @@ pub struct Relationship {
 }
 
 /// A collection of OPC relationships, as found in `.rels` files.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Relationships {
     /// The ordered list of relationships.
     pub relationships: Vec<Relationship>,
@@ -228,11 +228,6 @@ impl Relationships {
     }
 }
 
-impl Default for Relationships {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 #[cfg(test)]
 mod tests {

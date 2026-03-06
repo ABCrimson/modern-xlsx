@@ -359,6 +359,7 @@ pub fn write_slicers(slicers: &[SlicerData]) -> Result<Vec<u8>> {
     root.push_attribute(("xmlns:mc", MC_NS));
     writer.write_event(Event::Start(root)).map_err(map_err)?;
 
+    let mut ibuf = itoa::Buffer::new();
     for slicer in slicers {
         let mut elem = BytesStart::new("slicer");
         elem.push_attribute(("name", slicer.name.as_str()));
@@ -374,8 +375,7 @@ pub fn write_slicers(slicers: &[SlicerData]) -> Result<Vec<u8>> {
             elem.push_attribute(("sortOrder", so.xml_val()));
         }
         if let Some(si) = slicer.start_item {
-            let si_str = si.to_string();
-            elem.push_attribute(("startItem", si_str.as_str()));
+            elem.push_attribute(("startItem", ibuf.format(si)));
         }
 
         writer.write_event(Event::Empty(elem)).map_err(map_err)?;

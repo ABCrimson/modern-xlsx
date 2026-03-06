@@ -37,20 +37,24 @@ function isError(val: CellValue): val is string {
  *   error   -> propagated as-is
  */
 function toNumber(val: CellValue): number | string {
-  if (typeof val === 'number') return val;
-  if (typeof val === 'boolean') return val ? 1 : 0;
   if (val === null) return 0;
-  // string -- might be an error or a numeric string
-  if (isError(val)) return val;
-  const n = Number(val);
-  return Number.isNaN(n) ? '#VALUE!' : n;
+  switch (typeof val) {
+    case 'number':
+      return val;
+    case 'boolean':
+      return val ? 1 : 0;
+    case 'string': {
+      if (isError(val)) return val;
+      const n = Number(val);
+      return Number.isNaN(n) ? '#VALUE!' : n;
+    }
+  }
 }
 
 /** Coerce a cell value to a string. */
 function coerceToString(val: CellValue): string {
   if (val === null) return '';
-  if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
-  return String(val);
+  return typeof val === 'boolean' ? (val ? 'TRUE' : 'FALSE') : String(val);
 }
 
 // ---------------------------------------------------------------------------
@@ -60,9 +64,14 @@ function coerceToString(val: CellValue): string {
 /** Type rank used for mixed-type comparison (Excel: blank < number < string < boolean). */
 function typeRank(val: CellValue): number {
   if (val === null) return 0;
-  if (typeof val === 'number') return 1;
-  if (typeof val === 'string') return 2;
-  /* boolean */ return 3;
+  switch (typeof val) {
+    case 'number':
+      return 1;
+    case 'string':
+      return 2;
+    case 'boolean':
+      return 3;
+  }
 }
 
 /**
@@ -103,13 +112,10 @@ export function evaluateNode(node: ASTNode, ctx: EvalContext): CellValue {
   switch (node.type) {
     // -- literals ----------------------------------------------------------
     case 'number':
-      return node.value;
     case 'string':
-      return node.value;
     case 'boolean':
-      return node.value;
     case 'error':
-      return node.value; // e.g. "#REF!"
+      return node.value;
 
     // -- references --------------------------------------------------------
     case 'cell_ref':
@@ -213,8 +219,14 @@ function evaluateBinary(
   }
 
   // -- comparison operators ------------------------------------------------
-  if (op === '=' || op === '<>' || op === '<' || op === '>' || op === '<=' || op === '>=') {
-    return evaluateComparison(op, left, right);
+  switch (op) {
+    case '=':
+    case '<>':
+    case '<':
+    case '>':
+    case '<=':
+    case '>=':
+      return evaluateComparison(op, left, right);
   }
 
   // -- arithmetic operators ------------------------------------------------

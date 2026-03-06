@@ -45,6 +45,7 @@ use crate::{ModernXlsxError, Result, SheetData, WorkbookData};
 ///
 /// `Visible` maps to `None` (omitted via `skip_serializing_if`),
 /// while `Hidden` and `VeryHidden` map to their camelCase strings.
+#[inline]
 fn sheet_state_to_str(state: SheetState) -> Option<String> {
     match state {
         SheetState::Visible => None,
@@ -157,7 +158,10 @@ fn parse_common(data: &[u8], limits: &ZipSecurityLimits, password: Option<&str>)
     debug!("parsing workbook.xml");
     let workbook_data = entries
         .get("xl/workbook.xml")
-        .ok_or_else(|| ModernXlsxError::MissingPart("xl/workbook.xml".into()))?;
+        .ok_or_else(|| {
+            cold_path();
+            ModernXlsxError::MissingPart("xl/workbook.xml".into())
+        })?;
     let workbook_xml = WorkbookXml::parse(workbook_data)?;
 
     // Parse shared strings (optional — some workbooks have no strings).
@@ -210,11 +214,13 @@ fn parse_common(data: &[u8], limits: &ZipSecurityLimits, password: Option<&str>)
     // Resolve sheet paths from workbook relationships.
     // NOTE: xl/theme/theme1.xml is NOT added to known_paths — we still
     // preserve the full theme XML verbatim so it survives roundtrip.
-    let mut known_dynamic: HashSet<String> = HashSet::new();
-    let mut sheet_targets: Vec<(String, String, SheetState)> = Vec::new();
+    let sheet_count = workbook_xml.sheets.len();
+    let mut known_dynamic: HashSet<String> = HashSet::with_capacity(sheet_count * 4);
+    let mut sheet_targets: Vec<(String, String, SheetState)> = Vec::with_capacity(sheet_count);
 
     for sheet_info in &workbook_xml.sheets {
         let rel = wb_rels.get_by_id(&sheet_info.r_id).ok_or_else(|| {
+            cold_path();
             warn!("could not resolve sheet target for rId: {}", sheet_info.r_id);
             ModernXlsxError::MissingPart(format!(
                 "relationship {} for sheet '{}'",
@@ -331,12 +337,10 @@ fn resolve_charts(
 
                     // Resolve each chart rId via drawing .rels.
                     let drawing_rels_path = derive_rels_path(&drawing_path);
-                    let drawing_rels =
-                        if let Some(dr) = ctx.entries.get(&drawing_rels_path) {
-                            Relationships::parse(dr)?
-                        } else {
-                            continue;
-                        };
+                    let Some(dr) = ctx.entries.get(&drawing_rels_path) else {
+                        continue;
+                    };
+                    let drawing_rels = Relationships::parse(dr)?;
 
                     for (anchor, chart_r_id) in &anchors {
                         if let Some(chart_rel) = drawing_rels
@@ -627,6 +631,7 @@ fn collect_preserved(ctx: &mut ReaderContext) -> BTreeMap<String, Vec<u8>> {
 
 /// Derive the .rels path for a worksheet.
 /// e.g. "xl/worksheets/sheet1.xml" -> "xl/worksheets/_rels/sheet1.xml.rels"
+#[inline]
 fn derive_rels_path(sheet_path: &str) -> String {
     if let Some(slash_pos) = sheet_path.rfind('/') {
         let dir = &sheet_path[..slash_pos];
@@ -638,6 +643,7 @@ fn derive_rels_path(sheet_path: &str) -> String {
 }
 
 /// Resolve a relationship target path relative to a worksheet path.
+#[inline]
 fn resolve_rel_target(sheet_path: &str, target: &str) -> String {
     if target.starts_with('/') {
         target.trim_start_matches('/').to_string()
@@ -821,6 +827,7 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
         out.push_str(",\"worksheet\":");
 
         let ws_data = ctx.entries.get(path).ok_or_else(|| {
+            cold_path();
             ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
         })?;
         WorksheetXml::parse_to_json(ws_data, Some(&ctx.sst), &sheet_comments[i], &sheet_tables[i], &mut out)?;
@@ -997,6 +1004,7 @@ fn parse_sheets(
         .map(|(name, path, state)| {
             debug!("parsing worksheet (parallel): {}", name);
             let sheet_data = entries.get(path).ok_or_else(|| {
+                cold_path();
                 ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
             })?;
             let worksheet = WorksheetXml::parse_with_sst(sheet_data, Some(sst))?;
@@ -1024,6 +1032,7 @@ fn parse_sheets(
         .map(|(name, path, state)| {
             debug!("parsing worksheet: {}", name);
             let sheet_data = entries.get(path).ok_or_else(|| {
+                cold_path();
                 ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
             })?;
             let worksheet = WorksheetXml::parse_with_sst(sheet_data, Some(sst))?;
@@ -1039,6 +1048,7 @@ fn parse_sheets(
 /// Resolve a relative path (which may contain `..` segments) against a base
 /// directory. For example, resolving `"../comments1.xml"` against
 /// `"xl/worksheets"` yields `"xl/comments1.xml"`.
+#[inline]
 fn resolve_relative_path(base_dir: &str, relative: &str) -> String {
     let mut parts: Vec<&str> = base_dir.split('/').collect();
     for segment in relative.split('/') {

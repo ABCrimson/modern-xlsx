@@ -65,14 +65,14 @@
     "prepublishOnly": "pnpm build"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.4",
-    "@types/node": "^25.3.3",
-    "@vitest/browser": "4.1.0-beta.5",
-    "@vitest/coverage-v8": "4.1.0-beta.5",
-    "playwright": "^1.50.0",
-    "tsdown": "0.21.0-beta.2",
-    "typescript": "6.0.0-dev.20260301",
-    "vitest": "4.1.0-beta.5",
+    "@biomejs/biome": "2.4.6",
+    "@types/node": "25.3.5",
+    "@vitest/browser": "4.1.0-beta.6",
+    "@vitest/coverage-v8": "4.1.0-beta.6",
+    "playwright": "1.59.0-alpha-2026-03-06",
+    "tsdown": "0.21.0",
+    "typescript": "6.0.0-dev.20260306",
+    "vitest": "4.1.0-beta.6",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

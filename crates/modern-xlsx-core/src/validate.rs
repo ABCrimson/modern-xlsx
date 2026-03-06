@@ -117,6 +117,7 @@ pub struct ValidationReport {
 }
 
 impl ValidationReport {
+    #[inline]
     fn push(&mut self, issue: ValidationIssue) {
         match issue.severity {
             Severity::Error => self.error_count += 1,
@@ -896,6 +897,7 @@ fn repair_row_ordering(wb: &mut WorkbookData) -> usize {
 /// Resolve an indexed color (legacy Excel 97-2003) to a 6-char RGB hex string.
 ///
 /// Returns `None` for out-of-range indices or special system colors (64, 65).
+#[inline]
 pub fn resolve_indexed_color(index: u32) -> Option<&'static str> {
     if (8..64).contains(&index) {
         Some(INDEXED_COLORS[(index - 8) as usize])
@@ -910,6 +912,7 @@ pub fn resolve_indexed_color(index: u32) -> Option<&'static str> {
 /// Resolve a theme color index to a 6-char RGB hex string using the given theme.
 ///
 /// Theme indices: 0=dk1, 1=lt1, 2=dk2, 3=lt2, 4-9=accent1-6, 10=hlink, 11=folHlink.
+#[inline]
 pub fn resolve_theme_color(theme_index: u32, theme: &ThemeColors) -> Option<&str> {
     match theme_index {
         0 => Some(&theme.dk1),
@@ -932,6 +935,7 @@ pub fn resolve_theme_color(theme_index: u32, theme: &ThemeColors) -> Option<&str
 ///
 /// Tint ranges from -1.0 (fully dark) to +1.0 (fully light).
 /// Follows OOXML tint algorithm (ECMA-376 §18.8.19).
+#[inline]
 pub fn apply_tint(rgb_hex: &str, tint: f64) -> String {
     if rgb_hex.len() < 6 {
         return rgb_hex.to_owned();

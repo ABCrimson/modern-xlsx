@@ -59,16 +59,17 @@ impl WriteDirEntry {
     }
 
     /// Serialize this directory entry to 128 bytes.
+    #[inline]
     fn to_bytes(&self) -> [u8; 128] {
         let mut buf = [0u8; 128];
 
         // Name as UTF-16LE (max 31 chars + null = 64 bytes)
-        let name_utf16: Vec<u16> = self.name.encode_utf16().collect();
-        let name_chars = name_utf16.len().min(31);
-        for (i, &c) in name_utf16[..name_chars].iter().enumerate() {
-            let offset = i * 2;
+        let mut name_chars = 0usize;
+        for c in self.name.encode_utf16().take(31) {
+            let offset = name_chars * 2;
             buf[offset] = c as u8;
             buf[offset + 1] = (c >> 8) as u8;
+            name_chars += 1;
         }
         // Null terminator
         let null_pos = name_chars * 2;
@@ -127,17 +128,11 @@ impl WriteDirEntry {
 /// FAT sectors (DIFAT chains are not implemented).
 pub fn write_ole2(streams: &[(&str, &[u8])]) -> Result<Vec<u8>> {
     // Step 1: Calculate data sectors needed per stream.
-    let mut stream_sector_counts: Vec<usize> = Vec::with_capacity(streams.len());
-    let mut total_data_sectors: usize = 0;
-    for &(_, data) in streams {
-        if data.is_empty() {
-            stream_sector_counts.push(0);
-        } else {
-            let sectors = data.len().div_ceil(SECTOR_SIZE);
-            stream_sector_counts.push(sectors);
-            total_data_sectors += sectors;
-        }
-    }
+    let stream_sector_counts: Vec<usize> = streams
+        .iter()
+        .map(|&(_, data)| if data.is_empty() { 0 } else { data.len().div_ceil(SECTOR_SIZE) })
+        .collect();
+    let total_data_sectors: usize = stream_sector_counts.iter().sum();
 
     // Step 2: Calculate directory sectors needed.
     // Directory entries: 1 root + N stream entries.
@@ -188,18 +183,13 @@ pub fn write_ole2(streams: &[(&str, &[u8])]) -> Result<Vec<u8>> {
 
     // Step 5: Write data sectors.
     let mut current_data_sid: u32 = 0;
-    for (i, &(_, data)) in streams.iter().enumerate() {
-        let count = stream_sector_counts[i];
-        if count == 0 {
-            continue;
-        }
+    for (&(_, data), &count) in streams.iter().zip(&stream_sector_counts) {
         for s in 0..count {
             let sector_offset = SECTOR_SIZE + (current_data_sid as usize) * SECTOR_SIZE;
             let data_start = s * SECTOR_SIZE;
             let data_end = (data_start + SECTOR_SIZE).min(data.len());
             let chunk = &data[data_start..data_end];
             buf[sector_offset..sector_offset + chunk.len()].copy_from_slice(chunk);
-            // Remaining bytes in sector stay zero-filled (already initialized).
             current_data_sid += 1;
         }
     }
@@ -217,14 +207,14 @@ pub fn write_ole2(streams: &[(&str, &[u8])]) -> Result<Vec<u8>> {
 
     // Stream entries: linked via right sibling IDs (flat list).
     let mut data_sid_cursor: u32 = 0;
-    for (i, &(name, data)) in streams.iter().enumerate() {
+    for (i, (&(name, data), &count)) in streams.iter().zip(&stream_sector_counts).enumerate() {
         let start_sector = if data.is_empty() {
             FAT_END_OF_CHAIN
         } else {
             data_sid_cursor
         };
         let right_sibling = if i + 1 < streams.len() {
-            (i + 2) as u32 // directory entry index of next stream
+            (i + 2) as u32
         } else {
             FAT_FREE_SECTOR
         };
@@ -236,7 +226,7 @@ pub fn write_ole2(streams: &[(&str, &[u8])]) -> Result<Vec<u8>> {
             right_sibling,
         ));
 
-        data_sid_cursor += stream_sector_counts[i] as u32;
+        data_sid_cursor += count as u32;
     }
 
     // Write directory entries into directory sectors.
@@ -289,12 +279,7 @@ pub fn write_ole2(streams: &[(&str, &[u8])]) -> Result<Vec<u8>> {
         let fat_sector_offset = SECTOR_SIZE + (first_fat_sid as usize + f) * SECTOR_SIZE;
         let entry_start = f * FAT_ENTRIES_PER_SECTOR;
         for e in 0..FAT_ENTRIES_PER_SECTOR {
-            let fat_idx = entry_start + e;
-            let value = if fat_idx < fat.len() {
-                fat[fat_idx]
-            } else {
-                FAT_FREE_SECTOR
-            };
+            let value = fat.get(entry_start + e).copied().unwrap_or(FAT_FREE_SECTOR);
             let offset = fat_sector_offset + e * 4;
             buf[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
         }

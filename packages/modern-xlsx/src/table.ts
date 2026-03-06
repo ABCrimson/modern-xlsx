@@ -124,7 +124,7 @@ interface StylePalette {
 }
 
 function buildBorderObj(opts: DrawTableOptions) {
-  const bs = opts.borderStyle === undefined ? ('thin' as const) : opts.borderStyle;
+  const bs = opts.borderStyle === undefined ? ('thin' satisfies BorderStyle) : opts.borderStyle;
   const bc = opts.borderColor ?? '000000';
   if (!bs) return undefined;
   return {
@@ -156,8 +156,8 @@ function buildPalette(wb: Workbook, opts: DrawTableOptions, colCount: number): S
     : bodyEvenIdx;
 
   // Per-column styles
-  const colBodyEven: (number | null)[] = Array.from({ length: colCount }, () => null);
-  const colBodyOdd: (number | null)[] = Array.from({ length: colCount }, () => null);
+  const colBodyEven: (number | null)[] = new Array<number | null>(colCount).fill(null);
+  const colBodyOdd: (number | null)[] = new Array<number | null>(colCount).fill(null);
 
   if (opts.columns) {
     for (let c = 0; c < colCount; c++) {
@@ -381,10 +381,7 @@ export function drawTable(wb: Workbook, ws: Worksheet, opts: DrawTableOptions): 
 
   // --- Frozen header ---
   if (opts.freezeHeader) {
-    ws.frozenPane = {
-      rows: 1,
-      cols: 0,
-    };
+    ws.frozenPane = { rows: 1, cols: 0 };
   }
 
   // --- Auto filter ---

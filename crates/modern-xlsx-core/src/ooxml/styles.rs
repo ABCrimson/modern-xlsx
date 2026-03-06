@@ -1297,6 +1297,7 @@ impl Styles {
 
 /// Extract a `BorderSide` from attributes on a border child element (e.g. `<left style="thin">`).
 /// Returns `None` if there is no `style` attribute.
+#[inline]
 fn parse_border_side_attrs(e: &BytesStart<'_>) -> Option<BorderSide> {
     e.attributes()
         .flatten()
@@ -1435,6 +1436,7 @@ fn parse_cell_style_attrs(e: &BytesStart<'_>) -> CellStyle {
 }
 
 /// Parse a boolean attribute value ("1", "true" -> true, everything else -> false).
+#[inline]
 fn parse_bool_attr(value: &[u8]) -> bool {
     let s = std::str::from_utf8(value).unwrap_or_default();
     s == "1" || s == "true"

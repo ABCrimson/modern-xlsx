@@ -161,7 +161,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     let mut global_pivot_id: u32 = 0;
     let mut global_slicer_id: u32 = 0;
     let mut global_timeline_id: u32 = 0;
-    let mut generated_rels: HashSet<String> = HashSet::new();
+    let mut generated_rels: HashSet<String> = HashSet::with_capacity(sheet_count * 2);
 
     for (i, sheet) in workbook.sheets.iter().enumerate() {
         let sheet_num = i + 1;
@@ -193,7 +193,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         };
 
         // --- Tables ---
-        let mut table_r_ids: Vec<String> = Vec::new();
+        let mut table_r_ids: Vec<String> = Vec::with_capacity(sheet.worksheet.tables.len());
         if has_tables {
             debug!(
                 "writing {} tables for sheet {}",
@@ -234,7 +234,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
             // Create drawing .rels for this sheet's charts.
             let mut drawing_rels = Relationships::new();
-            let mut chart_r_ids: Vec<String> = Vec::new();
+            let mut chart_r_ids: Vec<String> = Vec::with_capacity(sheet.worksheet.charts.len());
 
             for (ci, wsc) in sheet.worksheet.charts.iter().enumerate() {
                 global_chart_id += 1;
@@ -298,7 +298,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                     let base_rid = drawing_rels.next_r_id();
 
                     // Build a rId remapping: old image rId -> new rId in merged drawing.
-                    let mut rid_remap: Vec<(String, String)> = Vec::new();
+                    let mut rid_remap: Vec<(String, String)> = Vec::with_capacity(image_rels.relationships.len());
                     for (rid_num, rel) in (base_rid..).zip(image_rels.relationships.iter()) {
                         let new_rid = format!("rId{rid_num}");
                         rid_remap.push((rel.id.clone(), new_rid.clone()));
@@ -815,7 +815,7 @@ pub fn write_xlsx_with_password(workbook: &WorkbookData, password: &str) -> Resu
 /// designed for arbitrary third-party XML with CDATA, comments, or non-prefixed
 /// namespace declarations.
 fn extract_anchors_from_drawing(drawing_xml: &str) -> Vec<String> {
-    let mut anchors = Vec::new();
+    let mut anchors = Vec::with_capacity(4);
     // Extract all three OOXML anchor types to prevent silent data loss.
     for tag in &["xdr:twoCellAnchor", "xdr:oneCellAnchor", "xdr:absoluteAnchor"] {
         let tag_open = format!("<{tag}");

@@ -18,7 +18,7 @@ pub struct ZipEntry {
 /// Each entry is compressed using DEFLATE at compression level 6.
 pub fn write_zip(entries: &[ZipEntry]) -> Result<Vec<u8>> {
     // Pre-calculate total size: uncompressed data + ~78 bytes overhead per entry + 22 EOCD
-    let estimated = entries.iter().map(|e| e.data.len() + 78).sum::<usize>() + 22;
+    let estimated = entries.iter().map(|e| e.data.len().saturating_add(78)).sum::<usize>().saturating_add(22);
     let buf = Vec::with_capacity(estimated);
     let cursor = Cursor::new(buf);
     let mut zip_writer = ZipWriter::new(cursor);

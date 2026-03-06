@@ -501,10 +501,12 @@ impl Default for SparklineGroup {
     }
 }
 
+#[inline]
 fn default_sparkline_type() -> String {
     "line".to_string()
 }
 
+#[inline]
 fn is_default_sparkline_type(s: &str) -> bool {
     s == "line"
 }
@@ -4640,6 +4642,7 @@ impl WorksheetXml {
 }
 
 /// Parse a `<col>` element into a `ColumnInfo`.
+#[inline]
 fn parse_col_element(e: &BytesStart<'_>) -> ColumnInfo {
     let mut min: u32 = 1;
     let mut max: u32 = 1;
@@ -4697,12 +4700,14 @@ fn parse_col_element(e: &BytesStart<'_>) -> ColumnInfo {
 }
 
 /// Convert a 1-based column index to a letter string (1 -> "A", 26 -> "Z", 27 -> "AA").
+#[inline]
 fn col_index_to_letter(col: u32) -> String {
     crate::ooxml::cell::col_to_letters(col.saturating_sub(1))
 }
 
 /// Format an f64 to a string, removing trailing zeros after the decimal point
 /// but always keeping at least one decimal place if the number is not an integer.
+#[inline]
 fn format_f64(val: f64) -> String {
     if val == val.floor() {
         // Integer value — use itoa to avoid format! overhead.

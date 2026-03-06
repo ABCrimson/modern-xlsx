@@ -11,6 +11,7 @@ pub enum FormatType {
 /// Classify a built-in Excel format by its numeric ID.
 ///
 /// Returns the format type for well-known IDs, or `Number` for unknown IDs.
+#[inline]
 pub fn classify_format(id: u32) -> FormatType {
     match id {
         // General
@@ -149,6 +150,7 @@ fn clean_format_string(format: &str) -> Vec<u8> {
 
 /// Check whether a bracket's content matches an elapsed-time marker
 /// (h, m, s, hh, mm, ss — case-insensitive) without allocating.
+#[inline]
 fn is_elapsed_time_marker(content: &[u8]) -> bool {
     match content.len() {
         1 => matches!(content[0].to_ascii_lowercase(), b'h' | b'm' | b's'),
@@ -205,6 +207,7 @@ fn has_time_tokens(cleaned: &[u8]) -> bool {
 }
 
 /// Check whether `haystack` contains `needle` as a contiguous subsequence.
+#[inline]
 fn contains_subsequence(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
 }
@@ -215,6 +218,7 @@ fn contains_subsequence(haystack: &[u8], needle: &[u8]) -> bool {
 /// Rule: if the nearest non-m token before is `h` → minutes.
 ///       if the nearest non-m token after is `s` → minutes.
 ///       otherwise → month.
+#[inline]
 fn is_month_m(bytes: &[u8], i: usize) -> bool {
     // Look backwards past any other 'm' characters for the nearest relevant token.
     let preceded_by_h = {

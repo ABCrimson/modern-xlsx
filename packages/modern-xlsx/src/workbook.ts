@@ -202,7 +202,8 @@ export class Workbook {
     if (toIndex < 0 || toIndex >= this.data.sheets.length) {
       throw new ModernXlsxError(INVALID_ARGUMENT, `Invalid destination index: ${toIndex}`);
     }
-    const [sheet] = this.data.sheets.splice(fromIndex, 1) as [SheetData];
+    const [sheet] = this.data.sheets.splice(fromIndex, 1);
+    if (!sheet) return;
     this.data.sheets.splice(toIndex, 0, sheet);
   }
 
@@ -294,9 +295,7 @@ export class Workbook {
 
   /** Adds a named range. If `sheetId` is provided, the name is scoped to that sheet. */
   addNamedRange(name: string, value: string, sheetId?: number): void {
-    if (!this.data.definedNames) {
-      this.data.definedNames = [];
-    }
+    this.data.definedNames ??= [];
     this.data.definedNames.push({
       name,
       value,
@@ -524,9 +523,7 @@ export class Workbook {
     if (sheetIndex === -1)
       throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet "${sheetName}" not found`);
 
-    if (!this.data.preservedEntries) {
-      this.data.preservedEntries = {};
-    }
+    this.data.preservedEntries ??= {};
 
     this.imageCounter++;
     const imageId = this.imageCounter;
@@ -737,9 +734,7 @@ export class Worksheet {
     location: string,
     opts?: { display?: string; tooltip?: string },
   ): void {
-    if (!this.data.worksheet.hyperlinks) {
-      this.data.worksheet.hyperlinks = [];
-    }
+    this.data.worksheet.hyperlinks ??= [];
     this.data.worksheet.hyperlinks.push({
       cellRef,
       location,
@@ -848,9 +843,7 @@ export class Worksheet {
 
   /** Sets the view mode. Creates a sheet view if none exists. */
   set viewMode(mode: ViewMode) {
-    if (!this.data.worksheet.sheetView) {
-      this.data.worksheet.sheetView = {};
-    }
+    this.data.worksheet.sheetView ??= {};
     this.data.worksheet.sheetView.view = mode === 'normal' ? null : mode;
   }
 
@@ -900,9 +893,7 @@ export class Worksheet {
 
   /** Adds a data validation rule to the given cell range reference. */
   addValidation(ref: string, rule: Omit<DataValidationData, 'sqref'>): void {
-    if (!this.data.worksheet.dataValidations) {
-      this.data.worksheet.dataValidations = [];
-    }
+    this.data.worksheet.dataValidations ??= [];
     this.data.worksheet.dataValidations.push({ sqref: ref, ...rule });
   }
 
@@ -927,9 +918,7 @@ export class Worksheet {
 
   /** Adds a comment to the given cell reference. */
   addComment(cellRef: string, author: string, text: string): void {
-    if (!this.data.worksheet.comments) {
-      this.data.worksheet.comments = [];
-    }
+    this.data.worksheet.comments ??= [];
     this.data.worksheet.comments.push({ cellRef, author, text });
   }
 
@@ -964,16 +953,12 @@ export class Worksheet {
         'Worksheet must be created via Workbook.addSheet() or Workbook.getSheet() to use threaded comments',
       );
     }
-    // Find or create person.
-    if (!wb.persons) {
-      wb.persons = [];
-    }
+    wb.persons ??= [];
     let person = wb.persons.find((p) => p.displayName === author);
     if (!person) {
       person = { id: crypto.randomUUID(), displayName: author };
       wb.persons.push(person);
     }
-    // Create comment.
     const comment: ThreadedCommentData = {
       id: crypto.randomUUID(),
       refCell: cell,
@@ -981,9 +966,7 @@ export class Worksheet {
       text,
       timestamp: new Date().toISOString(),
     };
-    if (!this.data.worksheet.threadedComments) {
-      this.data.worksheet.threadedComments = [];
-    }
+    this.data.worksheet.threadedComments ??= [];
     this.data.worksheet.threadedComments.push(comment);
     return comment.id;
   }
@@ -1008,16 +991,12 @@ export class Worksheet {
         'Worksheet must be created via Workbook.addSheet() or Workbook.getSheet() to use threaded comments',
       );
     }
-    // Find or create person.
-    if (!wb.persons) {
-      wb.persons = [];
-    }
+    wb.persons ??= [];
     let person = wb.persons.find((p) => p.displayName === author);
     if (!person) {
       person = { id: crypto.randomUUID(), displayName: author };
       wb.persons.push(person);
     }
-    // Create reply comment.
     const reply: ThreadedCommentData = {
       id: crypto.randomUUID(),
       refCell: parent.refCell,
@@ -1026,9 +1005,7 @@ export class Worksheet {
       timestamp: new Date().toISOString(),
       parentId: commentId,
     };
-    if (!this.data.worksheet.threadedComments) {
-      this.data.worksheet.threadedComments = [];
-    }
+    this.data.worksheet.threadedComments ??= [];
     this.data.worksheet.threadedComments.push(reply);
     return reply.id;
   }
@@ -1042,9 +1019,7 @@ export class Worksheet {
 
   /** Sets or clears the page margins. Creates a page setup object if needed. */
   set pageMargins(margins: PageMarginsData | null) {
-    if (!this.data.worksheet.pageSetup) {
-      this.data.worksheet.pageSetup = {};
-    }
+    this.data.worksheet.pageSetup ??= {};
     this.data.worksheet.pageSetup.margins = margins;
   }
 
@@ -1119,9 +1094,7 @@ export class Worksheet {
 
   /** Adds a table definition to the sheet. */
   addTable(table: TableDefinitionData): void {
-    if (!this.data.worksheet.tables) {
-      this.data.worksheet.tables = [];
-    }
+    this.data.worksheet.tables ??= [];
     this.data.worksheet.tables.push(table);
   }
 
@@ -1176,9 +1149,7 @@ export class Worksheet {
     configure(builder);
     const chartData = builder.build();
     validateChartData(chartData);
-    if (!this.data.worksheet.charts) {
-      this.data.worksheet.charts = [];
-    }
+    this.data.worksheet.charts ??= [];
     this.data.worksheet.charts.push(chartData);
   }
 
@@ -1187,9 +1158,7 @@ export class Worksheet {
    */
   addChartData(chart: WorksheetChartData): void {
     validateChartData(chart);
-    if (!this.data.worksheet.charts) {
-      this.data.worksheet.charts = [];
-    }
+    this.data.worksheet.charts ??= [];
     this.data.worksheet.charts.push(chart);
   }
 
@@ -1352,9 +1321,7 @@ export class Worksheet {
 
   /** Adds a sparkline group to this sheet. */
   addSparklineGroup(group: SparklineGroupData): void {
-    if (!this.data.worksheet.sparklineGroups) {
-      this.data.worksheet.sparklineGroups = [];
-    }
+    this.data.worksheet.sparklineGroups ??= [];
     this.data.worksheet.sparklineGroups.push(group);
   }
 

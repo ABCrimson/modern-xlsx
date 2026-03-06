@@ -184,9 +184,9 @@ pub fn write_comments(comments: &[Comment]) -> Result<Vec<u8>> {
     writer.write_event(Event::Start(root)).map_err(map_err)?;
 
     // Build deduplicated author list, preserving insertion order.
-    let mut author_list: Vec<String> = Vec::new();
+    let mut author_list: Vec<String> = Vec::with_capacity(comments.len().min(16));
     let mut author_indices: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+        std::collections::HashMap::with_capacity(comments.len().min(16));
     for comment in comments {
         let next_idx = author_list.len();
         if let std::collections::hash_map::Entry::Vacant(e) =

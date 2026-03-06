@@ -10,6 +10,7 @@ use super::push_entity;
 use super::SPREADSHEET_NS;
 use crate::{ModernXlsxError, Result};
 
+#[inline]
 fn default_header_row_count() -> u32 {
     1
 }
@@ -379,6 +380,7 @@ impl TableDefinition {
         })
     }
 
+    #[inline]
     #[allow(clippy::too_many_arguments)]
     fn parse_table_attrs(
         e: &BytesStart<'_>,
@@ -436,6 +438,7 @@ impl TableDefinition {
         }
     }
 
+    #[inline]
     fn parse_column_attrs(e: &BytesStart<'_>) -> TableColumn {
         let mut col = TableColumn::default();
         for attr in e.attributes().flatten() {
@@ -486,6 +489,7 @@ impl TableDefinition {
         col
     }
 
+    #[inline]
     fn parse_style_info(e: &BytesStart<'_>) -> TableStyleInfo {
         let mut si = TableStyleInfo {
             name: None,

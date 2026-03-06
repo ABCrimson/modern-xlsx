@@ -28,11 +28,12 @@ const PRECEDENCE = {
   '^': 5,
 } as const satisfies Record<string, number>;
 
-/** Typed lookup for PRECEDENCE by arbitrary string key. */
-const precedenceLookup = PRECEDENCE as Record<string, number | undefined>;
+function hasPrecedence(op: string): op is keyof typeof PRECEDENCE {
+  return op in PRECEDENCE;
+}
 
 function precedence(op: string): number {
-  return precedenceLookup[op] ?? 0;
+  return hasPrecedence(op) ? PRECEDENCE[op] : 0;
 }
 
 // ---------------------------------------------------------------------------

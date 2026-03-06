@@ -47,19 +47,15 @@ function detectWasmUrl(): string | URL | undefined {
  */
 export async function initWasm(wasmSource?: string | URL | Response): Promise<void> {
   if (initialized) return;
-  if (!initPromise) {
-    const source = wasmSource ?? detectWasmUrl();
-    initPromise = init(source).then(
-      () => {
-        initialized = true;
-      },
-      (err) => {
-        // Reset so callers can retry after a failed init.
-        initPromise = null;
-        throw err;
-      },
-    );
-  }
+  initPromise ??= init(wasmSource ?? detectWasmUrl()).then(
+    () => {
+      initialized = true;
+    },
+    (err) => {
+      initPromise = null;
+      throw err;
+    },
+  );
   return initPromise;
 }
 

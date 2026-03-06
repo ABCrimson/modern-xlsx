@@ -26,6 +26,7 @@ pub(crate) const SPREADSHEET_NS: &str =
 /// and character references (`#N` for decimal, `#xN` for hex).
 ///
 /// This avoids per-call `String` allocation for the common predefined entities.
+#[inline]
 pub(crate) fn push_entity(buf: &mut String, name: &[u8]) {
     match name {
         b"amp" => buf.push('&'),
@@ -58,16 +59,19 @@ pub(crate) fn push_entity(buf: &mut String, name: &[u8]) {
 }
 
 /// Serde helper: skip serializing if the value is `false`.
+#[inline]
 pub(crate) fn is_false(v: &bool) -> bool {
     !v
 }
 
 /// Serde helper: skip serializing if the value is `true`.
+#[inline]
 pub(crate) fn is_true(v: &bool) -> bool {
     *v
 }
 
 /// Serde default that returns `true`.
+#[inline]
 pub(crate) fn default_true() -> bool {
     true
 }

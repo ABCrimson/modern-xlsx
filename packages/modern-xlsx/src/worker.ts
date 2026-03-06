@@ -18,16 +18,13 @@ import init, {
 let initPromise: Promise<void> | null = null;
 
 function ensureInit(wasmUrl?: string): Promise<void> {
-  if (!initPromise) {
-    const source = wasmUrl ? new URL(wasmUrl) : undefined;
-    initPromise = init(source).then(
-      () => {},
-      (err) => {
-        initPromise = null;
-        throw err;
-      },
-    );
-  }
+  initPromise ??= init(wasmUrl ? new URL(wasmUrl) : undefined).then(
+    () => {},
+    (err) => {
+      initPromise = null;
+      throw err;
+    },
+  );
   return initPromise;
 }
 

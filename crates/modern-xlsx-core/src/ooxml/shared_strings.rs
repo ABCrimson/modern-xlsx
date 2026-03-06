@@ -455,7 +455,7 @@ impl SharedStringTable {
 ///
 /// Strings are deduplicated: inserting the same string twice returns the same
 /// index both times.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SharedStringTableBuilder {
     strings: Vec<String>,
     index: HashMap<String, usize>,
@@ -571,11 +571,6 @@ impl SharedStringTableBuilder {
     }
 }
 
-impl Default for SharedStringTableBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 #[cfg(test)]
 mod tests {

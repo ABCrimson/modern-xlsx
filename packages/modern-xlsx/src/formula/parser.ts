@@ -180,7 +180,7 @@ export function parseCellRefValue(value: string): CellRefNode {
 // Comparison operators set
 // ---------------------------------------------------------------------------
 
-const COMPARISON_OPS = new Set(['=', '<>', '<', '>', '<=', '>=']);
+const COMPARISON_OPS: ReadonlySet<string> = new Set(['=', '<>', '<', '>', '<=', '>=']);
 
 // ---------------------------------------------------------------------------
 // Parser class (internal)

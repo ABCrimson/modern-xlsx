@@ -36,6 +36,7 @@ const EPOCH_1900: NaiveDate = NaiveDate::from_ymd_opt(1899, 12, 31).unwrap();
 const EPOCH_1904: NaiveDate = NaiveDate::from_ymd_opt(1904, 1, 1).unwrap();
 
 /// Extract hour, minute, second, millisecond from the fractional part of a serial number.
+#[inline]
 fn fractional_to_time(frac: f64) -> (u32, u32, u32, u32) {
     let total_ms = (frac * 86_400_000.0).round() as u64;
     let ms = (total_ms % 1000) as u32;
@@ -119,6 +120,7 @@ fn serial_to_date_1900(
     let date = epoch
         .checked_add_signed(chrono::Duration::days(adjusted))
         .ok_or_else(|| {
+            cold_path();
             ModernXlsxError::InvalidDate(format!("date overflow for serial {day_int}"))
         })?;
 
@@ -144,6 +146,7 @@ fn serial_to_date_1904(
     let date = epoch
         .checked_add_signed(chrono::Duration::days(day_int))
         .ok_or_else(|| {
+            cold_path();
             ModernXlsxError::InvalidDate(format!("date overflow for serial {day_int}"))
         })?;
 
@@ -184,6 +187,7 @@ fn date_to_serial_1900(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
     }
 
     let date = NaiveDate::from_ymd_opt(dt.year, dt.month, dt.day).ok_or_else(|| {
+        cold_path();
         ModernXlsxError::InvalidDate(format!(
             "invalid date: {}-{}-{}",
             dt.year, dt.month, dt.day
@@ -201,6 +205,7 @@ fn date_to_serial_1900(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
 
 fn date_to_serial_1904(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
     let date = NaiveDate::from_ymd_opt(dt.year, dt.month, dt.day).ok_or_else(|| {
+        cold_path();
         ModernXlsxError::InvalidDate(format!(
             "invalid date: {}-{}-{}",
             dt.year, dt.month, dt.day

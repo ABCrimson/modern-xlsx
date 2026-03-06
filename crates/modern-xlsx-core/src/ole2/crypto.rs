@@ -95,9 +95,12 @@ pub fn derive_key(
         "SHA512" => derive_key_impl::<Sha512>(password, salt, spin_count, key_bits, block_key),
         "SHA256" => derive_key_impl::<Sha256>(password, salt, spin_count, key_bits, block_key),
         "SHA1" => derive_key_impl::<Sha1>(password, salt, spin_count, key_bits, block_key),
-        _ => Err(ModernXlsxError::PasswordProtected(format!(
-            "Unsupported hash algorithm: {hash_alg}"
-        ))),
+        _ => {
+            cold_path();
+            Err(ModernXlsxError::PasswordProtected(format!(
+                "Unsupported hash algorithm: {hash_alg}"
+            )))
+        }
     }
 }
 
@@ -176,9 +179,12 @@ pub fn aes_cbc_decrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
                 })?;
             Ok(plaintext.to_vec())
         }
-        n => Err(ModernXlsxError::PasswordProtected(format!(
-            "Unsupported AES key length: {n} bytes (expected 16 or 32)"
-        ))),
+        n => {
+            cold_path();
+            Err(ModernXlsxError::PasswordProtected(format!(
+                "Unsupported AES key length: {n} bytes (expected 16 or 32)"
+            )))
+        }
     }
 }
 
@@ -208,9 +214,12 @@ pub fn aes_cbc_decrypt_no_pad(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<
                 })?;
             Ok(buf)
         }
-        n => Err(ModernXlsxError::PasswordProtected(format!(
-            "Unsupported AES key length: {n} bytes (expected 16 or 32)"
-        ))),
+        n => {
+            cold_path();
+            Err(ModernXlsxError::PasswordProtected(format!(
+                "Unsupported AES key length: {n} bytes (expected 16 or 32)"
+            )))
+        }
     }
 }
 
@@ -233,9 +242,12 @@ pub fn aes_cbc_encrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
             Ok(encryptor.encrypt_padded_vec_mut::<Pkcs7>(data))
         }
-        n => Err(ModernXlsxError::PasswordProtected(format!(
-            "Unsupported AES key length: {n} bytes (expected 16 or 32)"
-        ))),
+        n => {
+            cold_path();
+            Err(ModernXlsxError::PasswordProtected(format!(
+                "Unsupported AES key length: {n} bytes (expected 16 or 32)"
+            )))
+        }
     }
 }
 
@@ -254,9 +266,12 @@ pub fn aes_cbc_encrypt_no_pad(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
             Ok(encryptor.encrypt_padded_vec_mut::<NoPadding>(data))
         }
-        n => Err(ModernXlsxError::PasswordProtected(format!(
-            "Unsupported AES key length: {n} bytes (expected 16 or 32)"
-        ))),
+        n => {
+            cold_path();
+            Err(ModernXlsxError::PasswordProtected(format!(
+                "Unsupported AES key length: {n} bytes (expected 16 or 32)"
+            )))
+        }
     }
 }
 
@@ -288,9 +303,12 @@ where
         "SHA512" => Ok(f(&mut Sha512::new())),
         "SHA256" => Ok(f(&mut Sha256::new())),
         "SHA1" => Ok(f(&mut Sha1::new())),
-        _ => Err(ModernXlsxError::PasswordProtected(format!(
-            "Unsupported hash algorithm: {alg}"
-        ))),
+        _ => {
+            cold_path();
+            Err(ModernXlsxError::PasswordProtected(format!(
+                "Unsupported hash algorithm: {alg}"
+            )))
+        }
     }
 }
 
@@ -326,9 +344,12 @@ fn compute_hmac(alg: &str, key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
             mac.update(data);
             Ok(mac.finalize().into_bytes().to_vec())
         }
-        _ => Err(ModernXlsxError::PasswordProtected(format!(
-            "Unsupported hash algorithm for HMAC: {alg}"
-        ))),
+        _ => {
+            cold_path();
+            Err(ModernXlsxError::PasswordProtected(format!(
+                "Unsupported hash algorithm for HMAC: {alg}"
+            )))
+        }
     }
 }
 
@@ -614,22 +635,26 @@ pub fn encode_base64(data: &[u8]) -> String {
 
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as u32;
-        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
         let triple = (b0 << 16) | (b1 << 8) | b2;
 
         result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
         result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
 
-        if chunk.len() > 1 {
-            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
-        } else {
-            result.push('=');
-        }
-        if chunk.len() > 2 {
-            result.push(CHARS[(triple & 0x3F) as usize] as char);
-        } else {
-            result.push('=');
+        match chunk.len() {
+            1 => {
+                result.push('=');
+                result.push('=');
+            }
+            2 => {
+                result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+                result.push('=');
+            }
+            _ => {
+                result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+                result.push(CHARS[(triple & 0x3F) as usize] as char);
+            }
         }
     }
 

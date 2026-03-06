@@ -133,16 +133,21 @@ function transformCellRef(ref: CellRefNode, action: RewriteAction): CellRefNode 
     return ref;
   }
 
-  if (action.type === 'insert_rows' || action.type === 'delete_rows') {
-    const newRow = adjustRow(ref.row, action.start, action.count, action.type === 'delete_rows');
-    if (newRow === null) return REF_ERROR;
-    return newRow === ref.row ? ref : { ...ref, row: newRow };
+  switch (action.type) {
+    case 'insert_rows':
+    case 'delete_rows': {
+      const newRow = adjustRow(ref.row, action.start, action.count, action.type === 'delete_rows');
+      if (newRow === null) return REF_ERROR;
+      return newRow === ref.row ? ref : { ...ref, row: newRow };
+    }
+    case 'insert_cols':
+    case 'delete_cols': {
+      const colIdx = letterToColumn(ref.col);
+      const newCol = adjustCol(colIdx, action.start, action.count, action.type === 'delete_cols');
+      if (newCol === null) return REF_ERROR;
+      return newCol === colIdx ? ref : { ...ref, col: columnToLetter(newCol) };
+    }
   }
-
-  const colIdx = letterToColumn(ref.col);
-  const newCol = adjustCol(colIdx, action.start, action.count, action.type === 'delete_cols');
-  if (newCol === null) return REF_ERROR;
-  return newCol === colIdx ? ref : { ...ref, col: columnToLetter(newCol) };
 }
 
 // ---------------------------------------------------------------------------

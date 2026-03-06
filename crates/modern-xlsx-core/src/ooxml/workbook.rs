@@ -12,7 +12,7 @@ use super::SPREADSHEET_NS;
 const RELATIONSHIPS_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
 /// Workbook-level protection from `<workbookProtection>` (ECMA-376 §18.2.29).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkbookProtection {
     /// Prevent structural changes (add/delete/rename/move/copy sheets).
@@ -424,21 +424,7 @@ impl WorkbookXml {
 
 /// Parse a `<workbookProtection>` element (either Empty or Start) into a `WorkbookProtection`.
 fn parse_workbook_protection_element(e: &BytesStart<'_>) -> WorkbookProtection {
-    let mut prot = WorkbookProtection {
-        lock_structure: false,
-        lock_windows: false,
-        lock_revision: false,
-        workbook_algorithm_name: None,
-        workbook_hash_value: None,
-        workbook_salt_value: None,
-        workbook_spin_count: None,
-        revisions_algorithm_name: None,
-        revisions_hash_value: None,
-        revisions_salt_value: None,
-        revisions_spin_count: None,
-        workbook_password: None,
-        revisions_password: None,
-    };
+    let mut prot = WorkbookProtection::default();
     for attr in e.attributes().flatten() {
         let val = std::str::from_utf8(&attr.value).unwrap_or_default();
         match attr.key.local_name().as_ref() {

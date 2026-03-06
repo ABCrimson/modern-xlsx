@@ -129,12 +129,10 @@ export function formatCellRich(
   if (value === null || value === undefined) return { text: '' };
   if (typeof value === 'boolean') return { text: value ? 'TRUE' : 'FALSE' };
 
-  let formatCode: string;
-  if (typeof format === 'number') {
-    formatCode = builtinFormatLookup[format] ?? CUSTOM_FORMATS.get(format) ?? 'General';
-  } else {
-    formatCode = format;
-  }
+  const formatCode =
+    typeof format === 'number'
+      ? (builtinFormatLookup[format] ?? CUSTOM_FORMATS.get(format) ?? 'General')
+      : format;
 
   if (formatCode === 'General' || formatCode === '' || formatCode === '@') {
     return { text: String(value) };
@@ -542,15 +540,14 @@ const numberFormatCache = new Map<string, Intl.NumberFormat>();
 
 function getCachedNumberFormat(decimals: number, useGrouping: boolean): Intl.NumberFormat {
   const key = `${decimals}:${useGrouping}`;
-  let fmt = numberFormatCache.get(key);
-  if (!fmt) {
-    fmt = new Intl.NumberFormat('en-US', {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-      useGrouping,
-    });
-    numberFormatCache.set(key, fmt);
-  }
+  const existing = numberFormatCache.get(key);
+  if (existing) return existing;
+  const fmt = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+    useGrouping,
+  });
+  numberFormatCache.set(key, fmt);
   return fmt;
 }
 

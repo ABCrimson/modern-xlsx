@@ -51,7 +51,7 @@ pnpm -C packages/modern-xlsx typecheck
 ## Toolchain Versions
 
 - Rust 1.95.0 Edition 2024 (CI: dtolnay/rust-toolchain@beta), wasm-bindgen 0.2.114, quick-xml 0.39.2, zip 8.1 (`deflate`)
-- TypeScript 6.0.0-dev, Vitest 4.1.0-beta.5, tsdown 0.21.0-beta.2, Biome 2.4.4, pnpm 11
+- TypeScript 6.0.0-dev.20260306, Vitest 4.1.0-beta.6, tsdown 0.21.0, Biome 2.4.6, pnpm 11.0.0-alpha.12, Playwright 1.59.0-alpha
 
 ## Code Conventions
 

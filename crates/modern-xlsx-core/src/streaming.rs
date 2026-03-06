@@ -128,7 +128,10 @@ impl StreamingReader {
         // Parse workbook.xml (required).
         let wb_data = entries
             .get("xl/workbook.xml")
-            .ok_or_else(|| ModernXlsxError::MissingPart("xl/workbook.xml".into()))?;
+            .ok_or_else(|| {
+                cold_path();
+                ModernXlsxError::MissingPart("xl/workbook.xml".into())
+            })?;
         let workbook = WorkbookXml::parse(wb_data)?;
 
         // Parse shared strings (optional).
@@ -176,21 +179,25 @@ impl StreamingReader {
     }
 
     /// Get the list of sheet names.
+    #[inline]
     pub fn sheet_names(&self) -> Vec<String> {
         self.workbook.sheets.iter().map(|s| s.name.clone()).collect()
     }
 
     /// Get the date system.
+    #[inline]
     pub fn date_system(&self) -> DateSystem {
         self.workbook.date_system
     }
 
     /// Get a reference to the shared string table (if present).
+    #[inline]
     pub fn shared_strings(&self) -> Option<&SharedStringTable> {
         self.shared_strings.as_ref()
     }
 
     /// Get a reference to styles.
+    #[inline]
     pub fn styles(&self) -> &Styles {
         &self.styles
     }
@@ -205,7 +212,10 @@ impl StreamingReader {
         let data = self
             .sheet_data
             .get(name)
-            .ok_or_else(|| ModernXlsxError::MissingPart(format!("sheet: {name}")))?;
+            .ok_or_else(|| {
+                cold_path();
+                ModernXlsxError::MissingPart(format!("sheet: {name}"))
+            })?;
         let ws = crate::ooxml::worksheet::WorksheetXml::parse_with_sst(
             data,
             self.shared_strings.as_ref(),

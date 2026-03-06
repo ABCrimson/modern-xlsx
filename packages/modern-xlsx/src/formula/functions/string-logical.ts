@@ -26,32 +26,40 @@ function isError(val: CellValue): val is string {
 }
 
 function toNumber(val: CellValue): number | string {
-  if (typeof val === 'number') return val;
-  if (typeof val === 'boolean') return val ? 1 : 0;
   if (val === null) return 0;
-  if (isError(val)) return val;
-  const n = Number(val);
-  return Number.isNaN(n) ? '#VALUE!' : n;
+  switch (typeof val) {
+    case 'number':
+      return val;
+    case 'boolean':
+      return val ? 1 : 0;
+    case 'string': {
+      if (isError(val)) return val;
+      const n = Number(val);
+      return Number.isNaN(n) ? '#VALUE!' : n;
+    }
+  }
 }
 
 function coerceToString(val: CellValue): string {
   if (val === null) return '';
-  if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
-  return String(val);
+  return typeof val === 'boolean' ? (val ? 'TRUE' : 'FALSE') : String(val);
 }
 
 function toBool(val: CellValue): boolean | string {
-  if (typeof val === 'boolean') return val;
-  if (typeof val === 'number') return val !== 0;
   if (val === null) return false;
-  if (typeof val === 'string') {
-    if (val.length > 0 && val.charAt(0) === '#') return val;
-    const upper = val.toUpperCase();
-    if (upper === 'TRUE') return true;
-    if (upper === 'FALSE') return false;
-    return '#VALUE!';
+  switch (typeof val) {
+    case 'boolean':
+      return val;
+    case 'number':
+      return val !== 0;
+    case 'string': {
+      if (val.length > 0 && val.charAt(0) === '#') return val;
+      const upper = val.toUpperCase();
+      if (upper === 'TRUE') return true;
+      if (upper === 'FALSE') return false;
+      return '#VALUE!';
+    }
   }
-  return '#VALUE!';
 }
 
 // ---------------------------------------------------------------------------

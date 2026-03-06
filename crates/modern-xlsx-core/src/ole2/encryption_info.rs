@@ -69,9 +69,12 @@ impl EncryptionInfo {
         match (version_major, version_minor) {
             (4, 4) => Self::parse_agile(&stream[8..]),
             (2, 2) | (3, 2) | (4, 2) => Self::parse_standard(&stream[8..]),
-            _ => Err(ModernXlsxError::PasswordProtected(format!(
-                "Unsupported encryption version {version_major}.{version_minor}"
-            ))),
+            _ => {
+                cold_path();
+                Err(ModernXlsxError::PasswordProtected(format!(
+                    "Unsupported encryption version {version_major}.{version_minor}"
+                )))
+            }
         }
     }
 

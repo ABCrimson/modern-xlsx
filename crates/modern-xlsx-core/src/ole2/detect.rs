@@ -83,6 +83,7 @@ impl Ole2Header {
     }
 
     /// Returns the byte offset for a given sector ID.
+    #[inline]
     fn sector_offset(&self, sid: u32) -> usize {
         512 + (sid as usize) * self.sector_size
     }
@@ -94,11 +95,13 @@ fn read_fat(data: &[u8], header: &Ole2Header) -> Vec<u32> {
     let mut fat = Vec::with_capacity(header.fat_sectors.len() * entries_per_sector);
     for &sid in &header.fat_sectors {
         let offset = header.sector_offset(sid);
-        for i in 0..entries_per_sector {
-            let pos = offset + i * 4;
-            if pos + 4 <= data.len() {
-                fat.push(u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap_or_default()));
-            }
+        let end = (offset + header.sector_size).min(data.len());
+        if offset < end {
+            fat.extend(
+                data[offset..end]
+                    .chunks_exact(4)
+                    .map(|c| u32::from_le_bytes(c.try_into().unwrap_or_default())),
+            );
         }
     }
     fat
@@ -106,7 +109,7 @@ fn read_fat(data: &[u8], header: &Ole2Header) -> Vec<u32> {
 
 /// Follows a FAT chain from a starting sector, collecting all sectors.
 fn follow_chain(fat: &[u32], start: u32) -> Vec<u32> {
-    let mut chain = Vec::new();
+    let mut chain = Vec::with_capacity(16);
     let mut current = start;
     // Safety limit to avoid infinite loops on corrupt files
     let max_sectors = fat.len();
@@ -149,11 +152,8 @@ fn read_directory(data: &[u8], header: &Ole2Header, fat: &[u32]) -> Vec<DirEntry
     let chain = follow_chain(fat, header.first_dir_sector);
     let dir_bytes = read_sectors(data, header, &chain, chain.len() * header.sector_size);
 
-    let mut entries = Vec::new();
-    for chunk in dir_bytes.chunks(128) {
-        if chunk.len() < 128 {
-            break;
-        }
+    let mut entries = Vec::with_capacity(dir_bytes.len() / 128);
+    for chunk in dir_bytes.chunks_exact(128) {
         let entry_type = chunk[66];
         if entry_type == 0 {
             continue;
@@ -218,6 +218,7 @@ pub fn read_stream(data: &[u8], name: &str) -> Result<Vec<u8>> {
     let entries = read_directory(data, &header, &fat);
 
     let entry = entries.iter().find(|e| e.name == name).ok_or_else(|| {
+        cold_path();
         ModernXlsxError::MissingPart(format!("OLE2 stream '{name}' not found"))
     })?;
 

@@ -51,7 +51,7 @@ const TYPES_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-t
 ///
 /// Contains default content types keyed by file extension and
 /// override content types keyed by part name.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ContentTypes {
     /// Extension -> content type (e.g. "rels" -> relationships type).
     pub defaults: BTreeMap<String, String>,
@@ -209,11 +209,6 @@ impl ContentTypes {
     }
 }
 
-impl Default for ContentTypes {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 #[cfg(test)]
 mod tests {

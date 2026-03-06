@@ -105,7 +105,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
         }
 
         // Total decompressed size guard
-        total_decompressed += decompressed_size;
+        total_decompressed = total_decompressed.saturating_add(decompressed_size);
         if total_decompressed > limits.max_decompressed_size {
             cold_path();
             return Err(ModernXlsxError::Security(format!(

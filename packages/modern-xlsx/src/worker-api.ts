@@ -70,16 +70,16 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
     if (terminated) {
       return Promise.reject(new Error('Worker has crashed or been terminated'));
     }
-    return new Promise((resolve, reject) => {
-      const id = nextId++;
-      pending.set(id, { resolve, reject });
-      const msg: WorkerRequest = { ...request, id, ...(wasmUrl != null && { wasmUrl }) };
-      if (transfer) {
-        worker.postMessage(msg, transfer);
-      } else {
-        worker.postMessage(msg);
-      }
-    });
+    const { promise, resolve, reject } = Promise.withResolvers<WorkerResponse>();
+    const id = nextId++;
+    pending.set(id, { resolve, reject });
+    const msg: WorkerRequest = { ...request, id, ...(wasmUrl != null && { wasmUrl }) };
+    if (transfer) {
+      worker.postMessage(msg, transfer);
+    } else {
+      worker.postMessage(msg);
+    }
+    return promise;
   }
 
   return {
@@ -90,9 +90,7 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
         [data.buffer],
       );
       if (!response.json) throw new Error('Worker returned no data');
-      // Data crosses worker boundary as JSON — structural validation is done by the WASM layer
-      const parsed: unknown = JSON.parse(response.json);
-      return parsed as WorkbookData;
+      return JSON.parse(response.json) as WorkbookData;
     },
 
     async writeBuffer(data: WorkbookData, options?: { password?: string }): Promise<Uint8Array> {

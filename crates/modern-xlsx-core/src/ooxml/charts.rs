@@ -628,6 +628,7 @@ impl ChartAnchor {
 // ---------------------------------------------------------------------------
 
 /// Map `std::io::Error` to `ModernXlsxError::XmlWrite`.
+#[inline]
 fn map_err(e: std::io::Error) -> ModernXlsxError {
     ModernXlsxError::XmlWrite(e.to_string())
 }
@@ -748,6 +749,7 @@ impl TrendlineType {
         }
     }
 
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "linear" => Some(Self::Linear),
@@ -773,6 +775,7 @@ impl ErrorBarType {
         }
     }
 
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "fixedVal" => Some(Self::FixedVal),
@@ -795,6 +798,7 @@ impl ErrorBarDirection {
         }
     }
 
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "both" => Some(Self::Both),
@@ -1883,6 +1887,7 @@ impl ChartData {
 // ---------------------------------------------------------------------------
 
 /// Helper to extract `val` attribute from a `BytesStart`.
+#[inline]
 fn attr_val(e: &BytesStart<'_>, key: &[u8]) -> Option<String> {
     e.attributes()
         .flatten()
@@ -1895,11 +1900,13 @@ fn attr_val(e: &BytesStart<'_>, key: &[u8]) -> Option<String> {
 }
 
 /// Parse the `val` attribute as `&str`.
+#[inline]
 fn attr_val_str(e: &BytesStart<'_>) -> String {
     attr_val(e, b"val").unwrap_or_default()
 }
 
 impl ChartGrouping {
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "clustered" => Some(Self::Clustered),
@@ -1912,6 +1919,7 @@ impl ChartGrouping {
 }
 
 impl ScatterStyle {
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "lineMarker" => Some(Self::LineMarker),
@@ -1925,6 +1933,7 @@ impl ScatterStyle {
 }
 
 impl RadarStyle {
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "standard" => Some(Self::Standard),
@@ -1936,6 +1945,7 @@ impl RadarStyle {
 }
 
 impl MarkerStyle {
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "circle" => Some(Self::Circle),
@@ -1954,6 +1964,7 @@ impl MarkerStyle {
 }
 
 impl LegendPosition {
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "t" => Some(Self::Top),
@@ -1967,6 +1978,7 @@ impl LegendPosition {
 }
 
 impl AxisPosition {
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "b" => Some(Self::Bottom),
@@ -1979,6 +1991,7 @@ impl AxisPosition {
 }
 
 impl TickLabelPosition {
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "high" => Some(Self::High),
@@ -1991,6 +2004,7 @@ impl TickLabelPosition {
 }
 
 impl TickMark {
+    #[inline]
     fn from_xml(s: &str) -> Option<Self> {
         match s {
             "cross" => Some(Self::Cross),

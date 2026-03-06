@@ -4,7 +4,7 @@
   "engines": {
     "node": ">=25.0.0"
   },
-  "packageManager": "pnpm@11.0.0-alpha.11",
+  "packageManager": "pnpm@11.0.0-alpha.12",
   "scripts": {
     "build:wasm": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm",
     "build:ts": "pnpm -C packages/modern-xlsx build",

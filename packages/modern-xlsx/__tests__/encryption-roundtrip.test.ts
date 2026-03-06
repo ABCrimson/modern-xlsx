@@ -300,42 +300,40 @@ describe('Encryption: Roundtrip & Compatibility', () => {
   // -------------------------------------------------------------------------
   // 7. Large file encryption performance
   // -------------------------------------------------------------------------
-  it(
-    'large file (10K rows x 5 cols) encrypt -> decrypt roundtrip completes under 10s',
-    { timeout: 30_000 },
-    async () => {
-      const wb = new Workbook();
-      const ws = wb.addSheet('Large');
+  it('large file (10K rows x 5 cols) encrypt -> decrypt roundtrip completes under 10s', {
+    timeout: 30_000,
+  }, async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Large');
 
-      // Fill 10,000 rows x 5 columns
-      for (let r = 1; r <= 10_000; r++) {
-        ws.cell(`A${r}`).value = `Row ${r}`;
-        ws.cell(`B${r}`).value = r;
-        ws.cell(`C${r}`).value = r * 1.5;
-        ws.cell(`D${r}`).value = r % 2 === 0;
-        ws.cell(`E${r}`).value = `Data-${r}`;
-      }
+    // Fill 10,000 rows x 5 columns
+    for (let r = 1; r <= 10_000; r++) {
+      ws.cell(`A${r}`).value = `Row ${r}`;
+      ws.cell(`B${r}`).value = r;
+      ws.cell(`C${r}`).value = r * 1.5;
+      ws.cell(`D${r}`).value = r % 2 === 0;
+      ws.cell(`E${r}`).value = `Data-${r}`;
+    }
 
-      const start = performance.now();
-      const encrypted = await wb.toBuffer({ password: 'perf-test' });
-      const wb2 = await readBuffer(encrypted, { password: 'perf-test' });
-      const elapsed = performance.now() - start;
+    const start = performance.now();
+    const encrypted = await wb.toBuffer({ password: 'perf-test' });
+    const wb2 = await readBuffer(encrypted, { password: 'perf-test' });
+    const elapsed = performance.now() - start;
 
-      // Verify timing (generous 10s for CI)
-      expect(elapsed).toBeLessThan(10_000);
+    // Verify timing (generous 10s for CI)
+    expect(elapsed).toBeLessThan(10_000);
 
-      // Verify data sampling
-      const ws2 = wb2.getSheet('Large');
-      expect(ws2).toBeDefined();
-      expect(ws2?.cell('A1').value).toBe('Row 1');
-      expect(ws2?.cell('B1').value).toBe(1);
-      expect(ws2?.cell('A5000').value).toBe('Row 5000');
-      expect(ws2?.cell('B5000').value).toBe(5000);
-      expect(ws2?.cell('C10000').value).toBe(15000);
-      expect(ws2?.cell('D10000').value).toBe(true);
-      expect(ws2?.cell('E10000').value).toBe('Data-10000');
-    },
-  );
+    // Verify data sampling
+    const ws2 = wb2.getSheet('Large');
+    expect(ws2).toBeDefined();
+    expect(ws2?.cell('A1').value).toBe('Row 1');
+    expect(ws2?.cell('B1').value).toBe(1);
+    expect(ws2?.cell('A5000').value).toBe('Row 5000');
+    expect(ws2?.cell('B5000').value).toBe(5000);
+    expect(ws2?.cell('C10000').value).toBe(15000);
+    expect(ws2?.cell('D10000').value).toBe(true);
+    expect(ws2?.cell('E10000').value).toBe('Data-10000');
+  });
 
   // -------------------------------------------------------------------------
   // 8. Unicode password

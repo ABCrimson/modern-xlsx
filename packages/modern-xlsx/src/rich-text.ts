@@ -65,7 +65,7 @@ export class RichTextBuilder {
 
   /** Build and return the array of rich text runs. */
   build(): readonly RichTextRun[] {
-    return [...this.runs];
+    return Array.from(this.runs);
   }
 
   /** Get the plain text content (all runs concatenated). */

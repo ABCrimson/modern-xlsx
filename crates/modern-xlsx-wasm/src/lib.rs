@@ -3,11 +3,13 @@ use wasm_bindgen::prelude::*;
 use web_sys::{Blob, BlobPropertyBag};
 
 /// Parse a JSON workbook string, mapping serde errors to `JsError`.
+#[inline]
 fn parse_workbook(json: &str) -> Result<modern_xlsx_core::WorkbookData, JsError> {
     serde_json::from_str(json).map_err(|e| JsError::new(&format!("JSON parse error: {e}")))
 }
 
 /// Convert any `Display` error to `JsError`.
+#[inline]
 fn to_js_err(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
 }

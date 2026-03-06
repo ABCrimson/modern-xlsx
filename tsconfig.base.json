@@ -21,6 +21,8 @@
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
     "allowUnreachableCode": false,
-    "allowUnusedLabels": false
+    "allowUnusedLabels": false,
+    "erasableSyntaxOnly": true,
+    "noUncheckedSideEffectImports": true
   }
 }

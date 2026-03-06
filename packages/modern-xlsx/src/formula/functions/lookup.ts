@@ -20,12 +20,18 @@ function isError(val: CellValue): val is string {
 }
 
 function toNumber(val: CellValue): number | string {
-  if (typeof val === 'number') return val;
-  if (typeof val === 'boolean') return val ? 1 : 0;
   if (val === null) return 0;
-  if (isError(val)) return val;
-  const n = Number(val);
-  return Number.isNaN(n) ? '#VALUE!' : n;
+  switch (typeof val) {
+    case 'number':
+      return val;
+    case 'boolean':
+      return val ? 1 : 0;
+    case 'string': {
+      if (isError(val)) return val;
+      const n = Number(val);
+      return Number.isNaN(n) ? '#VALUE!' : n;
+    }
+  }
 }
 
 /** Convert column letter(s) to 0-based index. A=0, B=1, Z=25, AA=26. */
@@ -108,8 +114,7 @@ function resolveApprox(
 function approxSearchAsc(values: CellValue[], target: CellValue): number {
   let bestIdx = -1;
   for (let i = 0; i < values.length; i++) {
-    const v = at(values, i);
-    const cmp = compareForMatch(v ?? null, target);
+    const cmp = compareForMatch(values[i] ?? null, target);
     if (cmp <= 0) bestIdx = i;
     else break;
   }
@@ -119,21 +124,14 @@ function approxSearchAsc(values: CellValue[], target: CellValue): number {
 /** Find the index of exact match in a flat array.  Returns -1 if not found. */
 function exactSearch(values: CellValue[], target: CellValue): number {
   for (let i = 0; i < values.length; i++) {
-    const v = at(values, i);
-    if (valuesEqual(v ?? null, target)) return i;
+    if (valuesEqual(values[i] ?? null, target)) return i;
   }
   return -1;
 }
 
 /** Flatten a 2D matrix into a 1D array. */
 function flattenMatrix(matrix: CellValue[][]): CellValue[] {
-  const values: CellValue[] = [];
-  for (const row of matrix) {
-    for (const cell of row) {
-      values.push(cell);
-    }
-  }
-  return values;
+  return matrix.flat();
 }
 
 // ---------------------------------------------------------------------------
@@ -274,26 +272,29 @@ function matchImpl(
 
 /** Dispatch MATCH logic by match type. */
 function matchByType(values: CellValue[], lookupVal: CellValue, matchType: number): CellValue {
-  if (matchType === 0) {
-    const idx = exactSearch(values, lookupVal);
-    return idx === -1 ? '#N/A' : idx + 1;
-  }
-  if (matchType === 1) {
-    const idx = approxSearchAsc(values, lookupVal);
-    return idx === -1 ? '#N/A' : idx + 1;
-  }
-  if (matchType === -1) {
-    // Smallest value >= lookupVal (data sorted descending)
-    let bestIdx = -1;
-    for (let i = 0; i < values.length; i++) {
-      const v = at(values, i);
-      const cmp = compareForMatch(v ?? null, lookupVal);
-      if (cmp >= 0) bestIdx = i;
-      else break;
+  switch (matchType) {
+    case 0: {
+      const idx = exactSearch(values, lookupVal);
+      return idx === -1 ? '#N/A' : idx + 1;
     }
-    return bestIdx === -1 ? '#N/A' : bestIdx + 1;
+    case 1: {
+      const idx = approxSearchAsc(values, lookupVal);
+      return idx === -1 ? '#N/A' : idx + 1;
+    }
+    case -1: {
+      // Smallest value >= lookupVal (data sorted descending)
+      let bestIdx = -1;
+      for (let i = 0; i < values.length; i++) {
+        const v = values[i];
+        const cmp = compareForMatch(v ?? null, lookupVal);
+        if (cmp >= 0) bestIdx = i;
+        else break;
+      }
+      return bestIdx === -1 ? '#N/A' : bestIdx + 1;
+    }
+    default:
+      return '#N/A';
   }
-  return '#N/A';
 }
 
 // ---------------------------------------------------------------------------
@@ -328,9 +329,14 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
     if (args.length < 1) return '#VALUE!';
     const arg = at(args, 0);
     if (!arg) return '#VALUE!';
-    if (arg.type === 'cell_ref') return arg.row;
-    if (arg.type === 'range') return arg.start.row;
-    return '#VALUE!';
+    switch (arg.type) {
+      case 'cell_ref':
+        return arg.row;
+      case 'range':
+        return arg.start.row;
+      default:
+        return '#VALUE!';
+    }
   });
 
   // ---- COLUMN ------------------------------------------------------------
@@ -338,9 +344,14 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
     if (args.length < 1) return '#VALUE!';
     const arg = at(args, 0);
     if (!arg) return '#VALUE!';
-    if (arg.type === 'cell_ref') return letterToCol(arg.col) + 1;
-    if (arg.type === 'range') return letterToCol(arg.start.col) + 1;
-    return '#VALUE!';
+    switch (arg.type) {
+      case 'cell_ref':
+        return letterToCol(arg.col) + 1;
+      case 'range':
+        return letterToCol(arg.start.col) + 1;
+      default:
+        return '#VALUE!';
+    }
   });
 
   // ---- ROWS --------------------------------------------------------------
@@ -348,11 +359,14 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
     if (args.length < 1) return '#VALUE!';
     const arg = at(args, 0);
     if (!arg) return '#VALUE!';
-    if (arg.type === 'range') {
-      return Math.abs(arg.end.row - arg.start.row) + 1;
+    switch (arg.type) {
+      case 'range':
+        return Math.abs(arg.end.row - arg.start.row) + 1;
+      case 'cell_ref':
+        return 1;
+      default:
+        return '#VALUE!';
     }
-    if (arg.type === 'cell_ref') return 1;
-    return '#VALUE!';
   });
 
   // ---- COLUMNS -----------------------------------------------------------
@@ -360,10 +374,13 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
     if (args.length < 1) return '#VALUE!';
     const arg = at(args, 0);
     if (!arg) return '#VALUE!';
-    if (arg.type === 'range') {
-      return Math.abs(letterToCol(arg.end.col) - letterToCol(arg.start.col)) + 1;
+    switch (arg.type) {
+      case 'range':
+        return Math.abs(letterToCol(arg.end.col) - letterToCol(arg.start.col)) + 1;
+      case 'cell_ref':
+        return 1;
+      default:
+        return '#VALUE!';
     }
-    if (arg.type === 'cell_ref') return 1;
-    return '#VALUE!';
   });
 }

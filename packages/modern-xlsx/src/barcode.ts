@@ -218,9 +218,9 @@ const QR_ALIGN: number[][] = [
 
 const QR_FMT: Record<QrEcLevel, number[]> = (() => {
   const poly = 0x537;
-  const r: Record<string, number[]> = { L: [], M: [], Q: [], H: [] };
-  const ecBits: Record<QrEcLevel, number> = { L: 0b01, M: 0b00, Q: 0b11, H: 0b10 };
-  for (const lv of ['L', 'M', 'Q', 'H'] as QrEcLevel[]) {
+  const r: Record<QrEcLevel, number[]> = { L: [], M: [], Q: [], H: [] };
+  const ecBits = { L: 0b01, M: 0b00, Q: 0b11, H: 0b10 } satisfies Record<QrEcLevel, number>;
+  for (const lv of ['L', 'M', 'Q', 'H'] satisfies QrEcLevel[]) {
     for (let mask = 0; mask < 8; mask++) {
       const data = (ecBits[lv] << 3) | mask;
       let bits = data << 10;
@@ -229,10 +229,10 @@ const QR_FMT: Record<QrEcLevel, number[]> = (() => {
       }
       let fmt = (data << 10) | bits;
       fmt ^= 0x5412;
-      r[lv]?.push(fmt);
+      r[lv].push(fmt);
     }
   }
-  return r as Record<QrEcLevel, number[]>;
+  return r;
 })();
 
 const QR_VBITS = [0, 0, 0, 0, 0, 0, 0, 0x07c94, 0x085bc, 0x09a99, 0x0a4d3];
@@ -1473,11 +1473,11 @@ function renderText(text: string): boolean[][] {
   const grid = createGrid(FH, tw, false);
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]?.toUpperCase() ?? ' ';
-    const d = FONT[ch] ?? FONT[' '] ?? [];
+    const d: number[] = FONT[ch] ?? FONT[' '] ?? [];
     const xo = i * cw;
     for (let r = 0; r < FH; r++) {
       for (let c = 0; c < FW; c++) {
-        if (xo + c < tw) setCell(grid, r, xo + c, ((at(d as number[], r) >> (4 - c)) & 1) === 1);
+        if (xo + c < tw) setCell(grid, r, xo + c, ((at(d, r) >> (4 - c)) & 1) === 1);
       }
     }
   }

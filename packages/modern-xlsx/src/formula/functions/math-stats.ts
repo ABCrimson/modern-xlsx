@@ -23,19 +23,30 @@ function isError(val: CellValue): val is string {
 }
 
 function toNumber(val: CellValue): number | string {
-  if (typeof val === 'number') return val;
-  if (typeof val === 'boolean') return val ? 1 : 0;
   if (val === null) return 0;
-  if (isError(val)) return val;
-  const n = Number(val);
-  return Number.isNaN(n) ? '#VALUE!' : n;
+  switch (typeof val) {
+    case 'number':
+      return val;
+    case 'boolean':
+      return val ? 1 : 0;
+    case 'string': {
+      if (isError(val)) return val;
+      const n = Number(val);
+      return Number.isNaN(n) ? '#VALUE!' : n;
+    }
+  }
 }
 
 /** Coerce a CellValue to a numeric contribution (0 for non-numeric). */
 function numericValue(v: CellValue): number {
-  if (typeof v === 'number') return v;
-  if (typeof v === 'boolean') return v ? 1 : 0;
-  return 0;
+  switch (typeof v) {
+    case 'number':
+      return v;
+    case 'boolean':
+      return v ? 1 : 0;
+    default:
+      return 0;
+  }
 }
 
 /**
@@ -147,37 +158,36 @@ function buildOperatorMatcher(op: string, operand: string): Matcher {
  * Build a matcher function from an Excel criteria value.
  */
 function buildMatcher(criteria: CellValue): Matcher {
-  if (typeof criteria === 'number') {
-    return (val) => typeof val === 'number' && val === criteria;
-  }
-  if (typeof criteria === 'boolean') {
-    return (val) => val === criteria;
-  }
   if (criteria === null) {
     return (val) => val === null || val === '';
   }
+  switch (typeof criteria) {
+    case 'number':
+      return (val) => typeof val === 'number' && val === criteria;
+    case 'boolean':
+      return (val) => val === criteria;
+    case 'string': {
+      // Operator prefix patterns
+      const opMatch = criteria.match(/^(<>|>=|<=|>|<|=)(.*)$/);
+      if (opMatch) {
+        const op = opMatch[1] ?? '';
+        const val = opMatch[2] ?? '';
+        return buildOperatorMatcher(op, val);
+      }
 
-  const s = String(criteria);
+      // Wildcard support: * and ?
+      if (criteria.includes('*') || criteria.includes('?')) {
+        const escaped = criteria.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+        const pattern = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
+        const re = new RegExp(`^${pattern}$`, 'i');
+        return (val) => re.test(String(val ?? ''));
+      }
 
-  // Operator prefix patterns
-  const opMatch = s.match(/^(<>|>=|<=|>|<|=)(.*)$/);
-  if (opMatch) {
-    const op = opMatch[1] ?? '';
-    const val = opMatch[2] ?? '';
-    return buildOperatorMatcher(op, val);
+      // Plain string: case-insensitive exact match
+      const lower = criteria.toLowerCase();
+      return (val) => String(val ?? '').toLowerCase() === lower;
+    }
   }
-
-  // Wildcard support: * and ?
-  if (s.includes('*') || s.includes('?')) {
-    const escaped = s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-    const pattern = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
-    const re = new RegExp(`^${pattern}$`, 'i');
-    return (val) => re.test(String(val ?? ''));
-  }
-
-  // Plain string: case-insensitive exact match
-  const lower = s.toLowerCase();
-  return (val) => String(val ?? '').toLowerCase() === lower;
 }
 
 // ---------------------------------------------------------------------------

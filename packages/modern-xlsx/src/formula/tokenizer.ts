@@ -179,10 +179,10 @@ export function tokenize(formula: string): TokenizeResult {
     // (d) Error literal
     if (ch === '#') {
       const start = pos;
-      const remaining = formula.slice(pos);
+      const remainingLen = formula.length - pos;
       let matched = false;
       for (const err of ERROR_LITERALS) {
-        if (remaining.length >= err.length && remaining.slice(0, err.length) === err) {
+        if (remainingLen >= err.length && formula.startsWith(err, pos)) {
           tokens.push({ type: 'error', value: err, start, end: pos + err.length });
           pos += err.length;
           matched = true;
@@ -270,9 +270,10 @@ export function tokenize(formula: string): TokenizeResult {
 
     // (k) Two-char operators: <>, <=, >=
     if (pos + 1 < formula.length) {
-      const two = formula.slice(pos, pos + 2);
-      if (two === '<>' || two === '<=' || two === '>=') {
-        tokens.push({ type: 'operator', value: two, start: pos, end: pos + 2 });
+      const next = at(formula, pos + 1);
+      if ((ch === '<' && (next === '>' || next === '=')) || (ch === '>' && next === '=')) {
+        const value = ch + next;
+        tokens.push({ type: 'operator', value, start: pos, end: pos + 2 });
         pos += 2;
         continue;
       }
