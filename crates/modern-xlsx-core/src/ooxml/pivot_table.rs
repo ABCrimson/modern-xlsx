@@ -329,7 +329,7 @@ impl PivotCacheDefinitionData {
 
     /// Serialize this pivot cache definition to valid OOXML XML bytes.
     pub fn to_xml(&self) -> Result<Vec<u8>> {
-        let mut buf: Vec<u8> = Vec::with_capacity(512);
+        let mut buf: Vec<u8> = Vec::with_capacity(512 + self.fields.len() * 96);
         let mut writer = Writer::new(&mut buf);
         let mut ibuf = itoa::Buffer::new();
 
@@ -564,7 +564,7 @@ impl PivotCacheRecordsData {
 
     /// Serialize these pivot cache records to valid OOXML XML bytes.
     pub fn to_xml(&self) -> Result<Vec<u8>> {
-        let mut buf: Vec<u8> = Vec::with_capacity(512);
+        let mut buf: Vec<u8> = Vec::with_capacity(512 + self.records.len() * 64);
         let mut writer = Writer::new(&mut buf);
         let mut ibuf = itoa::Buffer::new();
 
@@ -845,7 +845,7 @@ impl PivotTableData {
 
     /// Serialize this pivot table definition to valid OOXML XML bytes.
     pub fn to_xml(&self) -> Result<Vec<u8>> {
-        let mut buf: Vec<u8> = Vec::with_capacity(512);
+        let mut buf: Vec<u8> = Vec::with_capacity(512 + self.pivot_fields.len() * 128);
         let mut writer = Writer::new(&mut buf);
         let mut ibuf = itoa::Buffer::new();
 

@@ -95,7 +95,7 @@ pub struct TableStyleInfo {
 impl TableDefinition {
     /// Serialize this table definition to valid `xl/tables/table{n}.xml` bytes.
     pub fn to_xml(&self) -> Result<Vec<u8>> {
-        let mut buf: Vec<u8> = Vec::with_capacity(512);
+        let mut buf: Vec<u8> = Vec::with_capacity(512 + self.columns.len() * 80);
         let mut writer = Writer::new(&mut buf);
         let mut ibuf = itoa::Buffer::new();
 
