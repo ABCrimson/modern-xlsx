@@ -6,6 +6,7 @@ pub mod ole2;
 pub mod ooxml;
 pub mod reader;
 pub mod streaming;
+pub mod streaming_writer;
 pub mod validate;
 pub mod writer;
 pub mod zip;

@@ -1,0 +1,165 @@
+import init, {
+  initSync as _initSync,
+  read as _wasmReadJson,
+  repair as _wasmRepairJson,
+  validate as _wasmValidateJson,
+  writeBlob as _wasmWriteBlobJson,
+  write as _wasmWriteJson,
+  version as wasmVersion,
+} from '../wasm-lite/modern_xlsx_wasm.js';
+
+import { ModernXlsxError, WASM_INIT_FAILED } from './errors.js';
+import type { RepairResult, ValidationReport, WorkbookData } from './types.js';
+
+let initPromise: Promise<void> | null = null;
+let initialized = false;
+
+/**
+ * Detect the WASM binary URL from the current environment.
+ *
+ * - IIFE/script tag: derives URL relative to `document.currentScript.src`
+ * - CDN: constructs versioned CDN URL
+ * - ESM: returns `undefined` to let wasm-bindgen use `import.meta.url`
+ */
+function detectWasmUrl(): string | URL | undefined {
+  // In a <script> tag context (IIFE bundle), derive from script src
+  if (typeof document !== 'undefined' && document.currentScript instanceof HTMLScriptElement) {
+    const { src } = document.currentScript;
+    if (src) {
+      return new URL('modern-xlsx.wasm', src);
+    }
+  }
+  // Let wasm-bindgen use its default import.meta.url resolution
+  return undefined;
+}
+
+/**
+ * Initialize the WASM module (lite build — no encryption support).
+ *
+ * Call once at application startup. Idempotent — safe to call multiple times.
+ * Accepts an optional URL/path to the `.wasm` binary for environments where
+ * auto-detection doesn't work (e.g., custom CDN, Service Workers).
+ *
+ * @param wasmSource - URL, string path, or fetch Response for the WASM binary.
+ *   If omitted, auto-detects: script src → import.meta.url → CDN fallback.
+ */
+export async function initWasm(wasmSource?: string | URL | Response): Promise<void> {
+  if (initialized) return;
+  initPromise ??= init(wasmSource ?? detectWasmUrl()).then(
+    () => {
+      initialized = true;
+    },
+    (err: unknown) => {
+      initPromise = null;
+      throw err;
+    },
+  );
+  return initPromise as Promise<void>;
+}
+
+/**
+ * Initialize WASM synchronously from a pre-loaded buffer (lite build).
+ * Useful in Node.js test environments or when WASM bytes are already available.
+ *
+ * @param module - A WebAssembly.Module or raw bytes (Uint8Array/ArrayBuffer).
+ */
+export function initWasmSync(module: WebAssembly.Module | BufferSource): void {
+  if (initialized) return;
+  _initSync({ module });
+  initialized = true;
+  initPromise = Promise.resolve(); // prevent concurrent initWasm from re-initializing
+}
+
+/**
+ * Auto-initialize WASM on first use. Wraps an async function to
+ * transparently call `initWasm()` before the first operation.
+ * Subsequent calls skip initialization (cached Promise pattern).
+ */
+export async function ensureReady(wasmSource?: string | URL): Promise<void> {
+  if (!initialized) {
+    await initWasm(wasmSource);
+  }
+}
+
+export function ensureInitialized(): void {
+  if (!initialized) {
+    throw new ModernXlsxError(WASM_INIT_FAILED, 'WASM not initialized. Call initWasm() first.');
+  }
+}
+
+/**
+ * Read XLSX bytes and return parsed WorkbookData.
+ * WASM returns a JSON string; we use the V8-native JSON.parse()
+ * which is 8-13x faster than serde_wasm_bindgen for large workbooks.
+ */
+export function wasmRead(data: Uint8Array): WorkbookData {
+  const json = _wasmReadJson(data);
+  const parsed: unknown = JSON.parse(json);
+  if (!isWorkbookData(parsed)) {
+    throw new Error('WASM returned invalid WorkbookData structure');
+  }
+  return parsed;
+}
+
+/** Lightweight structural check for the WASM boundary. */
+function isWorkbookData(v: unknown): v is WorkbookData {
+  if (typeof v !== 'object' || v === null) return false;
+  if (!('sheets' in v) || !('styles' in v)) return false;
+  return Array.isArray(v.sheets) && typeof v.styles === 'object' && v.styles !== null;
+}
+
+/** Lightweight structural check for ValidationReport from WASM. */
+function isValidationReport(v: unknown): v is ValidationReport {
+  if (typeof v !== 'object' || v === null) return false;
+  return 'issues' in v && 'isValid' in v && Array.isArray(v.issues);
+}
+
+/** Lightweight structural check for RepairResult from WASM. */
+function isRepairResult(v: unknown): v is RepairResult {
+  if (typeof v !== 'object' || v === null) return false;
+  return 'workbook' in v && 'report' in v && 'repairCount' in v;
+}
+
+/**
+ * Write WorkbookData to XLSX bytes.
+ * Serializes to JSON string for transfer across the WASM boundary.
+ */
+export function wasmWrite(data: WorkbookData): Uint8Array {
+  return _wasmWriteJson(JSON.stringify(data));
+}
+
+/**
+ * Write WorkbookData to a Blob (browser).
+ * Serializes to JSON string for transfer across the WASM boundary.
+ */
+export function wasmWriteBlob(data: WorkbookData): Blob {
+  return _wasmWriteBlobJson(JSON.stringify(data));
+}
+
+/**
+ * Validate a workbook and return a structured report.
+ * Uses WASM-accelerated validation for structural compliance checking.
+ */
+export function wasmValidate(data: WorkbookData): ValidationReport {
+  const json = _wasmValidateJson(JSON.stringify(data));
+  const parsed: unknown = JSON.parse(json);
+  if (!isValidationReport(parsed)) {
+    throw new Error('WASM returned invalid ValidationReport structure');
+  }
+  return parsed;
+}
+
+/**
+ * Validate and auto-repair a workbook. Returns the repaired workbook,
+ * a post-repair validation report, and the number of repairs applied.
+ */
+export function wasmRepair(data: WorkbookData): RepairResult {
+  const json = _wasmRepairJson(JSON.stringify(data));
+  const parsed: unknown = JSON.parse(json);
+  if (!isRepairResult(parsed)) {
+    throw new Error('WASM returned invalid RepairResult structure');
+  }
+  return parsed;
+}
+
+export { wasmVersion };

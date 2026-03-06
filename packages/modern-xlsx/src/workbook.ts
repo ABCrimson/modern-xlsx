@@ -25,6 +25,8 @@ import type {
   PageMarginsData,
   PageSetupData,
   PaneSelectionData,
+  PivotCacheDefinitionData,
+  PivotCacheRecordsData,
   PivotTableData,
   RepairResult,
   RowData,
@@ -32,6 +34,7 @@ import type {
   SheetProtectionData,
   SheetState,
   SheetViewData,
+  SlicerCacheData,
   SlicerData,
   SparklineGroupData,
   SplitPaneData,
@@ -39,6 +42,7 @@ import type {
   TableDefinitionData,
   ThemeColorsData,
   ThreadedCommentData,
+  TimelineCacheData,
   TimelineData,
   ValidationReport,
   ViewMode,
@@ -114,6 +118,10 @@ export class Workbook {
     if (data?.workbookViews) this.data.workbookViews = data.workbookViews;
     if (data?.protection) this.data.protection = data.protection;
     if (data?.persons) this.data.persons = data.persons;
+    if (data?.pivotCaches) this.data.pivotCaches = data.pivotCaches;
+    if (data?.pivotCacheRecords) this.data.pivotCacheRecords = data.pivotCacheRecords;
+    if (data?.slicerCaches) this.data.slicerCaches = data.slicerCaches;
+    if (data?.timelineCaches) this.data.timelineCaches = data.timelineCaches;
     if (data?.preservedEntries) this.data.preservedEntries = data.preservedEntries;
     this._rebuildSheetIndex();
   }
@@ -459,6 +467,52 @@ export class Workbook {
   /** Sets or clears the workbook protection settings. Pass `null` to remove protection. */
   set protection(value: WorkbookProtectionData | null) {
     this.data.protection = value;
+  }
+
+  // --- Pivot / Slicer / Timeline caches ---
+
+  /** Returns the pivot cache definitions at the workbook level. */
+  get pivotCaches(): readonly PivotCacheDefinitionData[] {
+    return this.data.pivotCaches ?? [];
+  }
+
+  /** Adds a pivot cache definition at the workbook level. */
+  addPivotCache(cache: PivotCacheDefinitionData): void {
+    this.data.pivotCaches ??= [];
+    this.data.pivotCaches.push(cache);
+  }
+
+  /** Returns the pivot cache records at the workbook level. */
+  get pivotCacheRecords(): readonly PivotCacheRecordsData[] {
+    return this.data.pivotCacheRecords ?? [];
+  }
+
+  /** Adds pivot cache records at the workbook level. */
+  addPivotCacheRecords(records: PivotCacheRecordsData): void {
+    this.data.pivotCacheRecords ??= [];
+    this.data.pivotCacheRecords.push(records);
+  }
+
+  /** Returns the slicer cache definitions at the workbook level. */
+  get slicerCaches(): readonly SlicerCacheData[] {
+    return this.data.slicerCaches ?? [];
+  }
+
+  /** Adds a slicer cache at the workbook level. */
+  addSlicerCache(cache: SlicerCacheData): void {
+    this.data.slicerCaches ??= [];
+    this.data.slicerCaches.push(cache);
+  }
+
+  /** Returns the timeline cache definitions at the workbook level. */
+  get timelineCaches(): readonly TimelineCacheData[] {
+    return this.data.timelineCaches ?? [];
+  }
+
+  /** Adds a timeline cache at the workbook level. */
+  addTimelineCache(cache: TimelineCacheData): void {
+    this.data.timelineCaches ??= [];
+    this.data.timelineCaches.push(cache);
   }
 
   // --- Serialization ---
@@ -1147,6 +1201,58 @@ export class Worksheet {
   /** Returns all timelines on this sheet. */
   get timelines(): readonly TimelineData[] {
     return this.data.worksheet.timelines ?? [];
+  }
+
+  // --- Pivot Table / Slicer / Timeline mutation ---
+
+  /** Adds a pivot table definition to this sheet. */
+  addPivotTable(pt: PivotTableData): void {
+    this.data.worksheet.pivotTables ??= [];
+    this.data.worksheet.pivotTables.push(pt);
+  }
+
+  /** Removes a pivot table by index. Returns true if removed. */
+  removePivotTable(index: number): boolean {
+    if (
+      !this.data.worksheet.pivotTables ||
+      index < 0 ||
+      index >= this.data.worksheet.pivotTables.length
+    )
+      return false;
+    this.data.worksheet.pivotTables.splice(index, 1);
+    return true;
+  }
+
+  /** Adds a slicer to this sheet. */
+  addSlicer(slicer: SlicerData): void {
+    this.data.worksheet.slicers ??= [];
+    this.data.worksheet.slicers.push(slicer);
+  }
+
+  /** Removes a slicer by index. Returns true if removed. */
+  removeSlicer(index: number): boolean {
+    if (!this.data.worksheet.slicers || index < 0 || index >= this.data.worksheet.slicers.length)
+      return false;
+    this.data.worksheet.slicers.splice(index, 1);
+    return true;
+  }
+
+  /** Adds a timeline to this sheet. */
+  addTimeline(timeline: TimelineData): void {
+    this.data.worksheet.timelines ??= [];
+    this.data.worksheet.timelines.push(timeline);
+  }
+
+  /** Removes a timeline by index. Returns true if removed. */
+  removeTimeline(index: number): boolean {
+    if (
+      !this.data.worksheet.timelines ||
+      index < 0 ||
+      index >= this.data.worksheet.timelines.length
+    )
+      return false;
+    this.data.worksheet.timelines.splice(index, 1);
+    return true;
   }
 
   /**

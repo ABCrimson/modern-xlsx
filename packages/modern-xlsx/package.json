@@ -1,6 +1,6 @@
 {
   "name": "modern-xlsx",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "High-performance XLSX read/write library powered by Rust WASM. Full styling, encryption, data validation, conditional formatting — features SheetJS charges for, free and open source.",
   "license": "MIT",
   "author": "modern-xlsx contributors",
@@ -37,6 +37,11 @@
       "import": "./dist/index.mjs",
       "default": "./dist/index.mjs"
     },
+    "./lite": {
+      "types": "./dist/index-lite.d.mts",
+      "import": "./dist/index-lite.mjs",
+      "default": "./dist/index-lite.mjs"
+    },
     "./browser": "./dist/modern-xlsx.min.js",
     "./worker": "./dist/modern-xlsx.worker.js"
   },
@@ -45,6 +50,7 @@
   "files": [
     "dist/",
     "wasm/",
+    "wasm-lite/",
     "LICENSE",
     "README.md"
   ],

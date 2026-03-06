@@ -1,0 +1,11 @@
+Name,Department,Start Date,Salary,Performance,Active
+Alice Johnson,Engineering,2021-03-15,95000,4.5,true
+Bob Smith,Marketing,2019-07-22,78000,3.8,true
+Carol Williams,Engineering,2020-01-10,102000,4.7,true
+David Brown,Sales,2018-11-05,67000,3.2,false
+Eva Martinez,Engineering,2022-06-01,88000,4.1,true
+Frank Lee,Marketing,2017-04-18,85000,4.3,true
+Grace Kim,Sales,2023-02-14,62000,3.9,true
+Henry Davis,Engineering,2019-09-30,110000,4.8,true
+Iris Wang,Marketing,2021-11-20,74000,3.5,true
+Jack Wilson,Sales,2020-08-12,71000,4.0,false

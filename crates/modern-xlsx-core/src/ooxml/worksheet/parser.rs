@@ -1,6 +1,6 @@
 use core::hint::cold_path;
 
-use quick_xml::events::Event;
+use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
 use super::json::{cell_type_json_str, json_escape_to, write_f64_json};
@@ -13,6 +13,547 @@ use super::{
 };
 use crate::ooxml::push_entity;
 use crate::{ModernXlsxError, Result};
+
+// ---------------------------------------------------------------------------
+// Extracted helper functions — shared between parse_with_sst and parse_to_json
+// ---------------------------------------------------------------------------
+
+/// Parse the `t` attribute value into a `CellType`.
+#[inline]
+fn parse_cell_type_attr(val: &str) -> CellType {
+    match val {
+        "s" => CellType::SharedString,
+        "b" => CellType::Boolean,
+        "e" => CellType::Error,
+        "str" => CellType::FormulaStr,
+        "inlineStr" => CellType::InlineStr,
+        _ => CellType::Number,
+    }
+}
+
+/// Return value for row attribute parsing.
+struct RowAttrs {
+    index: u32,
+    height: Option<f64>,
+    hidden: bool,
+    outline_level: Option<u8>,
+    collapsed: bool,
+}
+
+/// Parse `<row>` attributes into structured data.
+#[inline]
+fn parse_row_attrs(e: &BytesStart<'_>) -> RowAttrs {
+    let mut ra = RowAttrs {
+        index: 0,
+        height: None,
+        hidden: false,
+        outline_level: None,
+        collapsed: false,
+    };
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        match ln.as_ref() {
+            b"r" => {
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                ra.index = val.parse::<u32>().unwrap_or(0);
+            }
+            b"ht" => {
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                ra.height = val.parse::<f64>().ok();
+            }
+            b"hidden" => {
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                ra.hidden = val == "1" || val.eq_ignore_ascii_case("true");
+            }
+            b"outlineLevel" => {
+                ra.outline_level = std::str::from_utf8(&attr.value)
+                    .ok()
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .filter(|&v| v > 0);
+            }
+            b"collapsed" => {
+                ra.collapsed = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+            }
+            _ => {}
+        }
+    }
+    ra
+}
+
+/// Return value for cell attribute parsing.
+struct CellAttrs {
+    reference: String,
+    cell_type: CellType,
+    style_index: Option<u32>,
+}
+
+/// Parse `<c>` attributes (reference, type, style index).
+#[inline]
+fn parse_cell_attrs(e: &BytesStart<'_>) -> CellAttrs {
+    let mut ca = CellAttrs {
+        reference: String::new(),
+        cell_type: CellType::Number,
+        style_index: None,
+    };
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        match ln.as_ref() {
+            b"r" => {
+                ca.reference =
+                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+            }
+            b"t" => {
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                ca.cell_type = parse_cell_type_attr(val);
+            }
+            b"s" => {
+                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                ca.style_index = val.parse::<u32>().ok();
+            }
+            _ => {}
+        }
+    }
+    ca
+}
+
+/// Mutable state for formula attributes that are collected across `<f>` parsing.
+struct FormulaState {
+    formula_type: Option<String>,
+    formula_ref: Option<String>,
+    shared_index: Option<u32>,
+    dynamic_array: Option<bool>,
+    formula_r1: Option<String>,
+    formula_r2: Option<String>,
+    formula_dt2d: Option<bool>,
+    formula_dtr1: Option<bool>,
+    formula_dtr2: Option<bool>,
+}
+
+/// Parse `<f>` (formula) element attributes into the given state fields.
+#[inline]
+fn parse_formula_attrs(e: &BytesStart<'_>, fs: &mut FormulaState) {
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        match ln.as_ref() {
+            b"t" => fs.formula_type = Some(val.to_owned()),
+            b"ref" => fs.formula_ref = Some(val.to_owned()),
+            b"si" => fs.shared_index = val.parse::<u32>().ok(),
+            b"cm" if val == "1" => {
+                fs.dynamic_array = Some(true);
+            }
+            b"r1" => fs.formula_r1 = Some(val.to_owned()),
+            b"r2" => fs.formula_r2 = Some(val.to_owned()),
+            b"dt2D" if val == "1" || val.eq_ignore_ascii_case("true") => {
+                fs.formula_dt2d = Some(true);
+            }
+            b"dtr1" if val == "1" || val.eq_ignore_ascii_case("true") => {
+                fs.formula_dtr1 = Some(true);
+            }
+            b"dtr2" if val == "1" || val.eq_ignore_ascii_case("true") => {
+                fs.formula_dtr2 = Some(true);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Parse `<sheetView>` attributes. Returns `(SheetViewData, has_non_default)`.
+fn parse_sheet_view_attrs(e: &BytesStart<'_>) -> (SheetViewData, bool) {
+    let mut sv = SheetViewData::default();
+    let mut has_non_default = false;
+    for attr in e.attributes().flatten() {
+        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        match attr.key.local_name().as_ref() {
+            b"showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
+            b"showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
+            b"showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
+            b"rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
+            b"tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
+            b"showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
+            b"showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
+            b"showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
+            b"defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
+            b"zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
+            b"zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
+            b"zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
+            b"zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
+            b"colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
+            b"view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
+            _ => {}
+        }
+    }
+    (sv, has_non_default)
+}
+
+/// Parse `<selection>` attributes into a `PaneSelection`.
+#[inline]
+fn parse_selection_attrs(e: &BytesStart<'_>) -> PaneSelection {
+    let mut sel_pane = None::<String>;
+    let mut sel_active = None::<String>;
+    let mut sel_sqref = None::<String>;
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        match ln.as_ref() {
+            b"pane" => {
+                sel_pane = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+            }
+            b"activeCell" => {
+                sel_active = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+            }
+            b"sqref" => {
+                sel_sqref = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+            }
+            _ => {}
+        }
+    }
+    PaneSelection {
+        pane: sel_pane,
+        active_cell: sel_active,
+        sqref: sel_sqref,
+    }
+}
+
+/// Parse `<pane>` attributes into frozen pane or split pane.
+fn parse_pane_attrs(e: &BytesStart<'_>) -> (Option<FrozenPane>, Option<SplitPane>) {
+    let mut y_split_raw = String::new();
+    let mut x_split_raw = String::new();
+    let mut state_val = String::new();
+    let mut top_left_cell_val = None::<String>;
+    let mut active_pane_val = None::<String>;
+
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        match ln.as_ref() {
+            b"ySplit" => {
+                y_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+            }
+            b"xSplit" => {
+                x_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+            }
+            b"state" => {
+                state_val = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+            }
+            b"topLeftCell" => {
+                top_left_cell_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+            }
+            b"activePane" => {
+                active_pane_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+            }
+            _ => {}
+        }
+    }
+
+    if state_val == "frozen" {
+        let y: u32 = y_split_raw.parse().unwrap_or(0);
+        let x: u32 = x_split_raw.parse().unwrap_or(0);
+        if y > 0 || x > 0 {
+            return (Some(FrozenPane { rows: y, cols: x }), None);
+        }
+    } else {
+        let y: f64 = y_split_raw.parse().unwrap_or(0.0);
+        let x: f64 = x_split_raw.parse().unwrap_or(0.0);
+        if y > 0.0 || x > 0.0 {
+            return (
+                None,
+                Some(SplitPane {
+                    horizontal: if y > 0.0 { Some(y) } else { None },
+                    vertical: if x > 0.0 { Some(x) } else { None },
+                    top_left_cell: top_left_cell_val,
+                    active_pane: active_pane_val,
+                }),
+            );
+        }
+    }
+    (None, None)
+}
+
+/// Parse `<dataValidation>` attributes into a `DataValidation`.
+fn parse_data_validation_attrs(e: &BytesStart<'_>) -> DataValidation {
+    let mut dv = DataValidation {
+        sqref: String::new(),
+        validation_type: None,
+        operator: None,
+        formula1: None,
+        formula2: None,
+        allow_blank: None,
+        show_error_message: None,
+        error_title: None,
+        error_message: None,
+        show_input_message: None,
+        prompt_title: None,
+        prompt: None,
+    };
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        match ln.as_ref() {
+            b"sqref" => dv.sqref = val.to_owned(),
+            b"type" => dv.validation_type = Some(val.to_owned()),
+            b"operator" => dv.operator = Some(val.to_owned()),
+            b"allowBlank" => {
+                dv.allow_blank = Some(val == "1" || val.eq_ignore_ascii_case("true"));
+            }
+            b"showErrorMessage" => {
+                dv.show_error_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
+            }
+            b"errorTitle" => dv.error_title = Some(val.to_owned()),
+            b"error" => dv.error_message = Some(val.to_owned()),
+            b"showInputMessage" => {
+                dv.show_input_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
+            }
+            b"promptTitle" => dv.prompt_title = Some(val.to_owned()),
+            b"prompt" => dv.prompt = Some(val.to_owned()),
+            _ => {}
+        }
+    }
+    dv
+}
+
+/// Parse `<cfRule>` attributes into a `ConditionalFormattingRule`.
+#[inline]
+fn parse_cf_rule_attrs(e: &BytesStart<'_>) -> ConditionalFormattingRule {
+    let mut rule = ConditionalFormattingRule {
+        rule_type: String::new(),
+        priority: 0,
+        operator: None,
+        formula: None,
+        dxf_id: None,
+        color_scale: None,
+        data_bar: None,
+        icon_set: None,
+    };
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        match ln.as_ref() {
+            b"type" => rule.rule_type = val.to_owned(),
+            b"priority" => {
+                rule.priority = val.parse::<u32>().unwrap_or(0);
+            }
+            b"operator" => rule.operator = Some(val.to_owned()),
+            b"dxfId" => {
+                rule.dxf_id = val.parse::<u32>().ok();
+            }
+            _ => {}
+        }
+    }
+    rule
+}
+
+/// Parse `<hyperlink>` attributes into a `Hyperlink`.
+#[inline]
+fn parse_hyperlink_attrs(e: &BytesStart<'_>) -> Hyperlink {
+    let mut hl = Hyperlink {
+        cell_ref: String::new(),
+        location: None,
+        display: None,
+        tooltip: None,
+    };
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        match ln.as_ref() {
+            b"ref" => hl.cell_ref = val.to_owned(),
+            b"location" => hl.location = Some(val.to_owned()),
+            b"display" => hl.display = Some(val.to_owned()),
+            b"tooltip" => hl.tooltip = Some(val.to_owned()),
+            _ => {}
+        }
+    }
+    hl
+}
+
+/// Parse `<pageSetup>` attributes into a `PageSetup`.
+#[inline]
+fn parse_page_setup_attrs(e: &BytesStart<'_>) -> PageSetup {
+    let mut ps = PageSetup {
+        paper_size: None,
+        orientation: None,
+        fit_to_width: None,
+        fit_to_height: None,
+        scale: None,
+        first_page_number: None,
+        horizontal_dpi: None,
+        vertical_dpi: None,
+    };
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        match ln.as_ref() {
+            b"paperSize" => ps.paper_size = val.parse::<u32>().ok(),
+            b"orientation" => ps.orientation = Some(val.to_owned()),
+            b"fitToWidth" => ps.fit_to_width = val.parse::<u32>().ok(),
+            b"fitToHeight" => ps.fit_to_height = val.parse::<u32>().ok(),
+            b"scale" => ps.scale = val.parse::<u32>().ok(),
+            b"firstPageNumber" => ps.first_page_number = val.parse::<u32>().ok(),
+            b"horizontalDpi" => ps.horizontal_dpi = val.parse::<u32>().ok(),
+            b"verticalDpi" => ps.vertical_dpi = val.parse::<u32>().ok(),
+            _ => {}
+        }
+    }
+    ps
+}
+
+/// Parse `<sheetProtection>` attributes into a `SheetProtection`.
+fn parse_sheet_protection_attrs(e: &BytesStart<'_>) -> SheetProtection {
+    let mut sp = SheetProtection {
+        sheet: false,
+        objects: false,
+        scenarios: false,
+        password: None,
+        format_cells: false,
+        format_columns: false,
+        format_rows: false,
+        insert_columns: false,
+        insert_rows: false,
+        delete_columns: false,
+        delete_rows: false,
+        sort: false,
+        auto_filter: false,
+    };
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let as_bool = val == "1" || val.eq_ignore_ascii_case("true");
+        match ln.as_ref() {
+            b"sheet" => sp.sheet = as_bool,
+            b"objects" => sp.objects = as_bool,
+            b"scenarios" => sp.scenarios = as_bool,
+            b"password" => sp.password = Some(val.to_owned()),
+            b"formatCells" => sp.format_cells = as_bool,
+            b"formatColumns" => sp.format_columns = as_bool,
+            b"formatRows" => sp.format_rows = as_bool,
+            b"insertColumns" => sp.insert_columns = as_bool,
+            b"insertRows" => sp.insert_rows = as_bool,
+            b"deleteColumns" => sp.delete_columns = as_bool,
+            b"deleteRows" => sp.delete_rows = as_bool,
+            b"sort" => sp.sort = as_bool,
+            b"autoFilter" => sp.auto_filter = as_bool,
+            _ => {}
+        }
+    }
+    sp
+}
+
+/// Parse `<cfvo>` attributes into a `Cfvo`.
+#[inline]
+fn parse_cfvo_attrs(e: &BytesStart<'_>) -> Cfvo {
+    let mut cfvo_type = String::new();
+    let mut cfvo_val: Option<String> = None;
+    for attr in e.attributes().flatten() {
+        let ln = attr.key.local_name();
+        let v = std::str::from_utf8(&attr.value).unwrap_or_default();
+        match ln.as_ref() {
+            b"type" => cfvo_type = v.to_owned(),
+            b"val" => cfvo_val = Some(v.to_owned()),
+            _ => {}
+        }
+    }
+    Cfvo { cfvo_type, val: cfvo_val }
+}
+
+/// Parse `<headerFooter>` attributes into a `HeaderFooter`.
+#[inline]
+fn parse_header_footer_attrs(e: &BytesStart<'_>) -> HeaderFooter {
+    let mut hf = HeaderFooter::default();
+    for attr in e.attributes().flatten() {
+        match attr.key.as_ref() {
+            b"differentOddEven" => hf.different_odd_even = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
+            b"differentFirst" => hf.different_first = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
+            b"scaleWithDoc" => hf.scale_with_doc = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+            b"alignWithMargins" => hf.align_with_margins = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+            _ => {}
+        }
+    }
+    hf
+}
+
+/// Parse `<outlinePr>` attributes into an `OutlineProperties`.
+#[inline]
+fn parse_outline_pr_attrs(e: &BytesStart<'_>) -> OutlineProperties {
+    let mut op = OutlineProperties { summary_below: true, summary_right: true };
+    for attr in e.attributes().flatten() {
+        match attr.key.as_ref() {
+            b"summaryBelow" => op.summary_below = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+            b"summaryRight" => op.summary_right = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+            _ => {}
+        }
+    }
+    op
+}
+
+/// Parse `<sparklineGroup>` attributes into a `SparklineGroup`.
+fn parse_sparkline_group_attrs(e: &BytesStart<'_>) -> SparklineGroup {
+    let mut group = SparklineGroup::default();
+    for attr in e.attributes().flatten() {
+        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        match attr.key.local_name().as_ref() {
+            b"type" => group.sparkline_type = val.to_owned(),
+            b"displayEmptyCellsAs" => group.display_empty_cells_as = Some(val.to_owned()),
+            b"markers" => group.markers = val == "1" || val.eq_ignore_ascii_case("true"),
+            b"high" => group.high = val == "1" || val.eq_ignore_ascii_case("true"),
+            b"low" => group.low = val == "1" || val.eq_ignore_ascii_case("true"),
+            b"first" => group.first = val == "1" || val.eq_ignore_ascii_case("true"),
+            b"last" => group.last = val == "1" || val.eq_ignore_ascii_case("true"),
+            b"negative" => group.negative = val == "1" || val.eq_ignore_ascii_case("true"),
+            b"displayXAxis" => group.display_x_axis = val == "1" || val.eq_ignore_ascii_case("true"),
+            b"lineWeight" => group.line_weight = val.parse::<f64>().ok(),
+            b"manualMin" => group.manual_min = val.parse::<f64>().ok(),
+            b"manualMax" => group.manual_max = val.parse::<f64>().ok(),
+            b"rightToLeft" => group.right_to_left = val == "1" || val.eq_ignore_ascii_case("true"),
+            _ => {}
+        }
+    }
+    group
+}
+
+/// Extract the value of a single named attribute from a `BytesStart`.
+#[inline]
+fn find_attr_str(e: &BytesStart<'_>, name: &[u8]) -> Option<String> {
+    e.attributes().flatten()
+        .find(|a| a.key.local_name().as_ref() == name)
+        .map(|a| std::str::from_utf8(&a.value).unwrap_or_default().to_owned())
+}
+
+/// Parse sparkline color elements (self-closing) from a `BytesStart` into a group.
+#[inline]
+fn apply_sparkline_color(group: &mut SparklineGroup, local: &[u8], e: &BytesStart<'_>) {
+    if let Some(attr) = e.attributes().flatten()
+        .find(|a| a.key.local_name().as_ref() == b"rgb")
+    {
+        let rgb = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+        match local {
+            b"colorSeries" => group.color_series = Some(rgb),
+            b"colorNegative" => group.color_negative = Some(rgb),
+            b"colorAxis" => group.color_axis = Some(rgb),
+            b"colorMarkers" => group.color_markers = Some(rgb),
+            b"colorFirst" => group.color_first = Some(rgb),
+            b"colorLast" => group.color_last = Some(rgb),
+            b"colorHigh" => group.color_high = Some(rgb),
+            b"colorLow" => group.color_low = Some(rgb),
+            _ => {}
+        }
+    }
+}
+
+/// Assign a header/footer text field by child index.
+#[inline]
+fn assign_hf_field(hf: &mut HeaderFooter, idx: u8, text: Option<String>) {
+    match idx {
+        0 => hf.odd_header = text,
+        1 => hf.odd_footer = text,
+        2 => hf.even_header = text,
+        3 => hf.even_footer = text,
+        4 => hf.first_header = text,
+        5 => hf.first_footer = text,
+        _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Main parser implementations
+// ---------------------------------------------------------------------------
 
 impl WorksheetXml {
     /// Parse a worksheet XML file from raw bytes.
@@ -75,16 +616,18 @@ impl WorksheetXml {
         let mut cur_cell_style: Option<u32> = None;
         let mut cur_cell_value: Option<String> = None;
         let mut cur_cell_formula: Option<String> = None;
-        let mut cur_cell_formula_type: Option<String> = None;
-        let mut cur_cell_formula_ref: Option<String> = None;
-        let mut cur_cell_shared_index: Option<u32> = None;
         let mut cur_cell_inline_string: Option<String> = None;
-        let mut cur_cell_dynamic_array: Option<bool> = None;
-        let mut cur_cell_formula_r1: Option<String> = None;
-        let mut cur_cell_formula_r2: Option<String> = None;
-        let mut cur_cell_formula_dt2d: Option<bool> = None;
-        let mut cur_cell_formula_dtr1: Option<bool> = None;
-        let mut cur_cell_formula_dtr2: Option<bool> = None;
+        let mut cur_formula = FormulaState {
+            formula_type: None,
+            formula_ref: None,
+            shared_index: None,
+            dynamic_array: None,
+            formula_r1: None,
+            formula_r2: None,
+            formula_dt2d: None,
+            formula_dtr1: None,
+            formula_dtr2: None,
+        };
 
         // Buffers for text content.
         let mut text_buf = String::with_capacity(256);
@@ -122,58 +665,13 @@ impl WorksheetXml {
                         }
                         (ParseState::SheetViews, b"sheetView") => {
                             state = ParseState::SheetView;
-                            let mut sv = SheetViewData::default();
-                            let mut has_non_default = false;
-                            for attr in e.attributes().flatten() {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match attr.key.local_name().as_ref() {
-                                    b"showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
-                                    b"showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
-                                    b"showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
-                                    b"rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
-                                    b"tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
-                                    b"showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
-                                    b"showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
-                                    b"showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
-                                    b"defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
-                                    b"zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
-                                    b"colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
-                                    b"view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
-                                    _ => {}
-                                }
-                            }
+                            let (sv, has_non_default) = parse_sheet_view_attrs(e);
                             if has_non_default {
                                 sheet_view = Some(sv);
                             }
                         }
                         (ParseState::SheetView, b"selection") => {
-                            // Handle <selection> as Start element (non-self-closing).
-                            let mut sel_pane = None::<String>;
-                            let mut sel_active = None::<String>;
-                            let mut sel_sqref = None::<String>;
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"pane" => {
-                                        sel_pane = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    b"activeCell" => {
-                                        sel_active = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    b"sqref" => {
-                                        sel_sqref = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            pane_selections.push(PaneSelection {
-                                pane: sel_pane,
-                                active_cell: sel_active,
-                                sqref: sel_sqref,
-                            });
+                            pane_selections.push(parse_selection_attrs(e));
                         }
                         (ParseState::Root, b"cols") => {
                             state = ParseState::Cols;
@@ -183,84 +681,34 @@ impl WorksheetXml {
                         }
                         (ParseState::SheetData, b"row") => {
                             state = ParseState::InRow;
-                            cur_row_index = 0;
-                            cur_row_height = None;
-                            cur_row_hidden = false;
-                            cur_row_outline_level = None;
-                            cur_row_collapsed = false;
+                            let ra = parse_row_attrs(e);
+                            cur_row_index = ra.index;
+                            cur_row_height = ra.height;
+                            cur_row_hidden = ra.hidden;
+                            cur_row_outline_level = ra.outline_level;
+                            cur_row_collapsed = ra.collapsed;
                             cur_row_cells.clear();
-
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"r" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cur_row_index = val.parse::<u32>().unwrap_or(0);
-                                    }
-                                    b"ht" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cur_row_height = val.parse::<f64>().ok();
-                                    }
-                                    b"hidden" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cur_row_hidden = val == "1" || val.eq_ignore_ascii_case("true");
-                                    }
-                                    b"outlineLevel" => {
-                                        cur_row_outline_level = std::str::from_utf8(&attr.value)
-                                            .ok()
-                                            .and_then(|v| v.parse::<u8>().ok())
-                                            .filter(|&v| v > 0);
-                                    }
-                                    b"collapsed" => {
-                                        cur_row_collapsed = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
-                                    }
-                                    _ => {}
-                                }
-                            }
                         }
                         (ParseState::InRow, b"c") => {
                             state = ParseState::InCell;
-                            cur_cell_ref.clear();
-                            cur_cell_type = CellType::Number;
-                            cur_cell_style = None;
+                            let ca = parse_cell_attrs(e);
+                            cur_cell_ref = ca.reference;
+                            cur_cell_type = ca.cell_type;
+                            cur_cell_style = ca.style_index;
                             cur_cell_value = None;
                             cur_cell_formula = None;
-                            cur_cell_formula_type = None;
-                            cur_cell_formula_ref = None;
-                            cur_cell_shared_index = None;
                             cur_cell_inline_string = None;
-                            cur_cell_dynamic_array = None;
-                            cur_cell_formula_r1 = None;
-                            cur_cell_formula_r2 = None;
-                            cur_cell_formula_dt2d = None;
-                            cur_cell_formula_dtr1 = None;
-                            cur_cell_formula_dtr2 = None;
-
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"r" => {
-                                        cur_cell_ref =
-                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
-                                    }
-                                    b"t" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cur_cell_type = match val {
-                                            "s" => CellType::SharedString,
-                                            "b" => CellType::Boolean,
-                                            "e" => CellType::Error,
-                                            "str" => CellType::FormulaStr,
-                                            "inlineStr" => CellType::InlineStr,
-                                            _ => CellType::Number,
-                                        };
-                                    }
-                                    b"s" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cur_cell_style = val.parse::<u32>().ok();
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            cur_formula = FormulaState {
+                                formula_type: None,
+                                formula_ref: None,
+                                shared_index: None,
+                                dynamic_array: None,
+                                formula_r1: None,
+                                formula_r2: None,
+                                formula_dt2d: None,
+                                formula_dtr1: None,
+                                formula_dtr2: None,
+                            };
                         }
                         (ParseState::InCell, b"v") => {
                             state = ParseState::InCellValue;
@@ -269,36 +717,7 @@ impl WorksheetXml {
                         (ParseState::InCell, b"f") => {
                             state = ParseState::InCellFormula;
                             text_buf.clear();
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"t" => cur_cell_formula_type = Some(val.to_owned()),
-                                    b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
-                                    b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
-                                    b"cm" if val == "1" => {
-                                        cur_cell_dynamic_array = Some(true);
-                                    }
-                                    b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
-                                    b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
-                                    b"dt2D"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dt2d = Some(true);
-                                    }
-                                    b"dtr1"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dtr1 = Some(true);
-                                    }
-                                    b"dtr2"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dtr2 = Some(true);
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            parse_formula_attrs(e, &mut cur_formula);
                         }
                         (ParseState::InCell, b"is") => {
                             state = ParseState::InInlineStr;
@@ -315,44 +734,7 @@ impl WorksheetXml {
                         }
                         (ParseState::InDataValidations, b"dataValidation") => {
                             state = ParseState::InDataValidation;
-                            let mut dv = DataValidation {
-                                sqref: String::new(),
-                                validation_type: None,
-                                operator: None,
-                                formula1: None,
-                                formula2: None,
-                                allow_blank: None,
-                                show_error_message: None,
-                                error_title: None,
-                                error_message: None,
-                                show_input_message: None,
-                                prompt_title: None,
-                                prompt: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"sqref" => dv.sqref = val.to_owned(),
-                                    b"type" => dv.validation_type = Some(val.to_owned()),
-                                    b"operator" => dv.operator = Some(val.to_owned()),
-                                    b"allowBlank" => {
-                                        dv.allow_blank = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"showErrorMessage" => {
-                                        dv.show_error_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"errorTitle" => dv.error_title = Some(val.to_owned()),
-                                    b"error" => dv.error_message = Some(val.to_owned()),
-                                    b"showInputMessage" => {
-                                        dv.show_input_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"promptTitle" => dv.prompt_title = Some(val.to_owned()),
-                                    b"prompt" => dv.prompt = Some(val.to_owned()),
-                                    _ => {}
-                                }
-                            }
-                            cur_dv = Some(dv);
+                            cur_dv = Some(parse_data_validation_attrs(e));
                         }
                         (ParseState::InDataValidation, b"formula1") => {
                             state = ParseState::InDVFormula1;
@@ -366,43 +748,13 @@ impl WorksheetXml {
                             state = ParseState::InConditionalFormatting;
                             cur_cf_sqref.clear();
                             cur_cf_rules.clear();
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"sqref")
-                            {
-                                cur_cf_sqref = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .to_owned();
+                            if let Some(val) = find_attr_str(e, b"sqref") {
+                                cur_cf_sqref = val;
                             }
                         }
                         (ParseState::InConditionalFormatting, b"cfRule") => {
                             state = ParseState::InCfRule;
-                            let mut rule = ConditionalFormattingRule {
-                                rule_type: String::new(),
-                                priority: 0,
-                                operator: None,
-                                formula: None,
-                                dxf_id: None,
-                                color_scale: None,
-                                data_bar: None,
-                                icon_set: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val =
-                                    std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"type" => rule.rule_type = val.to_owned(),
-                                    b"priority" => {
-                                        rule.priority = val.parse::<u32>().unwrap_or(0);
-                                    }
-                                    b"operator" => rule.operator = Some(val.to_owned()),
-                                    b"dxfId" => {
-                                        rule.dxf_id = val.parse::<u32>().ok();
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            cur_cf_rule = Some(rule);
+                            cur_cf_rule = Some(parse_cf_rule_attrs(e));
                         }
                         (ParseState::InCfRule, b"formula") => {
                             state = ParseState::InCfRuleFormula;
@@ -421,16 +773,7 @@ impl WorksheetXml {
                         (ParseState::InCfRule, b"iconSet") => {
                             state = ParseState::InIconSet;
                             cur_cfvos.clear();
-                            cur_icon_set_type = None;
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"iconSet")
-                            {
-                                cur_icon_set_type = Some(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
-                                );
-                            }
+                            cur_icon_set_type = find_attr_str(e, b"iconSet");
                         }
                         (ParseState::Root, b"hyperlinks") => {
                             state = ParseState::InHyperlinks;
@@ -439,42 +782,22 @@ impl WorksheetXml {
                             state = ParseState::InAutoFilter;
                             cur_af_range.clear();
                             cur_af_columns.clear();
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"ref")
-                            {
-                                cur_af_range = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .to_owned();
+                            if let Some(val) = find_attr_str(e, b"ref") {
+                                cur_af_range = val;
                             }
                         }
                         (ParseState::InAutoFilter, b"filterColumn") => {
                             state = ParseState::InFilterColumn;
-                            cur_filter_col_id = 0;
+                            cur_filter_col_id = find_attr_str(e, b"colId")
+                                .and_then(|v| v.parse::<u32>().ok())
+                                .unwrap_or(0);
                             cur_filter_vals.clear();
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"colId")
-                            {
-                                cur_filter_col_id = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .parse::<u32>()
-                                    .unwrap_or(0);
-                            }
                         }
                         (ParseState::InFilterColumn, b"filters") => {
                             state = ParseState::InFilters;
                         }
                         (ParseState::Root, b"headerFooter") => {
-                            let mut hf = HeaderFooter::default();
-                            for attr in e.attributes().flatten() {
-                                match attr.key.as_ref() {
-                                    b"differentOddEven" => hf.different_odd_even = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
-                                    b"differentFirst" => hf.different_first = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
-                                    b"scaleWithDoc" => hf.scale_with_doc = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
-                                    b"alignWithMargins" => hf.align_with_margins = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
-                                    _ => {}
-                                }
-                            }
-                            header_footer = Some(hf);
+                            header_footer = Some(parse_header_footer_attrs(e));
                             state = ParseState::HeaderFooter;
                         }
                         (ParseState::HeaderFooter, b"oddHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(0); }
@@ -506,27 +829,7 @@ impl WorksheetXml {
                             state = ParseState::SparklineGroups;
                         }
                         (ParseState::SparklineGroups, b"sparklineGroup") => {
-                            let mut group = SparklineGroup::default();
-                            for attr in e.attributes().flatten() {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match attr.key.local_name().as_ref() {
-                                    b"type" => group.sparkline_type = val.to_owned(),
-                                    b"displayEmptyCellsAs" => group.display_empty_cells_as = Some(val.to_owned()),
-                                    b"markers" => group.markers = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"high" => group.high = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"low" => group.low = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"first" => group.first = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"last" => group.last = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"negative" => group.negative = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"displayXAxis" => group.display_x_axis = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"lineWeight" => group.line_weight = val.parse::<f64>().ok(),
-                                    b"manualMin" => group.manual_min = val.parse::<f64>().ok(),
-                                    b"manualMax" => group.manual_max = val.parse::<f64>().ok(),
-                                    b"rightToLeft" => group.right_to_left = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    _ => {}
-                                }
-                            }
-                            current_sparkline_group = Some(group);
+                            current_sparkline_group = Some(parse_sparkline_group_attrs(e));
                             state = ParseState::SparklineGroup;
                         }
                         (ParseState::SparklineGroup, b"sparklines") => {
@@ -555,146 +858,30 @@ impl WorksheetXml {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
                         (ParseState::Root, b"dimension") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"ref")
-                            {
-                                dimension = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                );
-                            }
+                            dimension = find_attr_str(e, b"ref");
                         }
                         (ParseState::SheetPr, b"tabColor") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
-                            {
-                                tab_color = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                );
-                            }
+                            tab_color = find_attr_str(e, b"rgb");
                         }
                         (ParseState::SheetPr, b"outlinePr") => {
-                            let mut op = OutlineProperties { summary_below: true, summary_right: true };
-                            for attr in e.attributes().flatten() {
-                                match attr.key.as_ref() {
-                                    b"summaryBelow" => op.summary_below = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
-                                    b"summaryRight" => op.summary_right = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
-                                    _ => {}
-                                }
-                            }
-                            outline_properties = Some(op);
+                            outline_properties = Some(parse_outline_pr_attrs(e));
                         }
                         (ParseState::Root, b"autoFilter") => {
-                            let mut af_range = String::new();
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"ref")
-                            {
-                                af_range = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .to_owned();
-                            }
                             auto_filter = Some(AutoFilter {
-                                range: af_range,
+                                range: find_attr_str(e, b"ref").unwrap_or_default(),
                                 filter_columns: Vec::new(),
                             });
                         }
                         (ParseState::SheetView, b"pane") => {
-                            let mut y_split_raw = String::new();
-                            let mut x_split_raw = String::new();
-                            let mut state_val = String::new();
-                            let mut top_left_cell_val = None::<String>;
-                            let mut active_pane_val = None::<String>;
-
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"ySplit" => {
-                                        y_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
-                                    }
-                                    b"xSplit" => {
-                                        x_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
-                                    }
-                                    b"state" => {
-                                        state_val = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
-                                    }
-                                    b"topLeftCell" => {
-                                        top_left_cell_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    b"activePane" => {
-                                        active_pane_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    _ => {}
-                                }
-                            }
-
-                            if state_val == "frozen" {
-                                let y: u32 = y_split_raw.parse().unwrap_or(0);
-                                let x: u32 = x_split_raw.parse().unwrap_or(0);
-                                if y > 0 || x > 0 {
-                                    frozen_pane = Some(FrozenPane { rows: y, cols: x });
-                                }
-                            } else {
-                                let y: f64 = y_split_raw.parse().unwrap_or(0.0);
-                                let x: f64 = x_split_raw.parse().unwrap_or(0.0);
-                                if y > 0.0 || x > 0.0 {
-                                    split_pane = Some(SplitPane {
-                                        horizontal: if y > 0.0 { Some(y) } else { None },
-                                        vertical: if x > 0.0 { Some(x) } else { None },
-                                        top_left_cell: top_left_cell_val,
-                                        active_pane: active_pane_val,
-                                    });
-                                }
-                            }
+                            let (fp, sp) = parse_pane_attrs(e);
+                            if fp.is_some() { frozen_pane = fp; }
+                            if sp.is_some() { split_pane = sp; }
                         }
                         (ParseState::SheetView, b"selection") => {
-                            let mut sel_pane = None::<String>;
-                            let mut sel_active = None::<String>;
-                            let mut sel_sqref = None::<String>;
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"pane" => {
-                                        sel_pane = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    b"activeCell" => {
-                                        sel_active = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    b"sqref" => {
-                                        sel_sqref = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            pane_selections.push(PaneSelection {
-                                pane: sel_pane,
-                                active_cell: sel_active,
-                                sqref: sel_sqref,
-                            });
+                            pane_selections.push(parse_selection_attrs(e));
                         }
                         (ParseState::SheetViews, b"sheetView") => {
-                            // Self-closing <sheetView ... /> — parse attributes.
-                            let mut sv = SheetViewData::default();
-                            let mut has_non_default = false;
-                            for attr in e.attributes().flatten() {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match attr.key.local_name().as_ref() {
-                                    b"showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
-                                    b"showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
-                                    b"showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
-                                    b"rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
-                                    b"tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
-                                    b"showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
-                                    b"showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
-                                    b"showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
-                                    b"defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
-                                    b"zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
-                                    b"colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
-                                    b"view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
-                                    _ => {}
-                                }
-                            }
+                            let (sv, has_non_default) = parse_sheet_view_attrs(e);
                             if has_non_default {
                                 sheet_view = Some(sv);
                             }
@@ -703,94 +890,30 @@ impl WorksheetXml {
                             columns.push(parse_col_element(e));
                         }
                         (ParseState::MergeCells, b"mergeCell") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"ref")
-                            {
-                                merge_cells.push(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                );
+                            if let Some(val) = find_attr_str(e, b"ref") {
+                                merge_cells.push(val);
                             }
                         }
                         (ParseState::InRow, b"c") => {
                             // Self-closing <c ... /> — cell with no child elements.
-                            let mut cell_ref = String::new();
-                            let mut cell_type = CellType::Number;
-                            let mut cell_style: Option<u32> = None;
-
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"r" => {
-                                        cell_ref =
-                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
-                                    }
-                                    b"t" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cell_type = match val {
-                                            "s" => CellType::SharedString,
-                                            "b" => CellType::Boolean,
-                                            "e" => CellType::Error,
-                                            "str" => CellType::FormulaStr,
-                                            "inlineStr" => CellType::InlineStr,
-                                            _ => CellType::Number,
-                                        };
-                                    }
-                                    b"s" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cell_style = val.parse::<u32>().ok();
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            let ca = parse_cell_attrs(e);
                             cur_row_cells.push(Cell {
-                                reference: cell_ref,
-                                cell_type,
-                                style_index: cell_style,
+                                reference: ca.reference,
+                                cell_type: ca.cell_type,
+                                style_index: ca.style_index,
                                 ..Default::default()
                             });
                         }
                         (ParseState::SheetData, b"row") => {
                             // Self-closing <row ... /> — empty row.
-                            let mut row_index: u32 = 0;
-                            let mut row_height: Option<f64> = None;
-                            let mut row_hidden = false;
-                            let mut row_ol: Option<u8> = None;
-                            let mut row_coll = false;
-
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"r" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        row_index = val.parse::<u32>().unwrap_or(0);
-                                    }
-                                    b"ht" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        row_height = val.parse::<f64>().ok();
-                                    }
-                                    b"hidden" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        row_hidden = val == "1" || val.eq_ignore_ascii_case("true");
-                                    }
-                                    b"outlineLevel" => {
-                                        row_ol = std::str::from_utf8(&attr.value)
-                                            .ok()
-                                            .and_then(|v| v.parse::<u8>().ok())
-                                            .filter(|&v| v > 0);
-                                    }
-                                    b"collapsed" => {
-                                        row_coll = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            let ra = parse_row_attrs(e);
                             rows.push(Row {
-                                index: row_index,
+                                index: ra.index,
                                 cells: Vec::new(),
-                                height: row_height,
-                                hidden: row_hidden,
-                                outline_level: row_ol,
-                                collapsed: row_coll,
+                                height: ra.height,
+                                hidden: ra.hidden,
+                                outline_level: ra.outline_level,
+                                collapsed: ra.collapsed,
                             });
                         }
                         (ParseState::InCell, b"v") => {
@@ -798,265 +921,54 @@ impl WorksheetXml {
                         }
                         (ParseState::InCell, b"f") => {
                             // Empty <f/> — parse attributes even on self-closing.
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"t" => cur_cell_formula_type = Some(val.to_owned()),
-                                    b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
-                                    b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
-                                    b"cm" if val == "1" => {
-                                        cur_cell_dynamic_array = Some(true);
-                                    }
-                                    b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
-                                    b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
-                                    b"dt2D"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dt2d = Some(true);
-                                    }
-                                    b"dtr1"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dtr1 = Some(true);
-                                    }
-                                    b"dtr2"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dtr2 = Some(true);
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            parse_formula_attrs(e, &mut cur_formula);
                         }
                         (ParseState::InDataValidations, b"dataValidation") => {
                             // Self-closing <dataValidation ... /> with no formula children.
-                            let mut dv = DataValidation {
-                                sqref: String::new(),
-                                validation_type: None,
-                                operator: None,
-                                formula1: None,
-                                formula2: None,
-                                allow_blank: None,
-                                show_error_message: None,
-                                error_title: None,
-                                error_message: None,
-                                show_input_message: None,
-                                prompt_title: None,
-                                prompt: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"sqref" => dv.sqref = val.to_owned(),
-                                    b"type" => dv.validation_type = Some(val.to_owned()),
-                                    b"operator" => dv.operator = Some(val.to_owned()),
-                                    b"allowBlank" => {
-                                        dv.allow_blank = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"showErrorMessage" => {
-                                        dv.show_error_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"errorTitle" => dv.error_title = Some(val.to_owned()),
-                                    b"error" => dv.error_message = Some(val.to_owned()),
-                                    b"showInputMessage" => {
-                                        dv.show_input_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"promptTitle" => dv.prompt_title = Some(val.to_owned()),
-                                    b"prompt" => dv.prompt = Some(val.to_owned()),
-                                    _ => {}
-                                }
-                            }
-                            data_validations.push(dv);
+                            data_validations.push(parse_data_validation_attrs(e));
                         }
                         (ParseState::InConditionalFormatting, b"cfRule") => {
                             // Self-closing <cfRule ... /> with no formula child.
-                            let mut rule = ConditionalFormattingRule {
-                                rule_type: String::new(),
-                                priority: 0,
-                                operator: None,
-                                formula: None,
-                                dxf_id: None,
-                                color_scale: None,
-                                data_bar: None,
-                                icon_set: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val =
-                                    std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"type" => rule.rule_type = val.to_owned(),
-                                    b"priority" => {
-                                        rule.priority = val.parse::<u32>().unwrap_or(0);
-                                    }
-                                    b"operator" => rule.operator = Some(val.to_owned()),
-                                    b"dxfId" => {
-                                        rule.dxf_id = val.parse::<u32>().ok();
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            cur_cf_rules.push(rule);
+                            cur_cf_rules.push(parse_cf_rule_attrs(e));
                         }
                         // Hyperlink (self-closing).
                         (ParseState::InHyperlinks, b"hyperlink") => {
-                            let mut hl = Hyperlink {
-                                cell_ref: String::new(),
-                                location: None,
-                                display: None,
-                                tooltip: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"ref" => hl.cell_ref = val.to_owned(),
-                                    b"location" => hl.location = Some(val.to_owned()),
-                                    b"display" => hl.display = Some(val.to_owned()),
-                                    b"tooltip" => hl.tooltip = Some(val.to_owned()),
-                                    _ => {}
-                                }
-                            }
-                            hyperlinks.push(hl);
+                            hyperlinks.push(parse_hyperlink_attrs(e));
                         }
                         // pageSetup (always self-closing).
                         (ParseState::Root, b"pageSetup") => {
-                            let mut ps = PageSetup {
-                                paper_size: None,
-                                orientation: None,
-                                fit_to_width: None,
-                                fit_to_height: None,
-                                scale: None,
-                                first_page_number: None,
-                                horizontal_dpi: None,
-                                vertical_dpi: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"paperSize" => ps.paper_size = val.parse::<u32>().ok(),
-                                    b"orientation" => ps.orientation = Some(val.to_owned()),
-                                    b"fitToWidth" => ps.fit_to_width = val.parse::<u32>().ok(),
-                                    b"fitToHeight" => ps.fit_to_height = val.parse::<u32>().ok(),
-                                    b"scale" => ps.scale = val.parse::<u32>().ok(),
-                                    b"firstPageNumber" => ps.first_page_number = val.parse::<u32>().ok(),
-                                    b"horizontalDpi" => ps.horizontal_dpi = val.parse::<u32>().ok(),
-                                    b"verticalDpi" => ps.vertical_dpi = val.parse::<u32>().ok(),
-                                    _ => {}
-                                }
-                            }
-                            page_setup = Some(ps);
+                            page_setup = Some(parse_page_setup_attrs(e));
                         }
                         // sheetProtection (always self-closing).
                         (ParseState::Root, b"sheetProtection") => {
-                            let mut sp = SheetProtection {
-                                sheet: false,
-                                objects: false,
-                                scenarios: false,
-                                password: None,
-                                format_cells: false,
-                                format_columns: false,
-                                format_rows: false,
-                                insert_columns: false,
-                                insert_rows: false,
-                                delete_columns: false,
-                                delete_rows: false,
-                                sort: false,
-                                auto_filter: false,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                let as_bool = val == "1" || val.eq_ignore_ascii_case("true");
-                                match ln.as_ref() {
-                                    b"sheet" => sp.sheet = as_bool,
-                                    b"objects" => sp.objects = as_bool,
-                                    b"scenarios" => sp.scenarios = as_bool,
-                                    b"password" => sp.password = Some(val.to_owned()),
-                                    b"formatCells" => sp.format_cells = as_bool,
-                                    b"formatColumns" => sp.format_columns = as_bool,
-                                    b"formatRows" => sp.format_rows = as_bool,
-                                    b"insertColumns" => sp.insert_columns = as_bool,
-                                    b"insertRows" => sp.insert_rows = as_bool,
-                                    b"deleteColumns" => sp.delete_columns = as_bool,
-                                    b"deleteRows" => sp.delete_rows = as_bool,
-                                    b"sort" => sp.sort = as_bool,
-                                    b"autoFilter" => sp.auto_filter = as_bool,
-                                    _ => {}
-                                }
-                            }
-                            sheet_protection = Some(sp);
+                            sheet_protection = Some(parse_sheet_protection_attrs(e));
                         }
                         // cfvo in colorScale/dataBar/iconSet.
                         (ParseState::InColorScale | ParseState::InDataBar | ParseState::InIconSet, b"cfvo") => {
-                            let mut cfvo_type = String::new();
-                            let mut cfvo_val: Option<String> = None;
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let v = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"type" => cfvo_type = v.to_owned(),
-                                    b"val" => cfvo_val = Some(v.to_owned()),
-                                    _ => {}
-                                }
-                            }
-                            cur_cfvos.push(Cfvo { cfvo_type, val: cfvo_val });
+                            cur_cfvos.push(parse_cfvo_attrs(e));
                         }
                         // color in colorScale.
                         (ParseState::InColorScale, b"color") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
-                            {
-                                cur_cf_colors.push(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
-                                );
+                            if let Some(val) = find_attr_str(e, b"rgb") {
+                                cur_cf_colors.push(val);
                             }
                         }
                         // color in dataBar.
                         (ParseState::InDataBar, b"color") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
-                            {
-                                cur_cf_bar_color = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .to_owned();
+                            if let Some(val) = find_attr_str(e, b"rgb") {
+                                cur_cf_bar_color = val;
                             }
                         }
                         // filter values.
                         (ParseState::InFilters, b"filter") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
-                            {
-                                cur_filter_vals.push(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
-                                );
+                            if let Some(val) = find_attr_str(e, b"val") {
+                                cur_filter_vals.push(val);
                             }
                         }
                         // Sparkline color elements (self-closing).
                         (ParseState::SparklineGroup, _) => {
-                            if let Some(ref mut group) = current_sparkline_group
-                                && let Some(attr) = e.attributes().flatten()
-                                    .find(|a| a.key.local_name().as_ref() == b"rgb")
-                            {
-                                let rgb = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
-                                match local.as_ref() {
-                                    b"colorSeries" => group.color_series = Some(rgb),
-                                    b"colorNegative" => group.color_negative = Some(rgb),
-                                    b"colorAxis" => group.color_axis = Some(rgb),
-                                    b"colorMarkers" => group.color_markers = Some(rgb),
-                                    b"colorFirst" => group.color_first = Some(rgb),
-                                    b"colorLast" => group.color_last = Some(rgb),
-                                    b"colorHigh" => group.color_high = Some(rgb),
-                                    b"colorLow" => group.color_low = Some(rgb),
-                                    _ => {}
-                                }
+                            if let Some(ref mut group) = current_sparkline_group {
+                                apply_sparkline_color(group, local.as_ref(), e);
                             }
                         }
                         _ => {}
@@ -1146,16 +1058,16 @@ impl WorksheetXml {
                                 style_index: cur_cell_style.take(),
                                 value: cur_cell_value.take(),
                                 formula: cur_cell_formula.take(),
-                                formula_type: cur_cell_formula_type.take(),
-                                formula_ref: cur_cell_formula_ref.take(),
-                                shared_index: cur_cell_shared_index.take(),
+                                formula_type: cur_formula.formula_type.take(),
+                                formula_ref: cur_formula.formula_ref.take(),
+                                shared_index: cur_formula.shared_index.take(),
                                 inline_string: cur_cell_inline_string.take(),
-                                dynamic_array: cur_cell_dynamic_array.take(),
-                                formula_r1: cur_cell_formula_r1.take(),
-                                formula_r2: cur_cell_formula_r2.take(),
-                                formula_dt2d: cur_cell_formula_dt2d.take(),
-                                formula_dtr1: cur_cell_formula_dtr1.take(),
-                                formula_dtr2: cur_cell_formula_dtr2.take(),
+                                dynamic_array: cur_formula.dynamic_array.take(),
+                                formula_r1: cur_formula.formula_r1.take(),
+                                formula_r2: cur_formula.formula_r2.take(),
+                                formula_dt2d: cur_formula.formula_dt2d.take(),
+                                formula_dtr1: cur_formula.formula_dtr1.take(),
+                                formula_dtr2: cur_formula.formula_dtr2.take(),
                             });
                             state = ParseState::InRow;
                         }
@@ -1279,15 +1191,7 @@ impl WorksheetXml {
                             reader.config_mut().trim_text(true);
                             if let Some(ref mut hf) = header_footer {
                                 let text = if hf_text_buf.is_empty() { None } else { Some(std::mem::take(&mut hf_text_buf)) };
-                                match idx {
-                                    0 => hf.odd_header = text,
-                                    1 => hf.odd_footer = text,
-                                    2 => hf.even_header = text,
-                                    3 => hf.even_footer = text,
-                                    4 => hf.first_header = text,
-                                    5 => hf.first_footer = text,
-                                    _ => {}
-                                }
+                                assign_hf_field(hf, idx, text);
                             }
                             state = ParseState::HeaderFooter;
                         }
@@ -1449,15 +1353,17 @@ impl WorksheetXml {
         let mut cur_cell_type = CellType::Number;
         #[allow(unused_assignments)]
         let mut cur_cell_style: Option<u32> = None;
-        let mut cur_cell_formula_type: Option<String> = None;
-        let mut cur_cell_formula_ref: Option<String> = None;
-        let mut cur_cell_shared_index: Option<u32> = None;
-        let mut cur_cell_dynamic_array: Option<bool> = None;
-        let mut cur_cell_formula_r1: Option<String> = None;
-        let mut cur_cell_formula_r2: Option<String> = None;
-        let mut cur_cell_formula_dt2d: Option<bool> = None;
-        let mut cur_cell_formula_dtr1: Option<bool> = None;
-        let mut cur_cell_formula_dtr2: Option<bool> = None;
+        let mut cur_formula = FormulaState {
+            formula_type: None,
+            formula_ref: None,
+            shared_index: None,
+            dynamic_array: None,
+            formula_r1: None,
+            formula_r2: None,
+            formula_dt2d: None,
+            formula_dtr1: None,
+            formula_dtr2: None,
+        };
 
         // Metadata builder state (same as parse_with_sst).
         let mut cur_dv: Option<DataValidation> = None;
@@ -1488,58 +1394,13 @@ impl WorksheetXml {
                         (ParseState::Root, b"sheetViews") => state = ParseState::SheetViews,
                         (ParseState::SheetViews, b"sheetView") => {
                             state = ParseState::SheetView;
-                            let mut sv = SheetViewData::default();
-                            let mut has_non_default = false;
-                            for attr in e.attributes().flatten() {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match attr.key.local_name().as_ref() {
-                                    b"showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
-                                    b"showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
-                                    b"showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
-                                    b"rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
-                                    b"tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
-                                    b"showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
-                                    b"showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
-                                    b"showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
-                                    b"defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
-                                    b"zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
-                                    b"colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
-                                    b"view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
-                                    _ => {}
-                                }
-                            }
+                            let (sv, has_non_default) = parse_sheet_view_attrs(e);
                             if has_non_default {
                                 sheet_view = Some(sv);
                             }
                         }
                         (ParseState::SheetView, b"selection") => {
-                            // Handle <selection> as Start element (non-self-closing).
-                            let mut sel_pane = None::<String>;
-                            let mut sel_active = None::<String>;
-                            let mut sel_sqref = None::<String>;
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"pane" => {
-                                        sel_pane = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    b"activeCell" => {
-                                        sel_active = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    b"sqref" => {
-                                        sel_sqref = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            pane_selections.push(PaneSelection {
-                                pane: sel_pane,
-                                active_cell: sel_active,
-                                sqref: sel_sqref,
-                            });
+                            pane_selections.push(parse_selection_attrs(e));
                         }
                         (ParseState::Root, b"cols") => state = ParseState::Cols,
 
@@ -1548,45 +1409,17 @@ impl WorksheetXml {
 
                         (ParseState::SheetData, b"row") => {
                             state = ParseState::InRow;
-                            cur_row_height = None;
-                            cur_row_hidden = false;
-                            cur_row_outline_level = None;
-                            cur_row_collapsed = false;
-
-                            let mut row_index: u32 = 0;
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"r" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        row_index = val.parse::<u32>().unwrap_or(0);
-                                    }
-                                    b"ht" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cur_row_height = val.parse::<f64>().ok();
-                                    }
-                                    b"hidden" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cur_row_hidden = val == "1" || val.eq_ignore_ascii_case("true");
-                                    }
-                                    b"outlineLevel" => {
-                                        cur_row_outline_level = std::str::from_utf8(&attr.value)
-                                            .ok()
-                                            .and_then(|v| v.parse::<u8>().ok())
-                                            .filter(|&v| v > 0);
-                                    }
-                                    b"collapsed" => {
-                                        cur_row_collapsed = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            let ra = parse_row_attrs(e);
+                            cur_row_height = ra.height;
+                            cur_row_hidden = ra.hidden;
+                            cur_row_outline_level = ra.outline_level;
+                            cur_row_collapsed = ra.collapsed;
 
                             // Write row JSON start.
                             if !first_row { out.push(','); }
                             first_row = false;
                             out.push_str("{\"index\":");
-                            out.push_str(itoa_buf.format(row_index));
+                            out.push_str(itoa_buf.format(ra.index));
                             out.push_str(",\"cells\":[");
                             first_cell = true;
                         }
@@ -1596,15 +1429,17 @@ impl WorksheetXml {
                             cur_cell_ref.clear();
                             cur_cell_type = CellType::Number;
                             cur_cell_style = None;
-                            cur_cell_formula_type = None;
-                            cur_cell_formula_ref = None;
-                            cur_cell_shared_index = None;
-                            cur_cell_dynamic_array = None;
-                            cur_cell_formula_r1 = None;
-                            cur_cell_formula_r2 = None;
-                            cur_cell_formula_dt2d = None;
-                            cur_cell_formula_dtr1 = None;
-                            cur_cell_formula_dtr2 = None;
+                            cur_formula = FormulaState {
+                                formula_type: None,
+                                formula_ref: None,
+                                shared_index: None,
+                                dynamic_array: None,
+                                formula_r1: None,
+                                formula_r2: None,
+                                formula_dt2d: None,
+                                formula_dtr1: None,
+                                formula_dtr2: None,
+                            };
 
                             for attr in e.attributes().flatten() {
                                 let ln = attr.key.local_name();
@@ -1616,14 +1451,7 @@ impl WorksheetXml {
                                     }
                                     b"t" => {
                                         let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cur_cell_type = match val {
-                                            "s" => CellType::SharedString,
-                                            "b" => CellType::Boolean,
-                                            "e" => CellType::Error,
-                                            "str" => CellType::FormulaStr,
-                                            "inlineStr" => CellType::InlineStr,
-                                            _ => CellType::Number,
-                                        };
+                                        cur_cell_type = parse_cell_type_attr(val);
                                     }
                                     b"s" => {
                                         let val = std::str::from_utf8(&attr.value).unwrap_or_default();
@@ -1654,36 +1482,7 @@ impl WorksheetXml {
                         (ParseState::InCell, b"f") => {
                             state = ParseState::InCellFormula;
                             text_buf.clear();
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"t" => cur_cell_formula_type = Some(val.to_owned()),
-                                    b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
-                                    b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
-                                    b"cm" if val == "1" => {
-                                        cur_cell_dynamic_array = Some(true);
-                                    }
-                                    b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
-                                    b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
-                                    b"dt2D"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dt2d = Some(true);
-                                    }
-                                    b"dtr1"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dtr1 = Some(true);
-                                    }
-                                    b"dtr2"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dtr2 = Some(true);
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            parse_formula_attrs(e, &mut cur_formula);
                         }
                         (ParseState::InCell, b"is") => state = ParseState::InInlineStr,
                         (ParseState::InInlineStr, b"t") => {
@@ -1698,44 +1497,7 @@ impl WorksheetXml {
                         (ParseState::Root, b"dataValidations") => state = ParseState::InDataValidations,
                         (ParseState::InDataValidations, b"dataValidation") => {
                             state = ParseState::InDataValidation;
-                            let mut dv = DataValidation {
-                                sqref: String::new(),
-                                validation_type: None,
-                                operator: None,
-                                formula1: None,
-                                formula2: None,
-                                allow_blank: None,
-                                show_error_message: None,
-                                error_title: None,
-                                error_message: None,
-                                show_input_message: None,
-                                prompt_title: None,
-                                prompt: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"sqref" => dv.sqref = val.to_owned(),
-                                    b"type" => dv.validation_type = Some(val.to_owned()),
-                                    b"operator" => dv.operator = Some(val.to_owned()),
-                                    b"allowBlank" => {
-                                        dv.allow_blank = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"showErrorMessage" => {
-                                        dv.show_error_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"errorTitle" => dv.error_title = Some(val.to_owned()),
-                                    b"error" => dv.error_message = Some(val.to_owned()),
-                                    b"showInputMessage" => {
-                                        dv.show_input_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"promptTitle" => dv.prompt_title = Some(val.to_owned()),
-                                    b"prompt" => dv.prompt = Some(val.to_owned()),
-                                    _ => {}
-                                }
-                            }
-                            cur_dv = Some(dv);
+                            cur_dv = Some(parse_data_validation_attrs(e));
                         }
                         (ParseState::InDataValidation, b"formula1") => {
                             state = ParseState::InDVFormula1;
@@ -1751,38 +1513,13 @@ impl WorksheetXml {
                             state = ParseState::InConditionalFormatting;
                             cur_cf_sqref.clear();
                             cur_cf_rules.clear();
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"sqref")
-                            {
-                                cur_cf_sqref = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .to_owned();
+                            if let Some(val) = find_attr_str(e, b"sqref") {
+                                cur_cf_sqref = val;
                             }
                         }
                         (ParseState::InConditionalFormatting, b"cfRule") => {
                             state = ParseState::InCfRule;
-                            let mut rule = ConditionalFormattingRule {
-                                rule_type: String::new(),
-                                priority: 0,
-                                operator: None,
-                                formula: None,
-                                dxf_id: None,
-                                color_scale: None,
-                                data_bar: None,
-                                icon_set: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"type" => rule.rule_type = val.to_owned(),
-                                    b"priority" => rule.priority = val.parse::<u32>().unwrap_or(0),
-                                    b"operator" => rule.operator = Some(val.to_owned()),
-                                    b"dxfId" => rule.dxf_id = val.parse::<u32>().ok(),
-                                    _ => {}
-                                }
-                            }
-                            cur_cf_rule = Some(rule);
+                            cur_cf_rule = Some(parse_cf_rule_attrs(e));
                         }
                         (ParseState::InCfRule, b"formula") => {
                             state = ParseState::InCfRuleFormula;
@@ -1801,16 +1538,7 @@ impl WorksheetXml {
                         (ParseState::InCfRule, b"iconSet") => {
                             state = ParseState::InIconSet;
                             cur_cfvos.clear();
-                            cur_icon_set_type = None;
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"iconSet")
-                            {
-                                cur_icon_set_type = Some(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
-                                );
-                            }
+                            cur_icon_set_type = find_attr_str(e, b"iconSet");
                         }
 
                         // ---- Hyperlinks (metadata) ----
@@ -1821,41 +1549,21 @@ impl WorksheetXml {
                             state = ParseState::InAutoFilter;
                             cur_af_range.clear();
                             cur_af_columns.clear();
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"ref")
-                            {
-                                cur_af_range = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .to_owned();
+                            if let Some(val) = find_attr_str(e, b"ref") {
+                                cur_af_range = val;
                             }
                         }
                         (ParseState::InAutoFilter, b"filterColumn") => {
                             state = ParseState::InFilterColumn;
-                            cur_filter_col_id = 0;
+                            cur_filter_col_id = find_attr_str(e, b"colId")
+                                .and_then(|v| v.parse::<u32>().ok())
+                                .unwrap_or(0);
                             cur_filter_vals.clear();
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"colId")
-                            {
-                                cur_filter_col_id = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .parse::<u32>()
-                                    .unwrap_or(0);
-                            }
                         }
                         (ParseState::InFilterColumn, b"filters") => state = ParseState::InFilters,
 
                         (ParseState::Root, b"headerFooter") => {
-                            let mut hf = HeaderFooter::default();
-                            for attr in e.attributes().flatten() {
-                                match attr.key.as_ref() {
-                                    b"differentOddEven" => hf.different_odd_even = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
-                                    b"differentFirst" => hf.different_first = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
-                                    b"scaleWithDoc" => hf.scale_with_doc = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
-                                    b"alignWithMargins" => hf.align_with_margins = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
-                                    _ => {}
-                                }
-                            }
-                            header_footer = Some(hf);
+                            header_footer = Some(parse_header_footer_attrs(e));
                             state = ParseState::HeaderFooter;
                         }
                         (ParseState::HeaderFooter, b"oddHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(0); }
@@ -1886,27 +1594,7 @@ impl WorksheetXml {
                             state = ParseState::SparklineGroups;
                         }
                         (ParseState::SparklineGroups, b"sparklineGroup") => {
-                            let mut group = SparklineGroup::default();
-                            for attr in e.attributes().flatten() {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match attr.key.local_name().as_ref() {
-                                    b"type" => group.sparkline_type = val.to_owned(),
-                                    b"displayEmptyCellsAs" => group.display_empty_cells_as = Some(val.to_owned()),
-                                    b"markers" => group.markers = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"high" => group.high = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"low" => group.low = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"first" => group.first = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"last" => group.last = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"negative" => group.negative = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"displayXAxis" => group.display_x_axis = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    b"lineWeight" => group.line_weight = val.parse::<f64>().ok(),
-                                    b"manualMin" => group.manual_min = val.parse::<f64>().ok(),
-                                    b"manualMax" => group.manual_max = val.parse::<f64>().ok(),
-                                    b"rightToLeft" => group.right_to_left = val == "1" || val.eq_ignore_ascii_case("true"),
-                                    _ => {}
-                                }
-                            }
-                            current_sparkline_group = Some(group);
+                            current_sparkline_group = Some(parse_sparkline_group_attrs(e));
                             state = ParseState::SparklineGroup;
                         }
                         (ParseState::SparklineGroup, b"sparklines") => {
@@ -1936,199 +1624,52 @@ impl WorksheetXml {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
                         (ParseState::Root, b"dimension") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"ref")
-                            {
-                                dimension = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                );
-                            }
+                            dimension = find_attr_str(e, b"ref");
                         }
                         (ParseState::SheetPr, b"tabColor") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
-                            {
-                                tab_color = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                );
-                            }
+                            tab_color = find_attr_str(e, b"rgb");
                         }
                         (ParseState::SheetPr, b"outlinePr") => {
-                            let mut op = OutlineProperties { summary_below: true, summary_right: true };
-                            for attr in e.attributes().flatten() {
-                                match attr.key.as_ref() {
-                                    b"summaryBelow" => op.summary_below = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
-                                    b"summaryRight" => op.summary_right = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
-                                    _ => {}
-                                }
-                            }
-                            outline_properties = Some(op);
+                            outline_properties = Some(parse_outline_pr_attrs(e));
                         }
                         (ParseState::Root, b"autoFilter") => {
-                            let mut af_range = String::new();
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"ref")
-                            {
-                                af_range = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .to_owned();
-                            }
                             auto_filter = Some(AutoFilter {
-                                range: af_range,
+                                range: find_attr_str(e, b"ref").unwrap_or_default(),
                                 filter_columns: Vec::new(),
                             });
                         }
                         (ParseState::SheetView, b"pane") => {
-                            let mut y_split_raw = String::new();
-                            let mut x_split_raw = String::new();
-                            let mut state_val = String::new();
-                            let mut top_left_cell_val = None::<String>;
-                            let mut active_pane_val = None::<String>;
-
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"ySplit" => {
-                                        y_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
-                                    }
-                                    b"xSplit" => {
-                                        x_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
-                                    }
-                                    b"state" => {
-                                        state_val = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
-                                    }
-                                    b"topLeftCell" => {
-                                        top_left_cell_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    b"activePane" => {
-                                        active_pane_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    _ => {}
-                                }
-                            }
-
-                            if state_val == "frozen" {
-                                let y: u32 = y_split_raw.parse().unwrap_or(0);
-                                let x: u32 = x_split_raw.parse().unwrap_or(0);
-                                if y > 0 || x > 0 {
-                                    frozen_pane = Some(FrozenPane { rows: y, cols: x });
-                                }
-                            } else {
-                                let y: f64 = y_split_raw.parse().unwrap_or(0.0);
-                                let x: f64 = x_split_raw.parse().unwrap_or(0.0);
-                                if y > 0.0 || x > 0.0 {
-                                    split_pane = Some(SplitPane {
-                                        horizontal: if y > 0.0 { Some(y) } else { None },
-                                        vertical: if x > 0.0 { Some(x) } else { None },
-                                        top_left_cell: top_left_cell_val,
-                                        active_pane: active_pane_val,
-                                    });
-                                }
-                            }
+                            let (fp, sp) = parse_pane_attrs(e);
+                            if fp.is_some() { frozen_pane = fp; }
+                            if sp.is_some() { split_pane = sp; }
                         }
                         (ParseState::SheetView, b"selection") => {
-                            let mut sel_pane = None::<String>;
-                            let mut sel_active = None::<String>;
-                            let mut sel_sqref = None::<String>;
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"pane" => {
-                                        sel_pane = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    b"activeCell" => {
-                                        sel_active = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    b"sqref" => {
-                                        sel_sqref = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            pane_selections.push(PaneSelection {
-                                pane: sel_pane,
-                                active_cell: sel_active,
-                                sqref: sel_sqref,
-                            });
+                            pane_selections.push(parse_selection_attrs(e));
                         }
                         (ParseState::SheetViews, b"sheetView") => {
                             // Self-closing <sheetView ... /> — parse attributes.
-                            let mut sv = SheetViewData::default();
-                            let mut has_non_default = false;
-                            for attr in e.attributes().flatten() {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match attr.key.local_name().as_ref() {
-                                    b"showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
-                                    b"showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
-                                    b"showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
-                                    b"rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
-                                    b"tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
-                                    b"showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
-                                    b"showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
-                                    b"showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
-                                    b"defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
-                                    b"zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
-                                    b"zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
-                                    b"colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
-                                    b"view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
-                                    _ => {}
-                                }
-                            }
+                            let (sv, has_non_default) = parse_sheet_view_attrs(e);
                             if has_non_default {
                                 sheet_view = Some(sv);
                             }
                         }
                         (ParseState::Cols, b"col") => columns.push(parse_col_element(e)),
                         (ParseState::MergeCells, b"mergeCell") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"ref")
-                            {
-                                merge_cells.push(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                );
+                            if let Some(val) = find_attr_str(e, b"ref") {
+                                merge_cells.push(val);
                             }
                         }
                         // Self-closing <c ... /> — cell with no children.
                         (ParseState::InRow, b"c") => {
-                            let mut cell_ref_buf = String::new();
-                            let mut cell_type = CellType::Number;
-                            let mut cell_style: Option<u32> = None;
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"r" => {
-                                        cell_ref_buf.push_str(
-                                            std::str::from_utf8(&attr.value).unwrap_or_default(),
-                                        );
-                                    }
-                                    b"t" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cell_type = match val {
-                                            "s" => CellType::SharedString,
-                                            "b" => CellType::Boolean,
-                                            "e" => CellType::Error,
-                                            "str" => CellType::FormulaStr,
-                                            "inlineStr" => CellType::InlineStr,
-                                            _ => CellType::Number,
-                                        };
-                                    }
-                                    b"s" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        cell_style = val.parse::<u32>().ok();
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            let ca = parse_cell_attrs(e);
                             if !first_cell { out.push(','); }
                             first_cell = false;
                             out.push_str("{\"reference\":\"");
-                            json_escape_to(out, &cell_ref_buf);
+                            json_escape_to(out, &ca.reference);
                             out.push_str("\",\"cellType\":\"");
-                            out.push_str(cell_type_json_str(cell_type));
+                            out.push_str(cell_type_json_str(ca.cell_type));
                             out.push('"');
-                            if let Some(si) = cell_style {
+                            if let Some(si) = ca.style_index {
                                 out.push_str(",\"styleIndex\":");
                                 out.push_str(itoa_buf.format(si));
                             }
@@ -2136,302 +1677,69 @@ impl WorksheetXml {
                         }
                         // Self-closing <row ... /> — empty row.
                         (ParseState::SheetData, b"row") => {
-                            let mut row_index: u32 = 0;
-                            let mut row_height: Option<f64> = None;
-                            let mut row_hidden = false;
-                            let mut row_ol: Option<u8> = None;
-                            let mut row_coll = false;
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    b"r" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        row_index = val.parse::<u32>().unwrap_or(0);
-                                    }
-                                    b"ht" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        row_height = val.parse::<f64>().ok();
-                                    }
-                                    b"hidden" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                        row_hidden = val == "1" || val.eq_ignore_ascii_case("true");
-                                    }
-                                    b"outlineLevel" => {
-                                        row_ol = std::str::from_utf8(&attr.value)
-                                            .ok()
-                                            .and_then(|v| v.parse::<u8>().ok())
-                                            .filter(|&v| v > 0);
-                                    }
-                                    b"collapsed" => {
-                                        row_coll = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            let ra = parse_row_attrs(e);
                             if !first_row { out.push(','); }
                             first_row = false;
                             out.push_str("{\"index\":");
-                            out.push_str(itoa_buf.format(row_index));
+                            out.push_str(itoa_buf.format(ra.index));
                             out.push_str(",\"cells\":[]");
-                            if let Some(h) = row_height {
+                            if let Some(h) = ra.height {
                                 out.push_str(",\"height\":");
                                 write_f64_json(out, h);
                             }
-                            if row_hidden {
+                            if ra.hidden {
                                 out.push_str(",\"hidden\":true");
                             }
-                            if let Some(level) = row_ol {
+                            if let Some(level) = ra.outline_level {
                                 out.push_str(",\"outlineLevel\":");
                                 out.push_str(itoa_buf.format(level));
                             }
-                            if row_coll {
+                            if ra.collapsed {
                                 out.push_str(",\"collapsed\":true");
                             }
                             out.push('}');
                         }
                         (ParseState::InCell, b"v") => { /* Empty <v/> — no value */ }
                         (ParseState::InCell, b"f") => {
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"t" => cur_cell_formula_type = Some(val.to_owned()),
-                                    b"ref" => cur_cell_formula_ref = Some(val.to_owned()),
-                                    b"si" => cur_cell_shared_index = val.parse::<u32>().ok(),
-                                    b"cm" if val == "1" => {
-                                        cur_cell_dynamic_array = Some(true);
-                                    }
-                                    b"r1" => cur_cell_formula_r1 = Some(val.to_owned()),
-                                    b"r2" => cur_cell_formula_r2 = Some(val.to_owned()),
-                                    b"dt2D"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dt2d = Some(true);
-                                    }
-                                    b"dtr1"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dtr1 = Some(true);
-                                    }
-                                    b"dtr2"
-                                        if val == "1" || val.eq_ignore_ascii_case("true") =>
-                                    {
-                                        cur_cell_formula_dtr2 = Some(true);
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            parse_formula_attrs(e, &mut cur_formula);
                         }
                         (ParseState::InDataValidations, b"dataValidation") => {
-                            let mut dv = DataValidation {
-                                sqref: String::new(),
-                                validation_type: None,
-                                operator: None,
-                                formula1: None,
-                                formula2: None,
-                                allow_blank: None,
-                                show_error_message: None,
-                                error_title: None,
-                                error_message: None,
-                                show_input_message: None,
-                                prompt_title: None,
-                                prompt: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"sqref" => dv.sqref = val.to_owned(),
-                                    b"type" => dv.validation_type = Some(val.to_owned()),
-                                    b"operator" => dv.operator = Some(val.to_owned()),
-                                    b"allowBlank" => {
-                                        dv.allow_blank = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"showErrorMessage" => {
-                                        dv.show_error_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"errorTitle" => dv.error_title = Some(val.to_owned()),
-                                    b"error" => dv.error_message = Some(val.to_owned()),
-                                    b"showInputMessage" => {
-                                        dv.show_input_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-                                    }
-                                    b"promptTitle" => dv.prompt_title = Some(val.to_owned()),
-                                    b"prompt" => dv.prompt = Some(val.to_owned()),
-                                    _ => {}
-                                }
-                            }
-                            data_validations.push(dv);
+                            data_validations.push(parse_data_validation_attrs(e));
                         }
                         (ParseState::InConditionalFormatting, b"cfRule") => {
-                            let mut rule = ConditionalFormattingRule {
-                                rule_type: String::new(),
-                                priority: 0,
-                                operator: None,
-                                formula: None,
-                                dxf_id: None,
-                                color_scale: None,
-                                data_bar: None,
-                                icon_set: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"type" => rule.rule_type = val.to_owned(),
-                                    b"priority" => rule.priority = val.parse::<u32>().unwrap_or(0),
-                                    b"operator" => rule.operator = Some(val.to_owned()),
-                                    b"dxfId" => rule.dxf_id = val.parse::<u32>().ok(),
-                                    _ => {}
-                                }
-                            }
-                            cur_cf_rules.push(rule);
+                            cur_cf_rules.push(parse_cf_rule_attrs(e));
                         }
                         (ParseState::InHyperlinks, b"hyperlink") => {
-                            let mut hl = Hyperlink {
-                                cell_ref: String::new(),
-                                location: None,
-                                display: None,
-                                tooltip: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"ref" => hl.cell_ref = val.to_owned(),
-                                    b"location" => hl.location = Some(val.to_owned()),
-                                    b"display" => hl.display = Some(val.to_owned()),
-                                    b"tooltip" => hl.tooltip = Some(val.to_owned()),
-                                    _ => {}
-                                }
-                            }
-                            hyperlinks.push(hl);
+                            hyperlinks.push(parse_hyperlink_attrs(e));
                         }
                         (ParseState::Root, b"pageSetup") => {
-                            let mut ps = PageSetup {
-                                paper_size: None,
-                                orientation: None,
-                                fit_to_width: None,
-                                fit_to_height: None,
-                                scale: None,
-                                first_page_number: None,
-                                horizontal_dpi: None,
-                                vertical_dpi: None,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"paperSize" => ps.paper_size = val.parse::<u32>().ok(),
-                                    b"orientation" => ps.orientation = Some(val.to_owned()),
-                                    b"fitToWidth" => ps.fit_to_width = val.parse::<u32>().ok(),
-                                    b"fitToHeight" => ps.fit_to_height = val.parse::<u32>().ok(),
-                                    b"scale" => ps.scale = val.parse::<u32>().ok(),
-                                    b"firstPageNumber" => ps.first_page_number = val.parse::<u32>().ok(),
-                                    b"horizontalDpi" => ps.horizontal_dpi = val.parse::<u32>().ok(),
-                                    b"verticalDpi" => ps.vertical_dpi = val.parse::<u32>().ok(),
-                                    _ => {}
-                                }
-                            }
-                            page_setup = Some(ps);
+                            page_setup = Some(parse_page_setup_attrs(e));
                         }
                         (ParseState::Root, b"sheetProtection") => {
-                            let mut sp = SheetProtection {
-                                sheet: false,
-                                objects: false,
-                                scenarios: false,
-                                password: None,
-                                format_cells: false,
-                                format_columns: false,
-                                format_rows: false,
-                                insert_columns: false,
-                                insert_rows: false,
-                                delete_columns: false,
-                                delete_rows: false,
-                                sort: false,
-                                auto_filter: false,
-                            };
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                let as_bool = val == "1" || val.eq_ignore_ascii_case("true");
-                                match ln.as_ref() {
-                                    b"sheet" => sp.sheet = as_bool,
-                                    b"objects" => sp.objects = as_bool,
-                                    b"scenarios" => sp.scenarios = as_bool,
-                                    b"password" => sp.password = Some(val.to_owned()),
-                                    b"formatCells" => sp.format_cells = as_bool,
-                                    b"formatColumns" => sp.format_columns = as_bool,
-                                    b"formatRows" => sp.format_rows = as_bool,
-                                    b"insertColumns" => sp.insert_columns = as_bool,
-                                    b"insertRows" => sp.insert_rows = as_bool,
-                                    b"deleteColumns" => sp.delete_columns = as_bool,
-                                    b"deleteRows" => sp.delete_rows = as_bool,
-                                    b"sort" => sp.sort = as_bool,
-                                    b"autoFilter" => sp.auto_filter = as_bool,
-                                    _ => {}
-                                }
-                            }
-                            sheet_protection = Some(sp);
+                            sheet_protection = Some(parse_sheet_protection_attrs(e));
                         }
                         (ParseState::InColorScale | ParseState::InDataBar | ParseState::InIconSet, b"cfvo") => {
-                            let mut cfvo_type = String::new();
-                            let mut cfvo_val: Option<String> = None;
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                let v = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                match ln.as_ref() {
-                                    b"type" => cfvo_type = v.to_owned(),
-                                    b"val" => cfvo_val = Some(v.to_owned()),
-                                    _ => {}
-                                }
-                            }
-                            cur_cfvos.push(Cfvo { cfvo_type, val: cfvo_val });
+                            cur_cfvos.push(parse_cfvo_attrs(e));
                         }
                         (ParseState::InColorScale, b"color") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
-                            {
-                                cur_cf_colors.push(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                );
+                            if let Some(val) = find_attr_str(e, b"rgb") {
+                                cur_cf_colors.push(val);
                             }
                         }
                         (ParseState::InDataBar, b"color") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
-                            {
-                                cur_cf_bar_color = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .to_owned();
+                            if let Some(val) = find_attr_str(e, b"rgb") {
+                                cur_cf_bar_color = val;
                             }
                         }
                         (ParseState::InFilters, b"filter") => {
-                            if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
-                            {
-                                cur_filter_vals.push(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                );
+                            if let Some(val) = find_attr_str(e, b"val") {
+                                cur_filter_vals.push(val);
                             }
                         }
                         // Sparkline color elements (self-closing).
                         (ParseState::SparklineGroup, _) => {
-                            if let Some(ref mut group) = current_sparkline_group
-                                && let Some(attr) = e.attributes().flatten()
-                                    .find(|a| a.key.local_name().as_ref() == b"rgb")
-                            {
-                                let rgb = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
-                                match local.as_ref() {
-                                    b"colorSeries" => group.color_series = Some(rgb),
-                                    b"colorNegative" => group.color_negative = Some(rgb),
-                                    b"colorAxis" => group.color_axis = Some(rgb),
-                                    b"colorMarkers" => group.color_markers = Some(rgb),
-                                    b"colorFirst" => group.color_first = Some(rgb),
-                                    b"colorLast" => group.color_last = Some(rgb),
-                                    b"colorHigh" => group.color_high = Some(rgb),
-                                    b"colorLow" => group.color_low = Some(rgb),
-                                    _ => {}
-                                }
+                            if let Some(ref mut group) = current_sparkline_group {
+                                apply_sparkline_color(group, local.as_ref(), e);
                             }
                         }
                         _ => {}
@@ -2512,42 +1820,7 @@ impl WorksheetXml {
                             json_escape_to(out, &text_buf);
                             out.push('"');
                             text_buf.clear();
-                            if let Some(ref ft) = cur_cell_formula_type {
-                                out.push_str(",\"formulaType\":\"");
-                                json_escape_to(out, ft);
-                                out.push('"');
-                            }
-                            if let Some(ref fr) = cur_cell_formula_ref {
-                                out.push_str(",\"formulaRef\":\"");
-                                json_escape_to(out, fr);
-                                out.push('"');
-                            }
-                            if let Some(si) = cur_cell_shared_index {
-                                out.push_str(",\"sharedIndex\":");
-                                out.push_str(itoa_buf.format(si));
-                            }
-                            if cur_cell_dynamic_array == Some(true) {
-                                out.push_str(",\"dynamicArray\":true");
-                            }
-                            if let Some(ref r1) = cur_cell_formula_r1 {
-                                out.push_str(",\"formulaR1\":\"");
-                                json_escape_to(out, r1);
-                                out.push('"');
-                            }
-                            if let Some(ref r2) = cur_cell_formula_r2 {
-                                out.push_str(",\"formulaR2\":\"");
-                                json_escape_to(out, r2);
-                                out.push('"');
-                            }
-                            if cur_cell_formula_dt2d == Some(true) {
-                                out.push_str(",\"formulaDt2d\":true");
-                            }
-                            if cur_cell_formula_dtr1 == Some(true) {
-                                out.push_str(",\"formulaDtr1\":true");
-                            }
-                            if cur_cell_formula_dtr2 == Some(true) {
-                                out.push_str(",\"formulaDtr2\":true");
-                            }
+                            write_formula_json_fields(out, &mut itoa_buf, &mut cur_formula);
                             state = ParseState::InCell;
                         }
 
@@ -2567,45 +1840,45 @@ impl WorksheetXml {
                         (ParseState::InCell, b"c") => {
                             // Write formula attributes even if no formula text was present
                             // (happens with self-closing <f/> parsed in Empty handler).
-                            if cur_cell_formula_type.is_some()
-                                || cur_cell_formula_ref.is_some()
-                                || cur_cell_shared_index.is_some()
+                            if cur_formula.formula_type.is_some()
+                                || cur_formula.formula_ref.is_some()
+                                || cur_formula.shared_index.is_some()
                             {
-                                if let Some(ref ft) = cur_cell_formula_type.take() {
+                                if let Some(ref ft) = cur_formula.formula_type.take() {
                                     out.push_str(",\"formulaType\":\"");
                                     json_escape_to(out, ft);
                                     out.push('"');
                                 }
-                                if let Some(ref fr) = cur_cell_formula_ref.take() {
+                                if let Some(ref fr) = cur_formula.formula_ref.take() {
                                     out.push_str(",\"formulaRef\":\"");
                                     json_escape_to(out, fr);
                                     out.push('"');
                                 }
-                                if let Some(si) = cur_cell_shared_index.take() {
+                                if let Some(si) = cur_formula.shared_index.take() {
                                     out.push_str(",\"sharedIndex\":");
                                     out.push_str(itoa_buf.format(si));
                                 }
                             }
-                            if cur_cell_dynamic_array.take() == Some(true) {
+                            if cur_formula.dynamic_array.take() == Some(true) {
                                 out.push_str(",\"dynamicArray\":true");
                             }
-                            if let Some(ref r1) = cur_cell_formula_r1.take() {
+                            if let Some(ref r1) = cur_formula.formula_r1.take() {
                                 out.push_str(",\"formulaR1\":\"");
                                 json_escape_to(out, r1);
                                 out.push('"');
                             }
-                            if let Some(ref r2) = cur_cell_formula_r2.take() {
+                            if let Some(ref r2) = cur_formula.formula_r2.take() {
                                 out.push_str(",\"formulaR2\":\"");
                                 json_escape_to(out, r2);
                                 out.push('"');
                             }
-                            if cur_cell_formula_dt2d.take() == Some(true) {
+                            if cur_formula.formula_dt2d.take() == Some(true) {
                                 out.push_str(",\"formulaDt2d\":true");
                             }
-                            if cur_cell_formula_dtr1.take() == Some(true) {
+                            if cur_formula.formula_dtr1.take() == Some(true) {
                                 out.push_str(",\"formulaDtr1\":true");
                             }
-                            if cur_cell_formula_dtr2.take() == Some(true) {
+                            if cur_formula.formula_dtr2.take() == Some(true) {
                                 out.push_str(",\"formulaDtr2\":true");
                             }
                             out.push('}');
@@ -2728,15 +2001,7 @@ impl WorksheetXml {
                             reader.config_mut().trim_text(true);
                             if let Some(ref mut hf) = header_footer {
                                 let text = if hf_text_buf.is_empty() { None } else { Some(std::mem::take(&mut hf_text_buf)) };
-                                match idx {
-                                    0 => hf.odd_header = text,
-                                    1 => hf.odd_footer = text,
-                                    2 => hf.even_header = text,
-                                    3 => hf.even_footer = text,
-                                    4 => hf.first_header = text,
-                                    5 => hf.first_footer = text,
-                                    _ => {}
-                                }
+                                assign_hf_field(hf, idx, text);
                             }
                             state = ParseState::HeaderFooter;
                         }
@@ -2887,5 +2152,51 @@ impl WorksheetXml {
         out.push('}');
 
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JSON-path helper for writing formula fields inline
+// ---------------------------------------------------------------------------
+
+/// Write formula-related JSON fields from `FormulaState` into the output buffer.
+/// Used by `parse_to_json` when closing a `<f>` element.
+#[inline]
+fn write_formula_json_fields(out: &mut String, itoa_buf: &mut itoa::Buffer, fs: &mut FormulaState) {
+    if let Some(ref ft) = fs.formula_type {
+        out.push_str(",\"formulaType\":\"");
+        json_escape_to(out, ft);
+        out.push('"');
+    }
+    if let Some(ref fr) = fs.formula_ref {
+        out.push_str(",\"formulaRef\":\"");
+        json_escape_to(out, fr);
+        out.push('"');
+    }
+    if let Some(si) = fs.shared_index {
+        out.push_str(",\"sharedIndex\":");
+        out.push_str(itoa_buf.format(si));
+    }
+    if fs.dynamic_array == Some(true) {
+        out.push_str(",\"dynamicArray\":true");
+    }
+    if let Some(ref r1) = fs.formula_r1 {
+        out.push_str(",\"formulaR1\":\"");
+        json_escape_to(out, r1);
+        out.push('"');
+    }
+    if let Some(ref r2) = fs.formula_r2 {
+        out.push_str(",\"formulaR2\":\"");
+        json_escape_to(out, r2);
+        out.push('"');
+    }
+    if fs.formula_dt2d == Some(true) {
+        out.push_str(",\"formulaDt2d\":true");
+    }
+    if fs.formula_dtr1 == Some(true) {
+        out.push_str(",\"formulaDtr1\":true");
+    }
+    if fs.formula_dtr2 == Some(true) {
+        out.push_str(",\"formulaDtr2\":true");
     }
 }

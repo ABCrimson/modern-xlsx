@@ -623,6 +623,82 @@ export interface PivotTableData {
 }
 
 // ---------------------------------------------------------------------------
+// Pivot Cache
+// ---------------------------------------------------------------------------
+
+export type CacheValueType =
+  | 'number'
+  | 'string'
+  | 'boolean'
+  | 'dateTime'
+  | 'missing'
+  | 'error'
+  | 'index';
+
+export interface CacheValueNumber {
+  type: 'number';
+  v: number;
+}
+
+export interface CacheValueString {
+  type: 'string';
+  v: string;
+}
+
+export interface CacheValueBoolean {
+  type: 'boolean';
+  v: boolean;
+}
+
+export interface CacheValueDateTime {
+  type: 'dateTime';
+  v: string;
+}
+
+export interface CacheValueMissing {
+  type: 'missing';
+}
+
+export interface CacheValueError {
+  type: 'error';
+  v: string;
+}
+
+export interface CacheValueIndex {
+  type: 'index';
+  v: number;
+}
+
+export type CacheValue =
+  | CacheValueNumber
+  | CacheValueString
+  | CacheValueBoolean
+  | CacheValueDateTime
+  | CacheValueMissing
+  | CacheValueError
+  | CacheValueIndex;
+
+export interface CacheSource {
+  ref: string;
+  sheet: string;
+}
+
+export interface CacheFieldData {
+  name: string;
+  sharedItems?: CacheValue[];
+}
+
+export interface PivotCacheDefinitionData {
+  source: CacheSource;
+  fields?: CacheFieldData[];
+  recordCount?: number;
+}
+
+export interface PivotCacheRecordsData {
+  records: CacheValue[][];
+}
+
+// ---------------------------------------------------------------------------
 // Slicers
 // ---------------------------------------------------------------------------
 
@@ -959,6 +1035,10 @@ export interface WorkbookData {
   protection?: WorkbookProtectionData | null;
   /** Persons list for threaded comments (workbook-level). */
   persons?: PersonData[];
+  /** Pivot cache definitions (workbook-level). */
+  pivotCaches?: PivotCacheDefinitionData[];
+  /** Pivot cache records (workbook-level, parallel to pivotCaches). */
+  pivotCacheRecords?: PivotCacheRecordsData[];
   /** Slicer cache definitions (workbook-level). */
   slicerCaches?: SlicerCacheData[];
   /** Timeline cache definitions (workbook-level). */

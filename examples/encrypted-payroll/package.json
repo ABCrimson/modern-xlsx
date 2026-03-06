@@ -1,0 +1,13 @@
+{
+  "name": "modern-xlsx-encrypted-payroll-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Create a password-protected payroll workbook with modern-xlsx",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "modern-xlsx": "^0.9.1"
+  }
+}

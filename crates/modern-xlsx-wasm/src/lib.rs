@@ -33,6 +33,7 @@ pub fn read(data: &[u8]) -> Result<String, JsError> {
 /// Accepts a `Uint8Array` containing the raw (possibly encrypted) `.xlsx` bytes
 /// and a password string. Returns a JSON string representing the parsed workbook.
 /// If the file is not encrypted, the password is ignored and reading proceeds normally.
+#[cfg(feature = "encryption")]
 #[wasm_bindgen(js_name = readWithPassword)]
 pub fn read_with_password(data: &[u8], password: &str) -> Result<String, JsError> {
     modern_xlsx_core::reader::read_xlsx_json_with_password(data, password).map_err(to_js_err)
@@ -58,6 +59,7 @@ pub fn write(json: &str) -> Result<Uint8Array, JsError> {
 ///
 /// Accepts a JSON string describing the workbook and a password.
 /// Returns a `Uint8Array` containing the encrypted OLE2 compound document.
+#[cfg(feature = "encryption")]
 #[wasm_bindgen(js_name = writeWithPassword)]
 pub fn write_with_password(json: &str, password: &str) -> Result<Uint8Array, JsError> {
     let workbook = parse_workbook(json)?;
@@ -117,6 +119,89 @@ pub fn repair(json: &str) -> Result<String, JsError> {
 #[wasm_bindgen]
 pub fn version() -> String {
     env!("CARGO_PKG_VERSION").into()
+}
+
+// ---------------------------------------------------------------------------
+// Streaming Writer
+// ---------------------------------------------------------------------------
+
+/// Streaming XLSX writer that writes rows directly to ZIP entries.
+///
+/// Unlike the standard `write()` function which requires the entire workbook
+/// in memory as a JSON string, `StreamingWriter` writes worksheet rows
+/// incrementally — peak memory is proportional to the number of unique
+/// strings (the SST), not the total row count.
+///
+/// Usage from JavaScript:
+/// ```js
+/// const writer = new StreamingWriter();
+/// writer.startSheet("Sheet1");
+/// writer.writeRow(JSON.stringify([
+///   { value: "Hello", cellType: "sharedString" },
+///   { value: "42", cellType: "number" },
+/// ]));
+/// const xlsx = writer.finish(); // Uint8Array
+/// ```
+#[wasm_bindgen]
+pub struct StreamingWriter {
+    inner: Option<modern_xlsx_core::streaming_writer::StreamingWriterCore>,
+}
+
+#[wasm_bindgen]
+impl StreamingWriter {
+    /// Create a new streaming XLSX writer.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self {
+            inner: Some(modern_xlsx_core::streaming_writer::StreamingWriterCore::new()),
+        }
+    }
+
+    /// Set custom styles XML (the complete xl/styles.xml body).
+    #[wasm_bindgen(js_name = setStylesXml)]
+    pub fn set_styles_xml(&mut self, xml: &str) -> Result<(), JsError> {
+        self.inner
+            .as_mut()
+            .ok_or_else(|| JsError::new("StreamingWriter already finished"))
+            .map(|w| w.set_styles_xml(xml.to_string()))
+    }
+
+    /// Start a new worksheet with the given name.
+    #[wasm_bindgen(js_name = startSheet)]
+    pub fn start_sheet(&mut self, name: &str) -> Result<(), JsError> {
+        self.inner
+            .as_mut()
+            .ok_or_else(|| JsError::new("StreamingWriter already finished"))?
+            .start_sheet(name)
+            .map_err(to_js_err)
+    }
+
+    /// Write a row of cells (passed as a JSON string array of StreamingCell objects).
+    #[wasm_bindgen(js_name = writeRow)]
+    pub fn write_row(&mut self, cells_json: &str) -> Result<(), JsError> {
+        let cells: Vec<modern_xlsx_core::streaming_writer::StreamingCell> =
+            serde_json::from_str(cells_json)
+                .map_err(|e| JsError::new(&format!("JSON parse error: {e}")))?;
+        self.inner
+            .as_mut()
+            .ok_or_else(|| JsError::new("StreamingWriter already finished"))?
+            .write_row(&cells)
+            .map_err(to_js_err)
+    }
+
+    /// Finish writing and return the complete XLSX as a Uint8Array.
+    ///
+    /// Consumes the writer — calling any method after `finish()` will error.
+    pub fn finish(&mut self) -> Result<Uint8Array, JsError> {
+        let core = self
+            .inner
+            .take()
+            .ok_or_else(|| JsError::new("StreamingWriter already finished"))?;
+        let bytes = core.finish().map_err(to_js_err)?;
+        let arr = Uint8Array::new_with_length(bytes.len() as u32);
+        arr.copy_from(&bytes);
+        Ok(arr)
+    }
 }
 
 #[cfg(test)]

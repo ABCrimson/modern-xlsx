@@ -9,6 +9,7 @@ dist/
 
 # WASM build artifacts (built, not source)
 packages/modern-xlsx/wasm/
+packages/modern-xlsx/wasm-lite/
 
 # OS
 .DS_Store

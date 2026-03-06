@@ -117,10 +117,11 @@ Benchmarks on Node.js (single thread, v0.9.0):
 | Charts (bar, line, pie, etc.) | **Yes** | No | Paid |
 | Formula engine (54 functions) | **Yes** | No | No |
 | Sparklines | **Yes** | No | Paid |
-| Pivot tables (read-only) | **Yes** | No | Paid |
+| Pivot tables (read/write) | **Yes** | No | Paid |
 | Threaded comments | **Yes** | No | No |
-| Slicers (read-only) | **Yes** | No | No |
-| Timelines (read-only) | **Yes** | No | No |
+| Slicers (read/write) | **Yes** | No | No |
+| Timelines (read/write) | **Yes** | No | No |
+| Streaming writer (100K+ rows) | **Yes** | No | Paid |
 | CLI tool (info/convert) | **Yes** | No | No |
 | Feature-gated WASM | **Yes** | No | No |
 
@@ -265,12 +266,18 @@ const commentId = ws.addThreadedComment('A1', 'Discussion point', 'Alice');
 ws.replyToComment(commentId, 'I agree', 'Bob');
 ws.threadedComments;              // readonly ThreadedCommentData[]
 
-// Pivot tables (read-only)
+// Pivot tables (read/write)
 ws.pivotTables;                   // readonly PivotTableData[]
+ws.addPivotTable({ name: 'Sales', cacheId: 0, location: { ref: 'A3:D20' }, pivotFields: [], rowFields: [], colFields: [], dataFields: [], pageFields: [] });
+ws.removePivotTable(0);           // boolean
 
-// Slicers & timelines (read-only)
+// Slicers & timelines (read/write)
 ws.slicers;                       // readonly SlicerData[]
+ws.addSlicer({ name: 'Slicer_Region', cacheName: 'Slicer_Region' });
+ws.removeSlicer(0);               // boolean
 ws.timelines;                     // readonly TimelineData[]
+ws.addTimeline({ name: 'Timeline_Date', cacheName: 'NativeTimeline_Date' });
+ws.removeTimeline(0);             // boolean
 
 // Page setup & margins
 ws.pageSetup = { orientation: 'landscape', paperSize: 9 };
@@ -657,30 +664,39 @@ import type {
   ChartAnchorData, ChartGrouping, ChartLegendData,
   // Formula engine
   ASTNode, CellValue, EvalContext, FormulaFunction,
-  // Pivot tables
+  // Pivot tables & caches
   PivotTableData, PivotFieldData, PivotDataFieldData, PivotAxis, SubtotalFunction,
+  PivotCacheDefinitionData, PivotCacheRecordsData, CacheFieldData, CacheSource, CacheValue,
   // Threaded comments
   ThreadedCommentData, PersonData,
   // Slicers & timelines
   SlicerData, SlicerCacheData, TimelineData, TimelineCacheData,
+  // Streaming writer
+  StreamingXlsxWriter, StreamingCellInput,
 } from 'modern-xlsx';
 ```
 
-### Pivot Tables (Read-Only)
+### Pivot Tables
 
 ```typescript
 const wb = await readAsync(buffer);
 const ws = wb.getSheet('PivotReport');
 
-// Access pivot table metadata
+// Read pivot table metadata
 for (const pt of ws.pivotTables) {
   console.log(pt.name, pt.location);
 }
 
-// Access pivot cache data
-for (const cache of wb.pivotCaches) {
-  console.log(cache.fields.map(f => f.name));
-}
+// Add a pivot table
+ws.addPivotTable({
+  name: 'SalesPivot', cacheId: 0,
+  location: { ref: 'A3:D20' },
+  pivotFields: [{ items: [], name: 'Region', axis: 'axisRow' }],
+  rowFields: [{ x: 0 }], colFields: [], dataFields: [], pageFields: [],
+});
+
+// Workbook-level pivot caches
+wb.addPivotCache({ source: { ref: 'A1:D100', sheet: 'Data' } });
 ```
 
 ### Threaded Comments
@@ -698,20 +714,39 @@ for (const tc of ws.threadedComments) {
 }
 ```
 
-### Slicers & Timelines (Read-Only)
+### Slicers & Timelines
 
 ```typescript
 const ws = wb.getSheet('Dashboard');
 
-// Access slicer metadata
-for (const slicer of ws.slicers) {
-  console.log(slicer.name, slicer.caption);
-}
+// Read slicers & timelines
+for (const slicer of ws.slicers) console.log(slicer.name, slicer.caption);
+for (const tl of ws.timelines) console.log(tl.name, tl.caption);
 
-// Access timeline metadata
-for (const tl of ws.timelines) {
-  console.log(tl.name, tl.caption);
+// Add a slicer
+ws.addSlicer({ name: 'Slicer_Region', cacheName: 'Slicer_Region', caption: 'Region' });
+wb.addSlicerCache({ name: 'Slicer_Region', sourceName: 'Region', items: [{ n: 'East', s: true }, { n: 'West', s: false }] });
+
+// Add a timeline
+ws.addTimeline({ name: 'Timeline_Date', cacheName: 'NativeTimeline_Date', caption: 'Date', level: 'months' });
+wb.addTimelineCache({ name: 'NativeTimeline_Date', sourceName: 'Date', selectionStart: '2024-01-01', selectionEnd: '2024-12-31' });
+```
+
+### Streaming Writer (Large Files)
+
+```typescript
+import { initWasm, StreamingXlsxWriter } from 'modern-xlsx';
+
+await initWasm();
+const writer = StreamingXlsxWriter.create();
+writer.startSheet('Data');
+for (let i = 0; i < 100_000; i++) {
+  writer.writeRow([
+    { value: String(i), cellType: 'number' },
+    { value: `row_${i}`, cellType: 'sharedString' },
+  ]);
 }
+const xlsx: Uint8Array = writer.finish();
 ```
 
 ### CLI Tool

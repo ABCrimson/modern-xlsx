@@ -2,6 +2,52 @@
 /* eslint-disable */
 
 /**
+ * Streaming XLSX writer that writes rows directly to ZIP entries.
+ *
+ * Unlike the standard `write()` function which requires the entire workbook
+ * in memory as a JSON string, `StreamingWriter` writes worksheet rows
+ * incrementally — peak memory is proportional to the number of unique
+ * strings (the SST), not the total row count.
+ *
+ * Usage from JavaScript:
+ * ```js
+ * const writer = new StreamingWriter();
+ * writer.startSheet("Sheet1");
+ * writer.writeRow(JSON.stringify([
+ *   { value: "Hello", cellType: "sharedString" },
+ *   { value: "42", cellType: "number" },
+ * ]));
+ * const xlsx = writer.finish(); // Uint8Array
+ * ```
+ */
+export class StreamingWriter {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Finish writing and return the complete XLSX as a Uint8Array.
+     *
+     * Consumes the writer — calling any method after `finish()` will error.
+     */
+    finish(): Uint8Array;
+    /**
+     * Create a new streaming XLSX writer.
+     */
+    constructor();
+    /**
+     * Set custom styles XML (the complete xl/styles.xml body).
+     */
+    setStylesXml(xml: string): void;
+    /**
+     * Start a new worksheet with the given name.
+     */
+    startSheet(name: string): void;
+    /**
+     * Write a row of cells (passed as a JSON string array of StreamingCell objects).
+     */
+    writeRow(cells_json: string): void;
+}
+
+/**
  * Read an XLSX file and return parsed workbook data as a JSON string.
  *
  * Accepts a `Uint8Array` containing the raw `.xlsx` bytes.
@@ -75,9 +121,15 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly __wbg_streamingwriter_free: (a: number, b: number) => void;
     readonly read: (a: number, b: number, c: number) => void;
     readonly readWithPassword: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly repair: (a: number, b: number, c: number) => void;
+    readonly streamingwriter_finish: (a: number, b: number) => void;
+    readonly streamingwriter_new: () => number;
+    readonly streamingwriter_setStylesXml: (a: number, b: number, c: number, d: number) => void;
+    readonly streamingwriter_startSheet: (a: number, b: number, c: number, d: number) => void;
+    readonly streamingwriter_writeRow: (a: number, b: number, c: number, d: number) => void;
     readonly validate: (a: number, b: number, c: number) => void;
     readonly version: (a: number) => void;
     readonly write: (a: number, b: number, c: number) => void;

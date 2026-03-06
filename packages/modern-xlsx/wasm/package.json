@@ -4,6 +4,10 @@
   "description": "WASM bridge for modern-xlsx-core — wasm-bindgen exports for reading and writing XLSX in JavaScript",
   "version": "0.1.0",
   "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ABCrimson/modern-xlsx"
+  },
   "files": [
     "modern_xlsx_wasm_bg.wasm",
     "modern_xlsx_wasm.js",

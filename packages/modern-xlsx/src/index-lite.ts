@@ -1,26 +1,13 @@
-// Barcode & QR code generation
-export type {
-  BarcodeMatrix,
-  BarcodeType,
-  DrawBarcodeOptions,
-  ImageAnchor,
-  RenderOptions,
-} from './barcode/index.js';
-export {
-  encodeCode39,
-  encodeCode128,
-  encodeDataMatrix,
-  encodeEAN13,
-  encodeGS1128,
-  encodeITF14,
-  encodePDF417,
-  encodeQR,
-  encodeUPCA,
-  generateBarcode,
-  generateDrawingRels,
-  generateDrawingXml,
-  renderBarcodePNG,
-} from './barcode/index.js';
+/**
+ * modern-xlsx/lite — smaller WASM build without encryption or barcode support.
+ *
+ * Excludes:
+ * - Password-protected read/write (readWithPassword, writeWithPassword)
+ * - Barcode/QR code generation (encodeQR, encodeCode128, renderBarcodePNG, etc.)
+ *
+ * Everything else (Workbook, StyleBuilder, formula engine, charts, etc.) works identically.
+ */
+
 // Cell reference utilities
 export type { CellAddress, CellRange, SplitCellRef } from './cell-ref.js';
 export {
@@ -104,9 +91,6 @@ export {
 } from './formula/index.js';
 export { HeaderFooterBuilder } from './header-footer.js';
 export { RichTextBuilder } from './rich-text.js';
-// Streaming writer
-export type { StreamingCellInput } from './streaming-writer.js';
-export { StreamingXlsxWriter } from './streaming-writer.js';
 export { StyleBuilder } from './style-builder.js';
 // Table layout engine
 export type {
@@ -128,17 +112,6 @@ export type {
   BorderData,
   BorderSideData,
   BorderStyle,
-  CacheFieldData,
-  CacheSource,
-  CacheValue,
-  CacheValueBoolean,
-  CacheValueDateTime,
-  CacheValueError,
-  CacheValueIndex,
-  CacheValueMissing,
-  CacheValueNumber,
-  CacheValueString,
-  CacheValueType,
   CalcChainEntryData,
   CellData,
   CellStyleData,
@@ -189,8 +162,6 @@ export type {
   PatternType,
   PersonData,
   PivotAxis,
-  PivotCacheDefinitionData,
-  PivotCacheRecordsData,
   PivotDataFieldData,
   PivotFieldData,
   PivotFieldRef,
@@ -268,39 +239,34 @@ export {
 } from './utils.js';
 // Chart validation
 export { validateChartData } from './validate-chart.js';
-// WASM initialization
-export { ensureReady, initWasm, initWasmSync } from './wasm-loader.js';
+// WASM initialization (lite loader — no encryption)
+export { ensureReady, initWasm, initWasmSync } from './wasm-loader-lite.js';
 // Core classes
 export { Cell, Workbook, Worksheet } from './workbook.js';
 
-// Web Worker support
-export type { XlsxWorker, XlsxWorkerOptions } from './worker-api.js';
-export { createXlsxWorker } from './worker-api.js';
-
 import type { ReadOptions } from './types.js';
-// Internal imports for readBuffer, writeBlob, readFile
-import { ensureInitialized, wasmRead, wasmReadWithPassword, wasmWriteBlob } from './wasm-loader.js';
+// Internal imports for readBuffer, writeBlob, readFile (lite — no password support)
+import { ensureInitialized, wasmRead, wasmWriteBlob } from './wasm-loader-lite.js';
 import { Workbook as _Workbook } from './workbook.js';
 
 /**
- * Read an XLSX file buffer and return a Workbook instance.
+ * Read an XLSX file buffer and return a Workbook instance (lite build).
  * WASM must be initialized first via `initWasm()`.
  *
- * Data crosses the WASM boundary as a JSON string (serde_json in Rust,
- * JSON.parse in JS) for optimal performance — 8-13x faster than
- * serde_wasm_bindgen for large workbooks (100K+ rows).
+ * Note: The lite build does not support encrypted/password-protected files.
+ * The `password` option in ReadOptions is ignored.
  *
- * @param data - Raw XLSX bytes (possibly encrypted OLE2 container).
- * @param options - Optional read options. Pass `{ password: '...' }` for encrypted files.
+ * @param data - Raw XLSX bytes (must be a plain ZIP, not encrypted OLE2).
+ * @param options - Optional read options (password is not supported in lite).
  */
-export async function readBuffer(data: Uint8Array, options?: ReadOptions): Promise<_Workbook> {
+export async function readBuffer(data: Uint8Array, _options?: ReadOptions): Promise<_Workbook> {
   ensureInitialized();
-  const raw = options?.password ? wasmReadWithPassword(data, options.password) : wasmRead(data);
+  const raw = wasmRead(data);
   return new _Workbook(raw);
 }
 
 /**
- * Write a Workbook directly to a Blob for browser download.
+ * Write a Workbook directly to a Blob for browser download (lite build).
  * WASM must be initialized first via `initWasm()`.
  * Only available in browser environments that support the Blob API.
  */
@@ -310,12 +276,14 @@ export function writeBlob(wb: _Workbook): Blob {
 }
 
 /**
- * Read an XLSX file from disk and return a Workbook instance.
+ * Read an XLSX file from disk and return a Workbook instance (lite build).
  * Only available in Node.js, Bun, and Deno environments.
  * WASM must be initialized first via `initWasm()`.
  *
+ * Note: The lite build does not support encrypted/password-protected files.
+ *
  * @param path - File path to read.
- * @param options - Optional read options. Pass `{ password: '...' }` for encrypted files.
+ * @param options - Optional read options (password is not supported in lite).
  */
 export async function readFile(path: string, options?: ReadOptions): Promise<_Workbook> {
   const { readFile: fsReadFile } = await import('node:fs/promises');

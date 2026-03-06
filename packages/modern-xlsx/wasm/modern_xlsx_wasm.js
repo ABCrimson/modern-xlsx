@@ -1,6 +1,126 @@
 /* @ts-self-types="./modern_xlsx_wasm.d.ts" */
 
 /**
+ * Streaming XLSX writer that writes rows directly to ZIP entries.
+ *
+ * Unlike the standard `write()` function which requires the entire workbook
+ * in memory as a JSON string, `StreamingWriter` writes worksheet rows
+ * incrementally — peak memory is proportional to the number of unique
+ * strings (the SST), not the total row count.
+ *
+ * Usage from JavaScript:
+ * ```js
+ * const writer = new StreamingWriter();
+ * writer.startSheet("Sheet1");
+ * writer.writeRow(JSON.stringify([
+ *   { value: "Hello", cellType: "sharedString" },
+ *   { value: "42", cellType: "number" },
+ * ]));
+ * const xlsx = writer.finish(); // Uint8Array
+ * ```
+ */
+export class StreamingWriter {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        StreamingWriterFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_streamingwriter_free(ptr, 0);
+    }
+    /**
+     * Finish writing and return the complete XLSX as a Uint8Array.
+     *
+     * Consumes the writer — calling any method after `finish()` will error.
+     * @returns {Uint8Array}
+     */
+    finish() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.streamingwriter_finish(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return takeObject(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Create a new streaming XLSX writer.
+     */
+    constructor() {
+        const ret = wasm.streamingwriter_new();
+        this.__wbg_ptr = ret >>> 0;
+        StreamingWriterFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Set custom styles XML (the complete xl/styles.xml body).
+     * @param {string} xml
+     */
+    setStylesXml(xml) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(xml, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.streamingwriter_setStylesXml(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Start a new worksheet with the given name.
+     * @param {string} name
+     */
+    startSheet(name) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.streamingwriter_startSheet(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Write a row of cells (passed as a JSON string array of StreamingCell objects).
+     * @param {string} cells_json
+     */
+    writeRow(cells_json) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(cells_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.streamingwriter_writeRow(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+}
+if (Symbol.dispose) StreamingWriter.prototype[Symbol.dispose] = StreamingWriter.prototype.free;
+
+/**
  * Read an XLSX file and return parsed workbook data as a JSON string.
  *
  * Accepts a `Uint8Array` containing the raw `.xlsx` bytes.
@@ -317,6 +437,10 @@ function __wbg_get_imports() {
         "./modern_xlsx_wasm_bg.js": import0,
     };
 }
+
+const StreamingWriterFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_streamingwriter_free(ptr >>> 0, 1));
 
 function addHeapObject(obj) {
     if (heap_next === heap.length) heap.push(heap.length + 1);

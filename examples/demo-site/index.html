@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>modern-xlsx Demo</title>
+  <style>
+    /* ------------------------------------------------------------------ */
+    /* Reset & base                                                       */
+    /* ------------------------------------------------------------------ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --surface-2: #242734;
+      --border:    #2e3140;
+      --text:      #e4e6f0;
+      --text-dim:  #8b8fa3;
+      --accent:    #6366f1;
+      --accent-2:  #818cf8;
+      --green:     #34d399;
+      --orange:    #fb923c;
+      --red:       #f87171;
+      --radius:    10px;
+      --shadow:    0 4px 24px rgba(0, 0, 0, 0.3);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Header                                                             */
+    /* ------------------------------------------------------------------ */
+    header {
+      text-align: center;
+      padding: 3rem 1.5rem 2rem;
+      background: linear-gradient(180deg, #161825 0%, var(--bg) 100%);
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      font-size: 2.4rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, var(--accent-2), var(--green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    header p {
+      margin-top: 0.5rem;
+      color: var(--text-dim);
+      font-size: 1.05rem;
+      max-width: 520px;
+      margin-inline: auto;
+    }
+
+    .badge-row {
+      margin-top: 1rem;
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-dim);
+    }
+
+    .badge .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+    }
+
+    .badge .dot.rust  { background: var(--orange); }
+    .badge .dot.wasm  { background: var(--accent-2); }
+    .badge .dot.ts    { background: var(--green); }
+
+    /* ------------------------------------------------------------------ */
+    /* Layout                                                             */
+    /* ------------------------------------------------------------------ */
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      box-shadow: var(--shadow);
+    }
+
+    section h2 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    section h2 .icon {
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }
+
+    section p.desc {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Buttons                                                            */
+    /* ------------------------------------------------------------------ */
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    button {
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 0.88rem;
+      padding: 0.6rem 1.2rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      transition: all 0.15s ease;
+    }
+
+    button:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    button:active { transform: scale(0.97); }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    button.primary:hover {
+      background: var(--accent-2);
+      border-color: var(--accent-2);
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Status bar                                                         */
+    /* ------------------------------------------------------------------ */
+    #status {
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      display: none;
+    }
+
+    #status.info    { display: block; background: #1e293b; color: var(--accent-2); border: 1px solid #334155; }
+    #status.success { display: block; background: #052e16; color: var(--green); border: 1px solid #14532d; }
+    #status.error   { display: block; background: #2d0f0f; color: var(--red); border: 1px solid #5c1a1a; }
+
+    /* ------------------------------------------------------------------ */
+    /* Drop zone                                                          */
+    /* ------------------------------------------------------------------ */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.06);
+      color: var(--text);
+    }
+
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .drop-zone .drop-icon {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+      opacity: 0.5;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Output table                                                       */
+    /* ------------------------------------------------------------------ */
+    .table-wrapper {
+      margin-top: 1rem;
+      overflow-x: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .table-wrapper table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    .table-wrapper th {
+      background: var(--surface-2);
+      font-weight: 600;
+      text-align: left;
+      padding: 0.6rem 0.8rem;
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .table-wrapper td {
+      padding: 0.5rem 0.8rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table-wrapper tr:last-child td { border-bottom: none; }
+
+    .table-wrapper tr:nth-child(even) td {
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Preview card                                                       */
+    /* ------------------------------------------------------------------ */
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .preview-cell {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-size: 0.85rem;
+    }
+
+    .preview-cell .label {
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Footer                                                             */
+    /* ------------------------------------------------------------------ */
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-dim);
+      font-size: 0.82rem;
+      border-top: 1px solid var(--border);
+    }
+
+    footer a {
+      color: var(--accent-2);
+      text-decoration: none;
+    }
+
+    footer a:hover { text-decoration: underline; }
+
+    /* ------------------------------------------------------------------ */
+    /* Loading overlay                                                    */
+    /* ------------------------------------------------------------------ */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      transition: opacity 0.3s ease;
+    }
+
+    #loading-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ------------------------------------------------------------------ */
+    /* Responsive                                                         */
+    /* ------------------------------------------------------------------ */
+    @media (max-width: 640px) {
+      header h1 { font-size: 1.8rem; }
+      main { padding: 1rem; }
+      section { padding: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading overlay shown while WASM initializes -->
+<div id="loading-overlay">
+  <div style="text-align:center">
+    <div class="spinner" style="margin:0 auto 1rem"></div>
+    <div style="color:var(--text-dim);font-size:0.9rem">Initializing WASM engine...</div>
+  </div>
+</div>
+
+<header>
+  <h1>modern-xlsx</h1>
+  <p>High-performance XLSX read/write powered by Rust WASM. Zero dependencies, runs entirely in the browser.</p>
+  <div class="badge-row">
+    <span class="badge"><span class="dot rust"></span>Rust Core</span>
+    <span class="badge"><span class="dot wasm"></span>WebAssembly</span>
+    <span class="badge"><span class="dot ts"></span>TypeScript API</span>
+  </div>
+</header>
+
+<main>
+  <!-- Status bar -->
+  <div id="status"></div>
+
+  <!-- 1. Create workbook -->
+  <section id="create-section">
+    <h2><span class="icon" style="background:#312e81;color:#a5b4fc">+</span> Create Workbook</h2>
+    <p class="desc">Generate a styled workbook with sample data, then download it as XLSX.</p>
+    <div class="btn-row">
+      <button class="primary" id="btn-create">Create Sample Workbook</button>
+      <button id="btn-download" disabled>Download XLSX</button>
+    </div>
+    <div id="create-preview"></div>
+  </section>
+
+  <!-- 2. Read file -->
+  <section id="read-section">
+    <h2><span class="icon" style="background:#1e3a2f;color:#6ee7b7">&#8593;</span> Read XLSX File</h2>
+    <p class="desc">Drag and drop an XLSX file or click to browse. Contents will be displayed below.</p>
+    <div class="drop-zone" id="drop-zone">
+      <div class="drop-icon">&#128196;</div>
+      <div>Drop an <strong>.xlsx</strong> file here, or click to browse</div>
+      <input type="file" id="file-input" accept=".xlsx,.xls">
+    </div>
+    <div id="read-output"></div>
+  </section>
+
+  <!-- 3. Style demo -->
+  <section id="style-section">
+    <h2><span class="icon" style="background:#3b1f0b;color:#fdba74">&#9998;</span> Style Demo</h2>
+    <p class="desc">Demonstrates bold fonts, colors, borders, number formats, and alignment.</p>
+    <div class="btn-row">
+      <button id="btn-style">Create Styled Workbook</button>
+      <button id="btn-style-download" disabled>Download Styled XLSX</button>
+    </div>
+    <div id="style-preview"></div>
+  </section>
+
+  <!-- 4. Chart demo -->
+  <section id="chart-section">
+    <h2><span class="icon" style="background:#1a1333;color:#c4b5fd">&#9632;</span> Chart Demo</h2>
+    <p class="desc">Creates a workbook with embedded bar chart and data series.</p>
+    <div class="btn-row">
+      <button id="btn-chart">Create Chart Workbook</button>
+      <button id="btn-chart-download" disabled>Download Chart XLSX</button>
+    </div>
+    <div id="chart-preview"></div>
+  </section>
+</main>
+
+<footer>
+  <a href="https://github.com/ABCrimson/modern-xlsx" target="_blank">GitHub</a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://www.npmjs.com/package/modern-xlsx" target="_blank">npm</a>
+  &nbsp;&middot;&nbsp;
+  MIT License
+</footer>
+
+<!-- Load from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.9.1/dist/modern-xlsx.min.js"></script>
+<script>
+// =========================================================================
+// Helpers
+// =========================================================================
+const {
+  initWasm, Workbook, StyleBuilder, readBuffer, writeBlob, sheetToHtml, sheetToJson,
+} = ModernXlsx;
+
+let createdBlob = null;
+let styleBlob = null;
+let chartBlob = null;
+
+function setStatus(msg, type = 'info') {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = type;
+}
+
+function clearStatus() {
+  const el = document.getElementById('status');
+  el.className = '';
+  el.textContent = '';
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// =========================================================================
+// Initialize WASM
+// =========================================================================
+(async () => {
+  try {
+    await initWasm();
+    document.getElementById('loading-overlay').classList.add('hidden');
+    setStatus('WASM engine ready (v' + ModernXlsx.VERSION + ')', 'success');
+    setTimeout(clearStatus, 3000);
+  } catch (err) {
+    document.getElementById('loading-overlay').classList.add('hidden');
+    setStatus('Failed to initialize WASM: ' + err.message, 'error');
+  }
+})();
+
+// =========================================================================
+// 1. Create Workbook
+// =========================================================================
+document.getElementById('btn-create').addEventListener('click', () => {
+  try {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sales Data');
+
+    // -- Build styles --
+    const headerStyle = new StyleBuilder()
+      .font({ bold: true, color: 'FFFFFF', size: 12 })
+      .fill({ pattern: 'solid', fgColor: '4472C4' })
+      .alignment({ horizontal: 'center' })
+      .border({
+        bottom: { style: 'medium', color: '2F5496' },
+      })
+      .build(wb.styles);
+
+    const currencyStyle = new StyleBuilder()
+      .numberFormat('#,##0.00')
+      .font({ size: 11 })
+      .build(wb.styles);
+
+    const pctStyle = new StyleBuilder()
+      .numberFormat('0.0%')
+      .font({ size: 11 })
+      .alignment({ horizontal: 'center' })
+      .build(wb.styles);
+
+    const totalStyle = new StyleBuilder()
+      .font({ bold: true, size: 12 })
+      .fill({ pattern: 'solid', fgColor: 'D9E2F3' })
+      .border({ top: { style: 'double', color: '2F5496' } })
+      .numberFormat('#,##0.00')
+      .build(wb.styles);
+
+    // -- Headers --
+    const headers = ['Product', 'Q1', 'Q2', 'Q3', 'Q4', 'Total', 'Growth'];
+    headers.forEach((h, i) => {
+      const cell = ws.cell(String.fromCharCode(65 + i) + '1');
+      cell.value = h;
+      cell.styleIndex = headerStyle;
+    });
+
+    // -- Data --
+    const data = [
+      ['Widget Alpha',  12500,  15800,  14200,  18900],
+      ['Widget Beta',    8700,  11200,   9800,  13400],
+      ['Widget Gamma',  21300,  24500,  22100,  28700],
+      ['Widget Delta',   5400,   6100,   5900,   7200],
+      ['Widget Epsilon', 9800,  12300,  11700,  15100],
+    ];
+
+    data.forEach((row, r) => {
+      const rowNum = r + 2;
+      // Product name
+      ws.cell('A' + rowNum).value = row[0];
+      // Q1-Q4 with currency
+      for (let c = 1; c <= 4; c++) {
+        const cell = ws.cell(String.fromCharCode(65 + c) + rowNum);
+        cell.value = row[c];
+        cell.styleIndex = currencyStyle;
+      }
+      // Total formula
+      const totalCell = ws.cell('F' + rowNum);
+      totalCell.formula = 'SUM(B' + rowNum + ':E' + rowNum + ')';
+      totalCell.value = row.slice(1).reduce((a, b) => a + b, 0);
+      totalCell.styleIndex = currencyStyle;
+      // Growth formula (Q4 vs Q1)
+      const growthCell = ws.cell('G' + rowNum);
+      growthCell.formula = '(E' + rowNum + '-B' + rowNum + ')/B' + rowNum;
+      growthCell.value = (row[4] - row[1]) / row[1];
+      growthCell.styleIndex = pctStyle;
+    });
+
+    // -- Totals row --
+    const totalRow = data.length + 2;
+    ws.cell('A' + totalRow).value = 'TOTAL';
+    ws.cell('A' + totalRow).styleIndex = totalStyle;
+    for (let c = 1; c <= 5; c++) {
+      const col = String.fromCharCode(65 + c);
+      const cell = ws.cell(col + totalRow);
+      cell.formula = 'SUM(' + col + '2:' + col + (totalRow - 1) + ')';
+      cell.styleIndex = totalStyle;
+    }
+
+    // -- Column widths --
+    ws.setColumnWidth(1, 18);
+    for (let c = 2; c <= 7; c++) ws.setColumnWidth(c, 14);
+
+    // -- Frozen header --
+    ws.frozenPane = { rows: 1, cols: 0 };
+
+    // -- Auto filter --
+    ws.autoFilter = 'A1:G' + totalRow;
+
+    // Build blob
+    createdBlob = writeBlob(wb);
+    document.getElementById('btn-download').disabled = false;
+
+    // Show preview
+    const preview = document.getElementById('create-preview');
+    preview.innerHTML = '<div class="preview-grid">'
+      + '<div class="preview-cell"><div class="label">Sheets</div>1 (Sales Data)</div>'
+      + '<div class="preview-cell"><div class="label">Rows</div>' + (data.length + 1) + ' data + 1 header</div>'
+      + '<div class="preview-cell"><div class="label">Columns</div>7 (A-G)</div>'
+      + '<div class="preview-cell"><div class="label">Features</div>Formulas, Freeze, Filter</div>'
+      + '</div>';
+
+    setStatus('Workbook created successfully.', 'success');
+  } catch (err) {
+    setStatus('Error: ' + err.message, 'error');
+  }
+});
+
+document.getElementById('btn-download').addEventListener('click', () => {
+  if (createdBlob) downloadBlob(createdBlob, 'modern-xlsx-sample.xlsx');
+});
+
+// =========================================================================
+// 2. Read File
+// =========================================================================
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('dragover');
+});
+
+dropZone.addEventListener('dragleave', () => {
+  dropZone.classList.remove('dragover');
+});
+
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files[0];
+  if (file) handleFile(file);
+});
+
+async function handleFile(file) {
+  try {
+    setStatus('Reading ' + file.name + '...', 'info');
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    const wb = await readBuffer(buffer);
+    const output = document.getElementById('read-output');
+
+    let html = '';
+    for (const name of wb.sheetNames) {
+      const ws = wb.getSheet(name);
+      if (!ws) continue;
+      html += '<h3 style="margin:1rem 0 0.5rem;font-size:1rem;color:var(--accent-2)">'
+            + escapeHtml(name) + ' (' + ws.rowCount + ' rows)</h3>';
+      html += '<div class="table-wrapper">' + sheetToHtml(ws, { header: true }) + '</div>';
+    }
+
+    output.innerHTML = html;
+    setStatus('Read ' + file.name + ': ' + wb.sheetCount + ' sheet(s)', 'success');
+  } catch (err) {
+    setStatus('Read error: ' + err.message, 'error');
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// =========================================================================
+// 3. Style Demo
+// =========================================================================
+document.getElementById('btn-style').addEventListener('click', () => {
+  try {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Style Showcase');
+
+    // Title (merged)
+    const titleStyle = new StyleBuilder()
+      .font({ bold: true, size: 18, color: '1F3864' })
+      .alignment({ horizontal: 'center', vertical: 'center' })
+      .build(wb.styles);
+    ws.cell('A1').value = 'Style Showcase';
+    ws.cell('A1').styleIndex = titleStyle;
+    ws.addMergeCell('A1:F1');
+
+    // Section: Font styles
+    const boldStyle = new StyleBuilder().font({ bold: true, size: 11 }).build(wb.styles);
+    const italicStyle = new StyleBuilder().font({ italic: true, size: 11 }).build(wb.styles);
+    const underlineStyle = new StyleBuilder().font({ underline: true, size: 11 }).build(wb.styles);
+    const strikeStyle = new StyleBuilder().font({ strike: true, size: 11 }).build(wb.styles);
+    const colorStyle = new StyleBuilder().font({ color: 'FF0000', size: 12, bold: true }).build(wb.styles);
+    const bigStyle = new StyleBuilder().font({ size: 16, bold: true, color: '2E75B6' }).build(wb.styles);
+
+    ws.cell('A3').value = 'Bold';       ws.cell('A3').styleIndex = boldStyle;
+    ws.cell('B3').value = 'Italic';     ws.cell('B3').styleIndex = italicStyle;
+    ws.cell('C3').value = 'Underline';  ws.cell('C3').styleIndex = underlineStyle;
+    ws.cell('D3').value = 'Strikethrough'; ws.cell('D3').styleIndex = strikeStyle;
+    ws.cell('E3').value = 'Red';        ws.cell('E3').styleIndex = colorStyle;
+    ws.cell('F3').value = 'Large Blue'; ws.cell('F3').styleIndex = bigStyle;
+
+    // Section: Fill colors
+    const fills = ['FF6B6B', 'FFA94D', 'FFD43B', '69DB7C', '4DABF7', 'CC5DE8'];
+    const fillNames = ['Red', 'Orange', 'Yellow', 'Green', 'Blue', 'Purple'];
+    fills.forEach((color, i) => {
+      const s = new StyleBuilder()
+        .fill({ pattern: 'solid', fgColor: color })
+        .font({ bold: true, color: i === 2 ? '333333' : 'FFFFFF' })
+        .alignment({ horizontal: 'center' })
+        .build(wb.styles);
+      ws.cell(String.fromCharCode(65 + i) + '5').value = fillNames[i];
+      ws.cell(String.fromCharCode(65 + i) + '5').styleIndex = s;
+    });
+
+    // Section: Border styles
+    const borderStyles = ['thin', 'medium', 'thick', 'double', 'dashed', 'dotted'];
+    borderStyles.forEach((bs, i) => {
+      const s = new StyleBuilder()
+        .border({
+          left: { style: bs, color: '333333' },
+          right: { style: bs, color: '333333' },
+          top: { style: bs, color: '333333' },
+          bottom: { style: bs, color: '333333' },
+        })
+        .alignment({ horizontal: 'center' })
+        .build(wb.styles);
+      ws.cell(String.fromCharCode(65 + i) + '7').value = bs;
+      ws.cell(String.fromCharCode(65 + i) + '7').styleIndex = s;
+    });
+
+    // Section: Number formats
+    const numLabel = new StyleBuilder().font({ bold: true, color: '666666', size: 10 }).build(wb.styles);
+    const formats = [
+      ['#,##0', 1234567],
+      ['#,##0.00', 1234567.89],
+      ['$#,##0.00', 9876.5],
+      ['0.00%', 0.1567],
+      ['0.00E+00', 123456789],
+      ['yyyy-mm-dd', 45678],
+    ];
+    formats.forEach(([fmt, val], i) => {
+      const col = String.fromCharCode(65 + i);
+      ws.cell(col + '9').value = fmt;
+      ws.cell(col + '9').styleIndex = numLabel;
+      const s = new StyleBuilder()
+        .numberFormat(fmt)
+        .alignment({ horizontal: 'center' })
+        .build(wb.styles);
+      ws.cell(col + '10').value = val;
+      ws.cell(col + '10').styleIndex = s;
+    });
+
+    // Column widths
+    for (let c = 1; c <= 6; c++) ws.setColumnWidth(c, 18);
+
+    styleBlob = writeBlob(wb);
+    document.getElementById('btn-style-download').disabled = false;
+
+    const preview = document.getElementById('style-preview');
+    preview.innerHTML = '<div class="preview-grid">'
+      + '<div class="preview-cell"><div class="label">Font Styles</div>Bold, Italic, Underline, Strike, Color, Size</div>'
+      + '<div class="preview-cell"><div class="label">Fill Colors</div>6 vibrant background colors</div>'
+      + '<div class="preview-cell"><div class="label">Borders</div>thin, medium, thick, double, dashed, dotted</div>'
+      + '<div class="preview-cell"><div class="label">Number Formats</div>#,##0 / $#,##0.00 / 0.00% / date</div>'
+      + '</div>';
+
+    setStatus('Styled workbook created. Download to open in Excel.', 'success');
+  } catch (err) {
+    setStatus('Error: ' + err.message, 'error');
+  }
+});
+
+document.getElementById('btn-style-download').addEventListener('click', () => {
+  if (styleBlob) downloadBlob(styleBlob, 'modern-xlsx-styles.xlsx');
+});
+
+// =========================================================================
+// 4. Chart Demo
+// =========================================================================
+document.getElementById('btn-chart').addEventListener('click', () => {
+  try {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Chart Data');
+
+    // Header style
+    const hdrStyle = new StyleBuilder()
+      .font({ bold: true, color: 'FFFFFF' })
+      .fill({ pattern: 'solid', fgColor: '4472C4' })
+      .alignment({ horizontal: 'center' })
+      .build(wb.styles);
+
+    // Write data
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+    const revenue = [4200, 5800, 5100, 6700, 7200, 8100];
+    const costs = [3100, 3600, 3400, 3900, 4100, 4500];
+
+    // Headers
+    ws.cell('A1').value = 'Month';   ws.cell('A1').styleIndex = hdrStyle;
+    ws.cell('B1').value = 'Revenue'; ws.cell('B1').styleIndex = hdrStyle;
+    ws.cell('C1').value = 'Costs';   ws.cell('C1').styleIndex = hdrStyle;
+
+    const numStyle = new StyleBuilder().numberFormat('#,##0').build(wb.styles);
+
+    months.forEach((m, i) => {
+      const row = i + 2;
+      ws.cell('A' + row).value = m;
+      ws.cell('B' + row).value = revenue[i];
+      ws.cell('B' + row).styleIndex = numStyle;
+      ws.cell('C' + row).value = costs[i];
+      ws.cell('C' + row).styleIndex = numStyle;
+    });
+
+    ws.setColumnWidth(1, 12);
+    ws.setColumnWidth(2, 14);
+    ws.setColumnWidth(3, 14);
+
+    // Add bar chart
+    ws.addChart('bar', (b) => {
+      b.title('Revenue vs Costs')
+        .addSeries({
+          name: 'Revenue',
+          catRef: "'Chart Data'!$A$2:$A$7",
+          valRef: "'Chart Data'!$B$2:$B$7",
+          fillColor: '4472C4',
+        })
+        .addSeries({
+          name: 'Costs',
+          catRef: "'Chart Data'!$A$2:$A$7",
+          valRef: "'Chart Data'!$C$2:$C$7",
+          fillColor: 'ED7D31',
+        })
+        .legend('bottom')
+        .anchor({ col: 0, row: 8 }, { col: 8, row: 24 });
+    });
+
+    chartBlob = writeBlob(wb);
+    document.getElementById('btn-chart-download').disabled = false;
+
+    const preview = document.getElementById('chart-preview');
+    preview.innerHTML = '<div class="preview-grid">'
+      + '<div class="preview-cell"><div class="label">Chart Type</div>Clustered Bar Chart</div>'
+      + '<div class="preview-cell"><div class="label">Series</div>Revenue + Costs (6 months)</div>'
+      + '<div class="preview-cell"><div class="label">Features</div>Title, Legend, Colored Series</div>'
+      + '<div class="preview-cell"><div class="label">Tip</div>Open in Excel to see the chart</div>'
+      + '</div>';
+
+    setStatus('Chart workbook created. Download and open in Excel to see the chart.', 'success');
+  } catch (err) {
+    setStatus('Error: ' + err.message, 'error');
+  }
+});
+
+document.getElementById('btn-chart-download').addEventListener('click', () => {
+  if (chartBlob) downloadBlob(chartBlob, 'modern-xlsx-chart.xlsx');
+});
+</script>
+</body>
+</html>

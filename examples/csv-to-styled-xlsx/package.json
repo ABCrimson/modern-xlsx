@@ -1,0 +1,13 @@
+{
+  "name": "modern-xlsx-csv-to-xlsx-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Convert a CSV file to a styled XLSX workbook",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "modern-xlsx": "^0.9.1"
+  }
+}
