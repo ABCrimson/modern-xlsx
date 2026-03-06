@@ -1,9 +1,10 @@
 use core::hint::cold_path;
 
-use quick_xml::events::Event;
-use quick_xml::Reader;
+use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
+use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
 
+use super::SPREADSHEET_NS;
 use crate::{ModernXlsxError, Result};
 
 /// Axis position of a pivot field.
@@ -332,6 +333,198 @@ impl PivotTableData {
         })
     }
 
+    /// Serialize this pivot table definition to valid OOXML XML bytes.
+    pub fn to_xml(&self) -> Result<Vec<u8>> {
+        let mut buf: Vec<u8> = Vec::with_capacity(512);
+        let mut writer = Writer::new(&mut buf);
+        let mut ibuf = itoa::Buffer::new();
+
+        let map_err = |e: std::io::Error| ModernXlsxError::XmlWrite(e.to_string());
+
+        // XML declaration.
+        writer
+            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), Some("yes"))))
+            .map_err(map_err)?;
+
+        // <pivotTableDefinition xmlns="..." name="..." cacheId="..." dataCaption="...">
+        let mut root = BytesStart::new("pivotTableDefinition");
+        root.push_attribute(("xmlns", SPREADSHEET_NS));
+        root.push_attribute(("name", self.name.as_str()));
+        root.push_attribute(("cacheId", ibuf.format(self.cache_id)));
+        if let Some(ref dc) = self.data_caption {
+            root.push_attribute(("dataCaption", dc.as_str()));
+        }
+        writer.write_event(Event::Start(root)).map_err(map_err)?;
+
+        // <location ref="..." firstHeaderRow="..." firstDataRow="..." firstDataCol="..."/>
+        let mut loc = BytesStart::new("location");
+        loc.push_attribute(("ref", self.location.ref_range.as_str()));
+        if let Some(v) = self.location.first_header_row {
+            loc.push_attribute(("firstHeaderRow", ibuf.format(v)));
+        }
+        if let Some(v) = self.location.first_data_row {
+            loc.push_attribute(("firstDataRow", ibuf.format(v)));
+        }
+        if let Some(v) = self.location.first_data_col {
+            loc.push_attribute(("firstDataCol", ibuf.format(v)));
+        }
+        writer.write_event(Event::Empty(loc)).map_err(map_err)?;
+
+        // <pivotFields count="N">
+        if !self.pivot_fields.is_empty() {
+            let mut pf_elem = BytesStart::new("pivotFields");
+            pf_elem.push_attribute(("count", ibuf.format(self.pivot_fields.len())));
+            writer
+                .write_event(Event::Start(pf_elem))
+                .map_err(map_err)?;
+
+            for field in &self.pivot_fields {
+                let mut fe = BytesStart::new("pivotField");
+                if let Some(axis) = field.axis {
+                    fe.push_attribute(("axis", axis.xml_val()));
+                }
+                if let Some(ref name) = field.name {
+                    fe.push_attribute(("name", name.as_str()));
+                }
+                if !field.compact {
+                    fe.push_attribute(("compact", "0"));
+                }
+                if !field.outline {
+                    fe.push_attribute(("outline", "0"));
+                }
+
+                if field.items.is_empty() {
+                    // Self-closing <pivotField .../>
+                    writer.write_event(Event::Empty(fe)).map_err(map_err)?;
+                } else {
+                    // <pivotField ...>
+                    writer.write_event(Event::Start(fe)).map_err(map_err)?;
+
+                    // <items count="N">
+                    let mut items_elem = BytesStart::new("items");
+                    items_elem.push_attribute(("count", ibuf.format(field.items.len())));
+                    writer
+                        .write_event(Event::Start(items_elem))
+                        .map_err(map_err)?;
+
+                    for item in &field.items {
+                        let mut ie = BytesStart::new("item");
+                        if let Some(ref t) = item.t {
+                            ie.push_attribute(("t", t.as_str()));
+                        }
+                        if let Some(x) = item.x {
+                            ie.push_attribute(("x", ibuf.format(x)));
+                        }
+                        writer.write_event(Event::Empty(ie)).map_err(map_err)?;
+                    }
+
+                    // </items>
+                    writer
+                        .write_event(Event::End(BytesEnd::new("items")))
+                        .map_err(map_err)?;
+
+                    // </pivotField>
+                    writer
+                        .write_event(Event::End(BytesEnd::new("pivotField")))
+                        .map_err(map_err)?;
+                }
+            }
+
+            // </pivotFields>
+            writer
+                .write_event(Event::End(BytesEnd::new("pivotFields")))
+                .map_err(map_err)?;
+        }
+
+        // <rowFields count="N">
+        if !self.row_fields.is_empty() {
+            let mut rf_elem = BytesStart::new("rowFields");
+            rf_elem.push_attribute(("count", ibuf.format(self.row_fields.len())));
+            writer
+                .write_event(Event::Start(rf_elem))
+                .map_err(map_err)?;
+            for f in &self.row_fields {
+                let mut fe = BytesStart::new("field");
+                fe.push_attribute(("x", ibuf.format(f.x)));
+                writer.write_event(Event::Empty(fe)).map_err(map_err)?;
+            }
+            writer
+                .write_event(Event::End(BytesEnd::new("rowFields")))
+                .map_err(map_err)?;
+        }
+
+        // <colFields count="N">
+        if !self.col_fields.is_empty() {
+            let mut cf_elem = BytesStart::new("colFields");
+            cf_elem.push_attribute(("count", ibuf.format(self.col_fields.len())));
+            writer
+                .write_event(Event::Start(cf_elem))
+                .map_err(map_err)?;
+            for f in &self.col_fields {
+                let mut fe = BytesStart::new("field");
+                fe.push_attribute(("x", ibuf.format(f.x)));
+                writer.write_event(Event::Empty(fe)).map_err(map_err)?;
+            }
+            writer
+                .write_event(Event::End(BytesEnd::new("colFields")))
+                .map_err(map_err)?;
+        }
+
+        // <dataFields count="N">
+        if !self.data_fields.is_empty() {
+            let mut df_elem = BytesStart::new("dataFields");
+            df_elem.push_attribute(("count", ibuf.format(self.data_fields.len())));
+            writer
+                .write_event(Event::Start(df_elem))
+                .map_err(map_err)?;
+            for df in &self.data_fields {
+                let mut de = BytesStart::new("dataField");
+                if let Some(ref name) = df.name {
+                    de.push_attribute(("name", name.as_str()));
+                }
+                de.push_attribute(("fld", ibuf.format(df.fld)));
+                de.push_attribute(("subtotal", df.subtotal.xml_val()));
+                if let Some(nfid) = df.num_fmt_id {
+                    de.push_attribute(("numFmtId", ibuf.format(nfid)));
+                }
+                writer.write_event(Event::Empty(de)).map_err(map_err)?;
+            }
+            writer
+                .write_event(Event::End(BytesEnd::new("dataFields")))
+                .map_err(map_err)?;
+        }
+
+        // <pageFields count="N">
+        if !self.page_fields.is_empty() {
+            let mut pf_elem = BytesStart::new("pageFields");
+            pf_elem.push_attribute(("count", ibuf.format(self.page_fields.len())));
+            writer
+                .write_event(Event::Start(pf_elem))
+                .map_err(map_err)?;
+            for pf in &self.page_fields {
+                let mut pe = BytesStart::new("pageField");
+                pe.push_attribute(("fld", ibuf.format(pf.fld)));
+                if let Some(item) = pf.item {
+                    pe.push_attribute(("item", ibuf.format(item)));
+                }
+                if let Some(ref name) = pf.name {
+                    pe.push_attribute(("name", name.as_str()));
+                }
+                writer.write_event(Event::Empty(pe)).map_err(map_err)?;
+            }
+            writer
+                .write_event(Event::End(BytesEnd::new("pageFields")))
+                .map_err(map_err)?;
+        }
+
+        // </pivotTableDefinition>
+        writer
+            .write_event(Event::End(BytesEnd::new("pivotTableDefinition")))
+            .map_err(map_err)?;
+
+        Ok(buf)
+    }
+
     /// Process an opening (`Event::Start`) or self-closing (`Event::Empty`)
     /// element. `is_start` is `true` for `Start`, `false` for `Empty`.
     #[allow(clippy::too_many_arguments)]
@@ -622,6 +815,31 @@ mod tests {
     <pageField fld="0" item="0" name="Filter"/>
   </pageFields>
 </pivotTableDefinition>"#
+    }
+
+    #[test]
+    fn pivot_table_roundtrip() {
+        let pt = PivotTableData::parse(sample_pivot_table_xml()).unwrap();
+        let xml = pt.to_xml().unwrap();
+        let pt2 = PivotTableData::parse(&xml).unwrap();
+        assert_eq!(pt2.name, pt.name);
+        assert_eq!(pt2.cache_id, pt.cache_id);
+        assert_eq!(pt2.data_caption, pt.data_caption);
+        assert_eq!(pt2.location.ref_range, pt.location.ref_range);
+        assert_eq!(pt2.location.first_header_row, pt.location.first_header_row);
+        assert_eq!(pt2.location.first_data_row, pt.location.first_data_row);
+        assert_eq!(pt2.location.first_data_col, pt.location.first_data_col);
+        assert_eq!(pt2.pivot_fields.len(), pt.pivot_fields.len());
+        for (a, b) in pt2.pivot_fields.iter().zip(&pt.pivot_fields) {
+            assert_eq!(a.axis, b.axis);
+            assert_eq!(a.compact, b.compact);
+            assert_eq!(a.outline, b.outline);
+            assert_eq!(a.items.len(), b.items.len());
+        }
+        assert_eq!(pt2.row_fields.len(), pt.row_fields.len());
+        assert_eq!(pt2.col_fields.len(), pt.col_fields.len());
+        assert_eq!(pt2.data_fields.len(), pt.data_fields.len());
+        assert_eq!(pt2.data_fields[0].subtotal, pt.data_fields[0].subtotal);
     }
 
     #[test]
