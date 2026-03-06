@@ -64,7 +64,7 @@ export class RichTextBuilder {
   }
 
   /** Build and return the array of rich text runs. */
-  build(): RichTextRun[] {
+  build(): readonly RichTextRun[] {
     return [...this.runs];
   }
 

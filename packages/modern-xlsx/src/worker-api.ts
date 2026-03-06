@@ -90,7 +90,9 @@ export function createXlsxWorker(options: XlsxWorkerOptions): XlsxWorker {
         [data.buffer],
       );
       if (!response.json) throw new Error('Worker returned no data');
-      return JSON.parse(response.json) as WorkbookData;
+      // Data crosses worker boundary as JSON — structural validation is done by the WASM layer
+      const parsed: unknown = JSON.parse(response.json);
+      return parsed as WorkbookData;
     },
 
     async writeBuffer(data: WorkbookData, options?: { password?: string }): Promise<Uint8Array> {

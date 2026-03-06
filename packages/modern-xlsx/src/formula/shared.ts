@@ -83,11 +83,10 @@ function shiftNode(node: ASTNode, rowDelta: number, colDelta: number): ASTNode {
               : { type: 'cell_ref', col: '', row: 0, absCol: false, absRow: false },
         };
       }
-      return {
-        type: 'range',
-        start: start as CellRefNode,
-        end: end as CellRefNode,
-      };
+      if (start.type !== 'cell_ref' || end.type !== 'cell_ref') {
+        return { type: 'error', value: '#REF!' };
+      }
+      return { type: 'range', start, end };
     }
 
     case 'function':

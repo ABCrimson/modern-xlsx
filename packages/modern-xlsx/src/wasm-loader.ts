@@ -25,8 +25,8 @@ let initialized = false;
  */
 function detectWasmUrl(): string | URL | undefined {
   // In a <script> tag context (IIFE bundle), derive from script src
-  if (typeof document !== 'undefined' && document.currentScript) {
-    const src = (document.currentScript as HTMLScriptElement).src;
+  if (typeof document !== 'undefined' && document.currentScript instanceof HTMLScriptElement) {
+    const { src } = document.currentScript;
     if (src) {
       return new URL('modern-xlsx.wasm', src);
     }
@@ -127,6 +127,18 @@ function isWorkbookData(v: unknown): v is WorkbookData {
   return Array.isArray(v.sheets) && typeof v.styles === 'object' && v.styles !== null;
 }
 
+/** Lightweight structural check for ValidationReport from WASM. */
+function isValidationReport(v: unknown): v is ValidationReport {
+  if (typeof v !== 'object' || v === null) return false;
+  return 'issues' in v && 'isValid' in v && Array.isArray(v.issues);
+}
+
+/** Lightweight structural check for RepairResult from WASM. */
+function isRepairResult(v: unknown): v is RepairResult {
+  if (typeof v !== 'object' || v === null) return false;
+  return 'workbook' in v && 'report' in v && 'repairCount' in v;
+}
+
 /**
  * Write WorkbookData to XLSX bytes.
  * Serializes to JSON string for transfer across the WASM boundary.
@@ -157,7 +169,11 @@ export function wasmWriteBlob(data: WorkbookData): Blob {
  */
 export function wasmValidate(data: WorkbookData): ValidationReport {
   const json = _wasmValidateJson(JSON.stringify(data));
-  return JSON.parse(json) as ValidationReport;
+  const parsed: unknown = JSON.parse(json);
+  if (!isValidationReport(parsed)) {
+    throw new Error('WASM returned invalid ValidationReport structure');
+  }
+  return parsed;
 }
 
 /**
@@ -166,7 +182,11 @@ export function wasmValidate(data: WorkbookData): ValidationReport {
  */
 export function wasmRepair(data: WorkbookData): RepairResult {
   const json = _wasmRepairJson(JSON.stringify(data));
-  return JSON.parse(json) as RepairResult;
+  const parsed: unknown = JSON.parse(json);
+  if (!isRepairResult(parsed)) {
+    throw new Error('WASM returned invalid RepairResult structure');
+  }
+  return parsed;
 }
 
 export { wasmVersion };

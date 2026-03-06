@@ -10,7 +10,7 @@
  * @module formula/functions/math-stats
  */
 
-import type { ASTNode, RangeNode } from '../parser.js';
+import type { ASTNode } from '../parser.js';
 import type { CellValue, EvalContext, FormulaFunction } from '../resolver.js';
 import { resolveRange } from '../resolver.js';
 
@@ -49,7 +49,7 @@ function collectValues(
   const values: CellValue[] = [];
   for (const arg of args) {
     if (arg.type === 'range') {
-      const matrix = resolveRange(arg as RangeNode, ctx);
+      const matrix = resolveRange(arg, ctx);
       for (const row of matrix) {
         for (const cell of row) {
           values.push(cell);
@@ -71,7 +71,7 @@ function resolveMatrix(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): CellValue[][] {
   if (arg.type === 'range') {
-    return resolveRange(arg as RangeNode, ctx);
+    return resolveRange(arg, ctx);
   }
   return [[evaluate(arg, ctx)]];
 }

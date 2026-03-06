@@ -39,6 +39,14 @@ export type { AddSeriesOptions, AxisOptions } from './chart-builder.js';
 export { ChartBuilder } from './chart-builder.js';
 // Chart style presets
 export { CHART_STYLE_PALETTES, getChartStylePalette } from './chart-styles.js';
+// Date utilities
+export {
+  dateToSerial,
+  isDateFormatCode,
+  isDateFormatId,
+  isTemporalLike,
+  serialToDate,
+} from './dates.js';
 // Errors
 export {
   COMMENT_NOT_FOUND,
@@ -48,14 +56,6 @@ export {
   SHEET_NOT_FOUND,
   WASM_INIT_FAILED,
 } from './errors.js';
-// Date utilities
-export {
-  dateToSerial,
-  isDateFormatCode,
-  isDateFormatId,
-  isTemporalLike,
-  serialToDate,
-} from './dates.js';
 // Formatting
 export type { FormatCellOptions, FormatCellResult } from './format-cell.js';
 export {
@@ -211,10 +211,10 @@ export type {
   ThemeColorsData,
   ThreadedCommentData,
   TickLabelPosition,
+  TickMark,
   TimelineCacheData,
   TimelineData,
   TimelineLevel,
-  TickMark,
   TrendlineData,
   TrendlineType,
   ValidationIssue,

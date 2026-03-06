@@ -7,7 +7,7 @@
  * @module formula/serializer
  */
 
-import type { ASTNode, BinaryOpNode } from './parser.js';
+import type { ASTNode } from './parser.js';
 
 // ---------------------------------------------------------------------------
 // Operator precedence (higher = tighter binding)
@@ -142,7 +142,7 @@ function wrapBinaryChild(
   const s = serializeFormula(child);
   if (child.type !== 'binary_op') return s;
 
-  const childPrec = precedence((child as BinaryOpNode).op);
+  const childPrec = precedence(child.op);
 
   if (childPrec < parentPrec) {
     return `(${s})`;

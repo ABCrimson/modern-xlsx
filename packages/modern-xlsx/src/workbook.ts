@@ -3,12 +3,7 @@ import { generateBarcode, generateDrawingRels, generateDrawingXml } from './barc
 import { columnToLetter, decodeCellRef } from './cell-ref.js';
 import { ChartBuilder } from './chart-builder.js';
 import { isDateFormatCode, serialToDate } from './dates.js';
-import {
-  COMMENT_NOT_FOUND,
-  INVALID_ARGUMENT,
-  ModernXlsxError,
-  SHEET_NOT_FOUND,
-} from './errors.js';
+import { COMMENT_NOT_FOUND, INVALID_ARGUMENT, ModernXlsxError, SHEET_NOT_FOUND } from './errors.js';
 import { getBuiltinFormat } from './format-cell.js';
 import { StyleBuilder } from './style-builder.js';
 import type {
@@ -32,12 +27,12 @@ import type {
   PaneSelectionData,
   PivotTableData,
   RepairResult,
-  SlicerData,
   RowData,
   SheetData,
   SheetProtectionData,
   SheetState,
   SheetViewData,
+  SlicerData,
   SparklineGroupData,
   SplitPaneData,
   StylesData,
@@ -224,7 +219,8 @@ export class Workbook {
       throw new ModernXlsxError(INVALID_ARGUMENT, `Sheet "${newName}" already exists`);
     }
     const source = this.data.sheets[sourceIndex];
-    if (!source) throw new ModernXlsxError(INVALID_ARGUMENT, `Invalid source index: ${sourceIndex}`);
+    if (!source)
+      throw new ModernXlsxError(INVALID_ARGUMENT, `Invalid source index: ${sourceIndex}`);
     const clone: SheetData = structuredClone(source);
     clone.name = newName;
     const idx = insertIndex ?? this.data.sheets.length;
@@ -525,7 +521,8 @@ export class Workbook {
     format: 'png' | 'jpeg' | 'gif' = 'png',
   ): void {
     const sheetIndex = this.data.sheets.findIndex((s) => s.name === sheetName);
-    if (sheetIndex === -1) throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet "${sheetName}" not found`);
+    if (sheetIndex === -1)
+      throw new ModernXlsxError(SHEET_NOT_FOUND, `Sheet "${sheetName}" not found`);
 
     if (!this.data.preservedEntries) {
       this.data.preservedEntries = {};
@@ -846,7 +843,7 @@ export class Worksheet {
 
   /** Returns the view mode: `'normal'`, `'pageBreakPreview'`, or `'pageLayout'`. */
   get viewMode(): ViewMode {
-    return (this.data.worksheet.sheetView?.view as ViewMode) ?? 'normal';
+    return this.data.worksheet.sheetView?.view ?? 'normal';
   }
 
   /** Sets the view mode. Creates a sheet view if none exists. */

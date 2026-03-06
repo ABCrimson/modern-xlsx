@@ -7,7 +7,7 @@
  * @module formula/functions/lookup
  */
 
-import type { ASTNode, CellRefNode, RangeNode } from '../parser.js';
+import type { ASTNode } from '../parser.js';
 import type { CellValue, EvalContext, FormulaFunction } from '../resolver.js';
 import { resolveRange } from '../resolver.js';
 
@@ -47,7 +47,7 @@ function resolveMatrix(
   evaluate: (node: ASTNode, ctx: EvalContext) => CellValue,
 ): CellValue[][] {
   if (arg.type === 'range') {
-    return resolveRange(arg as RangeNode, ctx);
+    return resolveRange(arg, ctx);
   }
   return [[evaluate(arg, ctx)]];
 }
@@ -328,8 +328,8 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
     if (args.length < 1) return '#VALUE!';
     const arg = at(args, 0);
     if (!arg) return '#VALUE!';
-    if (arg.type === 'cell_ref') return (arg as CellRefNode).row;
-    if (arg.type === 'range') return (arg as RangeNode).start.row;
+    if (arg.type === 'cell_ref') return arg.row;
+    if (arg.type === 'range') return arg.start.row;
     return '#VALUE!';
   });
 
@@ -338,8 +338,8 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
     if (args.length < 1) return '#VALUE!';
     const arg = at(args, 0);
     if (!arg) return '#VALUE!';
-    if (arg.type === 'cell_ref') return letterToCol((arg as CellRefNode).col) + 1;
-    if (arg.type === 'range') return letterToCol((arg as RangeNode).start.col) + 1;
+    if (arg.type === 'cell_ref') return letterToCol(arg.col) + 1;
+    if (arg.type === 'range') return letterToCol(arg.start.col) + 1;
     return '#VALUE!';
   });
 
@@ -349,8 +349,7 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
     const arg = at(args, 0);
     if (!arg) return '#VALUE!';
     if (arg.type === 'range') {
-      const range = arg as RangeNode;
-      return Math.abs(range.end.row - range.start.row) + 1;
+      return Math.abs(arg.end.row - arg.start.row) + 1;
     }
     if (arg.type === 'cell_ref') return 1;
     return '#VALUE!';
@@ -362,8 +361,7 @@ export function registerLookupFunctions(registry: Map<string, FormulaFunction>):
     const arg = at(args, 0);
     if (!arg) return '#VALUE!';
     if (arg.type === 'range') {
-      const range = arg as RangeNode;
-      return Math.abs(letterToCol(range.end.col) - letterToCol(range.start.col)) + 1;
+      return Math.abs(letterToCol(arg.end.col) - letterToCol(arg.start.col)) + 1;
     }
     if (arg.type === 'cell_ref') return 1;
     return '#VALUE!';
