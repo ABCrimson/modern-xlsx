@@ -196,6 +196,521 @@ pub struct PivotPageFieldData {
     pub name: Option<String>,
 }
 
+/// Pivot cache definition from pivotCacheDefinition{n}.xml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PivotCacheDefinitionData {
+    pub source: CacheSource,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<CacheFieldData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_count: Option<u32>,
+}
+
+/// Source worksheet reference for a pivot cache.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheSource {
+    #[serde(rename = "ref")]
+    pub ref_range: String,
+    pub sheet: String,
+}
+
+/// A field within the pivot cache (column metadata + shared items).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheFieldData {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shared_items: Vec<CacheValue>,
+}
+
+/// A cached value in a pivot cache record or shared items list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum CacheValue {
+    Number { v: f64 },
+    String { v: String },
+    Boolean { v: bool },
+    DateTime { v: String },
+    Missing,
+    Error { v: String },
+    /// Shared item index reference (used in records — `<x v="0"/>`).
+    Index { v: u32 },
+}
+
+/// Pivot cache records from pivotCacheRecords{n}.xml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PivotCacheRecordsData {
+    pub records: Vec<Vec<CacheValue>>,
+}
+
+// ---------------------------------------------------------------------------
+// Pivot cache definition — parser & writer
+// ---------------------------------------------------------------------------
+
+impl PivotCacheDefinitionData {
+    /// Parse a `pivotCacheDefinition*.xml` file from raw XML bytes.
+    pub fn parse(data: &[u8]) -> Result<Self> {
+        let mut reader = Reader::from_reader(data);
+        reader.config_mut().trim_text(true);
+
+        let mut buf = Vec::with_capacity(512);
+
+        let mut source = CacheSource {
+            ref_range: String::new(),
+            sheet: String::new(),
+        };
+        let mut fields: Vec<CacheFieldData> = Vec::new();
+        let mut record_count: Option<u32> = None;
+
+        // State flags.
+        let mut in_cache_source = false;
+        let mut in_cache_fields = false;
+        let mut current_cache_field: Option<CacheFieldData> = None;
+        let mut in_shared_items = false;
+
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) => {
+                    Self::handle_open(
+                        e,
+                        true,
+                        &mut source,
+                        &mut fields,
+                        &mut record_count,
+                        &mut in_cache_source,
+                        &mut in_cache_fields,
+                        &mut current_cache_field,
+                        &mut in_shared_items,
+                    );
+                }
+                Ok(Event::Empty(ref e)) => {
+                    Self::handle_open(
+                        e,
+                        false,
+                        &mut source,
+                        &mut fields,
+                        &mut record_count,
+                        &mut in_cache_source,
+                        &mut in_cache_fields,
+                        &mut current_cache_field,
+                        &mut in_shared_items,
+                    );
+                }
+                Ok(Event::End(ref e)) => {
+                    match e.local_name().as_ref() {
+                        b"cacheSource" => in_cache_source = false,
+                        b"cacheFields" => in_cache_fields = false,
+                        b"cacheField" => {
+                            if let Some(field) = current_cache_field.take() {
+                                fields.push(field);
+                            }
+                            in_shared_items = false;
+                        }
+                        b"sharedItems" => in_shared_items = false,
+                        _ => {}
+                    }
+                }
+                Ok(Event::Eof) => break,
+                Ok(_) => {}
+                Err(e) => {
+                    cold_path();
+                    return Err(ModernXlsxError::XmlParse(format!(
+                        "error parsing pivot cache definition XML: {e}"
+                    )));
+                }
+            }
+            buf.clear();
+        }
+
+        Ok(Self {
+            source,
+            fields,
+            record_count,
+        })
+    }
+
+    /// Serialize this pivot cache definition to valid OOXML XML bytes.
+    pub fn to_xml(&self) -> Result<Vec<u8>> {
+        let mut buf: Vec<u8> = Vec::with_capacity(512);
+        let mut writer = Writer::new(&mut buf);
+        let mut ibuf = itoa::Buffer::new();
+
+        let map_err = |e: std::io::Error| ModernXlsxError::XmlWrite(e.to_string());
+
+        // XML declaration.
+        writer
+            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), Some("yes"))))
+            .map_err(map_err)?;
+
+        // <pivotCacheDefinition xmlns="..." xmlns:r="..." recordCount="...">
+        let mut root = BytesStart::new("pivotCacheDefinition");
+        root.push_attribute(("xmlns", SPREADSHEET_NS));
+        root.push_attribute((
+            "xmlns:r",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+        ));
+        if let Some(rc) = self.record_count {
+            root.push_attribute(("recordCount", ibuf.format(rc)));
+        }
+        writer.write_event(Event::Start(root)).map_err(map_err)?;
+
+        // <cacheSource type="worksheet">
+        let mut cs = BytesStart::new("cacheSource");
+        cs.push_attribute(("type", "worksheet"));
+        writer.write_event(Event::Start(cs)).map_err(map_err)?;
+
+        // <worksheetSource ref="..." sheet="..."/>
+        let mut ws = BytesStart::new("worksheetSource");
+        ws.push_attribute(("ref", self.source.ref_range.as_str()));
+        ws.push_attribute(("sheet", self.source.sheet.as_str()));
+        writer.write_event(Event::Empty(ws)).map_err(map_err)?;
+
+        // </cacheSource>
+        writer
+            .write_event(Event::End(BytesEnd::new("cacheSource")))
+            .map_err(map_err)?;
+
+        // <cacheFields count="N">
+        if !self.fields.is_empty() {
+            let mut cf = BytesStart::new("cacheFields");
+            cf.push_attribute(("count", ibuf.format(self.fields.len())));
+            writer.write_event(Event::Start(cf)).map_err(map_err)?;
+
+            for field in &self.fields {
+                let mut fe = BytesStart::new("cacheField");
+                fe.push_attribute(("name", field.name.as_str()));
+
+                if field.shared_items.is_empty() {
+                    writer.write_event(Event::Empty(fe)).map_err(map_err)?;
+                } else {
+                    writer.write_event(Event::Start(fe)).map_err(map_err)?;
+
+                    // <sharedItems count="N">
+                    let mut si = BytesStart::new("sharedItems");
+                    si.push_attribute(("count", ibuf.format(field.shared_items.len())));
+                    writer.write_event(Event::Start(si)).map_err(map_err)?;
+
+                    for item in &field.shared_items {
+                        write_cache_value(&mut writer, item, &mut ibuf)?;
+                    }
+
+                    // </sharedItems>
+                    writer
+                        .write_event(Event::End(BytesEnd::new("sharedItems")))
+                        .map_err(map_err)?;
+
+                    // </cacheField>
+                    writer
+                        .write_event(Event::End(BytesEnd::new("cacheField")))
+                        .map_err(map_err)?;
+                }
+            }
+
+            // </cacheFields>
+            writer
+                .write_event(Event::End(BytesEnd::new("cacheFields")))
+                .map_err(map_err)?;
+        }
+
+        // </pivotCacheDefinition>
+        writer
+            .write_event(Event::End(BytesEnd::new("pivotCacheDefinition")))
+            .map_err(map_err)?;
+
+        Ok(buf)
+    }
+
+    /// Handle an opening or self-closing element during SAX parsing.
+    #[allow(clippy::too_many_arguments)]
+    fn handle_open(
+        e: &quick_xml::events::BytesStart<'_>,
+        is_start: bool,
+        source: &mut CacheSource,
+        fields: &mut Vec<CacheFieldData>,
+        record_count: &mut Option<u32>,
+        in_cache_source: &mut bool,
+        in_cache_fields: &mut bool,
+        current_cache_field: &mut Option<CacheFieldData>,
+        in_shared_items: &mut bool,
+    ) {
+        let local = e.local_name();
+        match local.as_ref() {
+            b"pivotCacheDefinition" => {
+                if let Some(attr) = e
+                    .attributes()
+                    .flatten()
+                    .find(|a| a.key.local_name().as_ref() == b"recordCount")
+                {
+                    *record_count = std::str::from_utf8(&attr.value)
+                        .ok()
+                        .and_then(|s| s.parse().ok());
+                }
+            }
+            b"cacheSource" => {
+                if is_start {
+                    *in_cache_source = true;
+                }
+            }
+            b"worksheetSource" if *in_cache_source => {
+                for attr in e.attributes().flatten() {
+                    match attr.key.local_name().as_ref() {
+                        b"ref" => {
+                            source.ref_range =
+                                String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        b"sheet" => {
+                            source.sheet =
+                                String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            b"cacheFields" => {
+                if is_start {
+                    *in_cache_fields = true;
+                }
+            }
+            b"cacheField" if *in_cache_fields => {
+                let mut field = CacheFieldData {
+                    name: String::new(),
+                    shared_items: Vec::new(),
+                };
+                if let Some(attr) = e
+                    .attributes()
+                    .flatten()
+                    .find(|a| a.key.local_name().as_ref() == b"name")
+                {
+                    field.name =
+                        String::from_utf8_lossy(&attr.value).into_owned();
+                }
+                if is_start {
+                    *current_cache_field = Some(field);
+                } else {
+                    // Self-closing <cacheField .../> — push immediately.
+                    fields.push(field);
+                }
+            }
+            b"sharedItems" if current_cache_field.is_some() => {
+                if is_start {
+                    *in_shared_items = true;
+                }
+            }
+            b"s" | b"n" | b"b" | b"d" | b"m" | b"e"
+                if *in_shared_items && current_cache_field.is_some() =>
+            {
+                if let Some(ref mut field) = *current_cache_field {
+                    field
+                        .shared_items
+                        .push(parse_cache_value(local.as_ref(), e));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pivot cache records — parser & writer
+// ---------------------------------------------------------------------------
+
+impl PivotCacheRecordsData {
+    /// Parse a `pivotCacheRecords*.xml` file from raw XML bytes.
+    pub fn parse(data: &[u8]) -> Result<Self> {
+        let mut reader = Reader::from_reader(data);
+        reader.config_mut().trim_text(true);
+
+        let mut buf = Vec::with_capacity(512);
+        let mut records: Vec<Vec<CacheValue>> = Vec::new();
+        let mut in_record = false;
+        let mut current_record: Vec<CacheValue> = Vec::new();
+
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) => {
+                    if e.local_name().as_ref() == b"r" {
+                        in_record = true;
+                        current_record.clear();
+                    }
+                }
+                Ok(Event::Empty(ref e)) if in_record => {
+                    let local = e.local_name();
+                    match local.as_ref() {
+                        b"x" | b"n" | b"s" | b"b" | b"d" | b"m" | b"e" => {
+                            current_record
+                                .push(parse_cache_value(local.as_ref(), e));
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Event::End(ref e)) => {
+                    if e.local_name().as_ref() == b"r" {
+                        records.push(std::mem::take(&mut current_record));
+                        in_record = false;
+                    }
+                }
+                Ok(Event::Eof) => break,
+                Ok(_) => {}
+                Err(e) => {
+                    cold_path();
+                    return Err(ModernXlsxError::XmlParse(format!(
+                        "error parsing pivot cache records XML: {e}"
+                    )));
+                }
+            }
+            buf.clear();
+        }
+
+        Ok(Self { records })
+    }
+
+    /// Serialize these pivot cache records to valid OOXML XML bytes.
+    pub fn to_xml(&self) -> Result<Vec<u8>> {
+        let mut buf: Vec<u8> = Vec::with_capacity(512);
+        let mut writer = Writer::new(&mut buf);
+        let mut ibuf = itoa::Buffer::new();
+
+        let map_err = |e: std::io::Error| ModernXlsxError::XmlWrite(e.to_string());
+
+        // XML declaration.
+        writer
+            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), Some("yes"))))
+            .map_err(map_err)?;
+
+        // <pivotCacheRecords xmlns="..." count="N">
+        let mut root = BytesStart::new("pivotCacheRecords");
+        root.push_attribute(("xmlns", SPREADSHEET_NS));
+        root.push_attribute((
+            "xmlns:r",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+        ));
+        root.push_attribute(("count", ibuf.format(self.records.len())));
+        writer.write_event(Event::Start(root)).map_err(map_err)?;
+
+        for record in &self.records {
+            // <r>
+            writer
+                .write_event(Event::Start(BytesStart::new("r")))
+                .map_err(map_err)?;
+
+            for value in record {
+                write_cache_value(&mut writer, value, &mut ibuf)?;
+            }
+
+            // </r>
+            writer
+                .write_event(Event::End(BytesEnd::new("r")))
+                .map_err(map_err)?;
+        }
+
+        // </pivotCacheRecords>
+        writer
+            .write_event(Event::End(BytesEnd::new("pivotCacheRecords")))
+            .map_err(map_err)?;
+
+        Ok(buf)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers for parsing / writing CacheValue elements
+// ---------------------------------------------------------------------------
+
+/// Parse a single cache value element (`<s>`, `<n>`, `<b>`, `<d>`, `<m>`, `<e>`, `<x>`).
+#[inline]
+fn parse_cache_value(
+    tag: &[u8],
+    e: &quick_xml::events::BytesStart<'_>,
+) -> CacheValue {
+    /// Extract the `v` attribute as a UTF-8 string.
+    #[inline]
+    fn v_str(e: &quick_xml::events::BytesStart<'_>) -> String {
+        e.attributes()
+            .flatten()
+            .find(|a| a.key.local_name().as_ref() == b"v")
+            .map(|a| String::from_utf8_lossy(&a.value).into_owned())
+            .unwrap_or_default()
+    }
+
+    match tag {
+        b"s" => CacheValue::String { v: v_str(e) },
+        b"n" => {
+            let s = v_str(e);
+            CacheValue::Number {
+                v: s.parse::<f64>().unwrap_or(0.0),
+            }
+        }
+        b"b" => {
+            let s = v_str(e);
+            CacheValue::Boolean {
+                v: s == "1" || s.eq_ignore_ascii_case("true"),
+            }
+        }
+        b"d" => CacheValue::DateTime { v: v_str(e) },
+        b"m" => CacheValue::Missing,
+        b"e" => CacheValue::Error { v: v_str(e) },
+        b"x" => {
+            let s = v_str(e);
+            CacheValue::Index {
+                v: s.parse::<u32>().unwrap_or(0),
+            }
+        }
+        _ => CacheValue::Missing,
+    }
+}
+
+/// Write a single `CacheValue` as an XML element.
+#[inline]
+fn write_cache_value(
+    writer: &mut Writer<&mut Vec<u8>>,
+    value: &CacheValue,
+    ibuf: &mut itoa::Buffer,
+) -> Result<()> {
+    let map_err = |e: std::io::Error| ModernXlsxError::XmlWrite(e.to_string());
+    match value {
+        CacheValue::String { v } => {
+            let mut elem = BytesStart::new("s");
+            elem.push_attribute(("v", v.as_str()));
+            writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+        }
+        CacheValue::Number { v } => {
+            let mut elem = BytesStart::new("n");
+            let formatted = v.to_string();
+            elem.push_attribute(("v", formatted.as_str()));
+            writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+        }
+        CacheValue::Boolean { v } => {
+            let mut elem = BytesStart::new("b");
+            elem.push_attribute(("v", if *v { "1" } else { "0" }));
+            writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+        }
+        CacheValue::DateTime { v } => {
+            let mut elem = BytesStart::new("d");
+            elem.push_attribute(("v", v.as_str()));
+            writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+        }
+        CacheValue::Missing => {
+            writer
+                .write_event(Event::Empty(BytesStart::new("m")))
+                .map_err(map_err)?;
+        }
+        CacheValue::Error { v } => {
+            let mut elem = BytesStart::new("e");
+            elem.push_attribute(("v", v.as_str()));
+            writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+        }
+        CacheValue::Index { v } => {
+            let mut elem = BytesStart::new("x");
+            elem.push_attribute(("v", ibuf.format(*v)));
+            writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+        }
+    }
+    Ok(())
+}
+
 impl PivotTableData {
     /// Parse a `pivotTable*.xml` file from raw XML bytes.
     pub fn parse(data: &[u8]) -> Result<Self> {
@@ -840,6 +1355,119 @@ mod tests {
         assert_eq!(pt2.col_fields.len(), pt.col_fields.len());
         assert_eq!(pt2.data_fields.len(), pt.data_fields.len());
         assert_eq!(pt2.data_fields[0].subtotal, pt.data_fields[0].subtotal);
+    }
+
+    #[test]
+    fn parse_pivot_cache_definition() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    recordCount="4">
+  <cacheSource type="worksheet">
+    <worksheetSource ref="A1:C5" sheet="Data"/>
+  </cacheSource>
+  <cacheFields count="3">
+    <cacheField name="Region">
+      <sharedItems count="2">
+        <s v="East"/>
+        <s v="West"/>
+      </sharedItems>
+    </cacheField>
+    <cacheField name="Product">
+      <sharedItems count="2">
+        <s v="Widget"/>
+        <s v="Gadget"/>
+      </sharedItems>
+    </cacheField>
+    <cacheField name="Amount">
+      <sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1">
+        <n v="100"/>
+        <n v="200"/>
+      </sharedItems>
+    </cacheField>
+  </cacheFields>
+</pivotCacheDefinition>"#;
+        let cache = PivotCacheDefinitionData::parse(xml).unwrap();
+        assert_eq!(cache.source.sheet, "Data");
+        assert_eq!(cache.source.ref_range, "A1:C5");
+        assert_eq!(cache.fields.len(), 3);
+        assert_eq!(cache.fields[0].name, "Region");
+        assert_eq!(cache.fields[0].shared_items.len(), 2);
+        assert_eq!(cache.record_count, Some(4));
+    }
+
+    #[test]
+    fn parse_pivot_cache_records() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotCacheRecords xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4">
+  <r><x v="0"/><x v="0"/><n v="100"/></r>
+  <r><x v="0"/><x v="1"/><n v="200"/></r>
+  <r><x v="1"/><x v="0"/><n v="150"/></r>
+  <r><x v="1"/><x v="1"/><n v="250"/></r>
+</pivotCacheRecords>"#;
+        let records = PivotCacheRecordsData::parse(xml).unwrap();
+        assert_eq!(records.records.len(), 4);
+        assert_eq!(records.records[0].len(), 3);
+    }
+
+    #[test]
+    fn pivot_cache_roundtrip() {
+        // Roundtrip cache definition.
+        let def_xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    recordCount="4">
+  <cacheSource type="worksheet">
+    <worksheetSource ref="A1:C5" sheet="Data"/>
+  </cacheSource>
+  <cacheFields count="3">
+    <cacheField name="Region">
+      <sharedItems count="2">
+        <s v="East"/>
+        <s v="West"/>
+      </sharedItems>
+    </cacheField>
+    <cacheField name="Product">
+      <sharedItems count="2">
+        <s v="Widget"/>
+        <s v="Gadget"/>
+      </sharedItems>
+    </cacheField>
+    <cacheField name="Amount">
+      <sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1">
+        <n v="100"/>
+        <n v="200"/>
+      </sharedItems>
+    </cacheField>
+  </cacheFields>
+</pivotCacheDefinition>"#;
+        let def1 = PivotCacheDefinitionData::parse(def_xml).unwrap();
+        let out1 = def1.to_xml().unwrap();
+        let def2 = PivotCacheDefinitionData::parse(&out1).unwrap();
+        assert_eq!(def2.source.sheet, def1.source.sheet);
+        assert_eq!(def2.source.ref_range, def1.source.ref_range);
+        assert_eq!(def2.record_count, def1.record_count);
+        assert_eq!(def2.fields.len(), def1.fields.len());
+        for (a, b) in def2.fields.iter().zip(&def1.fields) {
+            assert_eq!(a.name, b.name);
+            assert_eq!(a.shared_items.len(), b.shared_items.len());
+        }
+
+        // Roundtrip cache records.
+        let rec_xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pivotCacheRecords xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4">
+  <r><x v="0"/><x v="0"/><n v="100"/></r>
+  <r><x v="0"/><x v="1"/><n v="200"/></r>
+  <r><x v="1"/><x v="0"/><n v="150"/></r>
+  <r><x v="1"/><x v="1"/><n v="250"/></r>
+</pivotCacheRecords>"#;
+        let rec1 = PivotCacheRecordsData::parse(rec_xml).unwrap();
+        let out2 = rec1.to_xml().unwrap();
+        let rec2 = PivotCacheRecordsData::parse(&out2).unwrap();
+        assert_eq!(rec2.records.len(), rec1.records.len());
+        for (a, b) in rec2.records.iter().zip(&rec1.records) {
+            assert_eq!(a.len(), b.len());
+        }
     }
 
     #[test]
