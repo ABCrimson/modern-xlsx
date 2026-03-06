@@ -18,6 +18,7 @@ pub fn json_escape_to_pub(out: &mut String, s: &str) {
 
 /// Write a JSON-escaped string to the output buffer.
 /// Handles `"`, `\`, and control characters (0x00-0x1F).
+#[inline]
 fn json_escape_to(out: &mut String, s: &str) {
     for c in s.chars() {
         match c {
@@ -40,6 +41,7 @@ fn json_escape_to(out: &mut String, s: &str) {
 }
 
 /// Convert a `CellType` to its camelCase JSON string (matching serde rename).
+#[inline]
 fn cell_type_json_str(ct: CellType) -> &'static str {
     match ct {
         CellType::SharedString => "sharedString",
@@ -53,6 +55,7 @@ fn cell_type_json_str(ct: CellType) -> &'static str {
 }
 
 /// Write an f64 to the JSON output buffer matching serde_json's formatting.
+#[inline]
 fn write_f64_json(out: &mut String, v: f64) {
     use std::fmt::Write;
     if !v.is_finite() {
@@ -1073,12 +1076,12 @@ impl WorksheetXml {
                             state = ParseState::InConditionalFormatting;
                             cur_cf_sqref.clear();
                             cur_cf_rules.clear();
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"sqref" {
-                                    cur_cf_sqref = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"sqref")
+                            {
+                                cur_cf_sqref = std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .to_owned();
                             }
                         }
                         (ParseState::InConditionalFormatting, b"cfRule") => {
@@ -1129,14 +1132,14 @@ impl WorksheetXml {
                             state = ParseState::InIconSet;
                             cur_cfvos.clear();
                             cur_icon_set_type = None;
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"iconSet" {
-                                    cur_icon_set_type = Some(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"iconSet")
+                            {
+                                cur_icon_set_type = Some(
+                                    std::str::from_utf8(&attr.value)
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                );
                             }
                         }
                         (ParseState::Root, b"hyperlinks") => {
@@ -1146,25 +1149,25 @@ impl WorksheetXml {
                             state = ParseState::InAutoFilter;
                             cur_af_range.clear();
                             cur_af_columns.clear();
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"ref" {
-                                    cur_af_range = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"ref")
+                            {
+                                cur_af_range = std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .to_owned();
                             }
                         }
                         (ParseState::InAutoFilter, b"filterColumn") => {
                             state = ParseState::InFilterColumn;
                             cur_filter_col_id = 0;
                             cur_filter_vals.clear();
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"colId" {
-                                    cur_filter_col_id = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .parse::<u32>()
-                                        .unwrap_or(0);
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"colId")
+                            {
+                                cur_filter_col_id = std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .parse::<u32>()
+                                    .unwrap_or(0);
                             }
                         }
                         (ParseState::InFilterColumn, b"filters") => {
@@ -1196,15 +1199,12 @@ impl WorksheetXml {
                             state = ParseState::ExtLst;
                         }
                         (ParseState::ExtLst, b"ext") => {
-                            let mut is_sparkline_ext = false;
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"uri" {
+                            let is_sparkline_ext = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"uri")
+                                .is_some_and(|attr| {
                                     let uri = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                    if uri.contains("05C60535") {
-                                        is_sparkline_ext = true;
-                                    }
-                                }
-                            }
+                                    uri.contains("05C60535")
+                                });
                             if is_sparkline_ext {
                                 state = ParseState::ExtSparklines;
                             } else {
@@ -1265,21 +1265,21 @@ impl WorksheetXml {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
                         (ParseState::Root, b"dimension") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"ref" {
-                                    dimension = Some(
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"ref")
+                            {
+                                dimension = Some(
+                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                );
                             }
                         }
                         (ParseState::SheetPr, b"tabColor") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"rgb" {
-                                    tab_color = Some(
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                            {
+                                tab_color = Some(
+                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                );
                             }
                         }
                         (ParseState::SheetPr, b"outlinePr") => {
@@ -1295,12 +1295,12 @@ impl WorksheetXml {
                         }
                         (ParseState::Root, b"autoFilter") => {
                             let mut af_range = String::new();
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"ref" {
-                                    af_range = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"ref")
+                            {
+                                af_range = std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .to_owned();
                             }
                             auto_filter = Some(AutoFilter {
                                 range: af_range,
@@ -1413,12 +1413,12 @@ impl WorksheetXml {
                             columns.push(parse_col_element(e));
                         }
                         (ParseState::MergeCells, b"mergeCell") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"ref" {
-                                    merge_cells.push(
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"ref")
+                            {
+                                merge_cells.push(
+                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                );
                             }
                         }
                         (ParseState::InRow, b"c") => {
@@ -1719,47 +1719,44 @@ impl WorksheetXml {
                         }
                         // color in colorScale.
                         (ParseState::InColorScale, b"color") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"rgb" {
-                                    cur_cf_colors.push(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                            {
+                                cur_cf_colors.push(
+                                    std::str::from_utf8(&attr.value)
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                );
                             }
                         }
                         // color in dataBar.
                         (ParseState::InDataBar, b"color") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"rgb" {
-                                    cur_cf_bar_color = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                            {
+                                cur_cf_bar_color = std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .to_owned();
                             }
                         }
                         // filter values.
                         (ParseState::InFilters, b"filter") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"val" {
-                                    cur_filter_vals.push(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"val")
+                            {
+                                cur_filter_vals.push(
+                                    std::str::from_utf8(&attr.value)
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                );
                             }
                         }
                         // Sparkline color elements (self-closing).
                         (ParseState::SparklineGroup, _) => {
                             if let Some(ref mut group) = current_sparkline_group {
-                                let mut rgb_val = None::<String>;
-                                for attr in e.attributes().flatten() {
-                                    if attr.key.local_name().as_ref() == b"rgb" {
-                                        rgb_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                }
+                                let rgb_val = e.attributes().flatten()
+                                    .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                    .map(|attr| std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
                                 if let Some(rgb) = rgb_val {
                                     match local.as_ref() {
                                         b"colorSeries" => group.color_series = Some(rgb),
@@ -2465,12 +2462,12 @@ impl WorksheetXml {
                             state = ParseState::InConditionalFormatting;
                             cur_cf_sqref.clear();
                             cur_cf_rules.clear();
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"sqref" {
-                                    cur_cf_sqref = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"sqref")
+                            {
+                                cur_cf_sqref = std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .to_owned();
                             }
                         }
                         (ParseState::InConditionalFormatting, b"cfRule") => {
@@ -2516,14 +2513,14 @@ impl WorksheetXml {
                             state = ParseState::InIconSet;
                             cur_cfvos.clear();
                             cur_icon_set_type = None;
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"iconSet" {
-                                    cur_icon_set_type = Some(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"iconSet")
+                            {
+                                cur_icon_set_type = Some(
+                                    std::str::from_utf8(&attr.value)
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                );
                             }
                         }
 
@@ -2535,25 +2532,25 @@ impl WorksheetXml {
                             state = ParseState::InAutoFilter;
                             cur_af_range.clear();
                             cur_af_columns.clear();
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"ref" {
-                                    cur_af_range = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"ref")
+                            {
+                                cur_af_range = std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .to_owned();
                             }
                         }
                         (ParseState::InAutoFilter, b"filterColumn") => {
                             state = ParseState::InFilterColumn;
                             cur_filter_col_id = 0;
                             cur_filter_vals.clear();
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"colId" {
-                                    cur_filter_col_id = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .parse::<u32>()
-                                        .unwrap_or(0);
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"colId")
+                            {
+                                cur_filter_col_id = std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .parse::<u32>()
+                                    .unwrap_or(0);
                             }
                         }
                         (ParseState::InFilterColumn, b"filters") => state = ParseState::InFilters,
@@ -2584,15 +2581,12 @@ impl WorksheetXml {
                             state = ParseState::ExtLst;
                         }
                         (ParseState::ExtLst, b"ext") => {
-                            let mut is_sparkline_ext = false;
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"uri" {
+                            let is_sparkline_ext = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"uri")
+                                .is_some_and(|attr| {
                                     let uri = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                    if uri.contains("05C60535") {
-                                        is_sparkline_ext = true;
-                                    }
-                                }
-                            }
+                                    uri.contains("05C60535")
+                                });
                             if is_sparkline_ext {
                                 state = ParseState::ExtSparklines;
                             } else {
@@ -2653,21 +2647,21 @@ impl WorksheetXml {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
                         (ParseState::Root, b"dimension") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"ref" {
-                                    dimension = Some(
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"ref")
+                            {
+                                dimension = Some(
+                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                );
                             }
                         }
                         (ParseState::SheetPr, b"tabColor") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"rgb" {
-                                    tab_color = Some(
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                            {
+                                tab_color = Some(
+                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                );
                             }
                         }
                         (ParseState::SheetPr, b"outlinePr") => {
@@ -2683,12 +2677,12 @@ impl WorksheetXml {
                         }
                         (ParseState::Root, b"autoFilter") => {
                             let mut af_range = String::new();
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"ref" {
-                                    af_range = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"ref")
+                            {
+                                af_range = std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .to_owned();
                             }
                             auto_filter = Some(AutoFilter {
                                 range: af_range,
@@ -2799,12 +2793,12 @@ impl WorksheetXml {
                         }
                         (ParseState::Cols, b"col") => columns.push(parse_col_element(e)),
                         (ParseState::MergeCells, b"mergeCell") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"ref" {
-                                    merge_cells.push(
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"ref")
+                            {
+                                merge_cells.push(
+                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                );
                             }
                         }
                         // Self-closing <c ... /> — cell with no children.
@@ -3107,41 +3101,38 @@ impl WorksheetXml {
                             cur_cfvos.push(Cfvo { cfvo_type, val: cfvo_val });
                         }
                         (ParseState::InColorScale, b"color") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"rgb" {
-                                    cur_cf_colors.push(
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                            {
+                                cur_cf_colors.push(
+                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                );
                             }
                         }
                         (ParseState::InDataBar, b"color") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"rgb" {
-                                    cur_cf_bar_color = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                            {
+                                cur_cf_bar_color = std::str::from_utf8(&attr.value)
+                                    .unwrap_or_default()
+                                    .to_owned();
                             }
                         }
                         (ParseState::InFilters, b"filter") => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"val" {
-                                    cur_filter_vals.push(
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"val")
+                            {
+                                cur_filter_vals.push(
+                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                );
                             }
                         }
                         // Sparkline color elements (self-closing).
                         (ParseState::SparklineGroup, _) => {
                             if let Some(ref mut group) = current_sparkline_group {
-                                let mut rgb_val = None::<String>;
-                                for attr in e.attributes().flatten() {
-                                    if attr.key.local_name().as_ref() == b"rgb" {
-                                        rgb_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
-                                    }
-                                }
+                                let rgb_val = e.attributes().flatten()
+                                    .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                    .map(|attr| std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
                                 if let Some(rgb) = rgb_val {
                                     match local.as_ref() {
                                         b"colorSeries" => group.color_series = Some(rgb),
