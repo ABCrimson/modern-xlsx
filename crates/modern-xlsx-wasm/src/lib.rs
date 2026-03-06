@@ -8,10 +8,11 @@ fn parse_workbook(json: &str) -> Result<modern_xlsx_core::WorkbookData, JsError>
     serde_json::from_str(json).map_err(|e| JsError::new(&format!("JSON parse error: {e}")))
 }
 
-/// Convert any `Display` error to `JsError`.
+/// Convert a `ModernXlsxError` to `JsError`, encoding the error code in the
+/// message as `"[CODE] human message"` so the TypeScript layer can parse it.
 #[inline]
-fn to_js_err(e: impl std::fmt::Display) -> JsError {
-    JsError::new(&e.to_string())
+fn to_js_err(e: modern_xlsx_core::ModernXlsxError) -> JsError {
+    JsError::new(&e.to_coded_string())
 }
 
 /// Read an XLSX file and return parsed workbook data as a JSON string.
@@ -93,7 +94,8 @@ pub fn write_blob(json: &str) -> Result<Blob, JsError> {
 pub fn validate(json: &str) -> Result<String, JsError> {
     let workbook = parse_workbook(json)?;
     let report = modern_xlsx_core::validate::validate_workbook(&workbook);
-    serde_json::to_string(&report).map_err(to_js_err)
+    serde_json::to_string(&report)
+        .map_err(|e| JsError::new(&format!("[XML_PARSE] Failed to serialize validation report: {e}")))
 }
 
 /// Validate and auto-repair a workbook. Returns repaired workbook as JSON.
@@ -112,7 +114,8 @@ pub fn repair(json: &str) -> Result<String, JsError> {
         "report": report,
         "repairCount": repair_count,
     });
-    serde_json::to_string(&result).map_err(to_js_err)
+    serde_json::to_string(&result)
+        .map_err(|e| JsError::new(&format!("[XML_PARSE] Failed to serialize repair result: {e}")))
 }
 
 /// Get the library version.

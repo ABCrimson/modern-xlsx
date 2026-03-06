@@ -13,6 +13,17 @@ import init, {
 import { ModernXlsxError, WASM_INIT_FAILED } from './errors.js';
 import type { RepairResult, ValidationReport, WorkbookData } from './types.js';
 
+/**
+ * Re-throw a WASM error as a `ModernXlsxError` with a parsed error code.
+ *
+ * WASM errors arrive as `Error` objects whose `message` follows the
+ * `"[CODE] human-readable message"` format. This helper extracts the code
+ * and message, falling back to `WASM_ERROR` if the format doesn't match.
+ */
+function rethrowWasm(err: unknown): never {
+  throw ModernXlsxError.fromWasmError(err);
+}
+
 let initPromise: Promise<void> | null = null;
 let initialized = false;
 
@@ -38,12 +49,18 @@ function detectWasmUrl(): string | URL | undefined {
 /**
  * Initialize the WASM module.
  *
- * Call once at application startup. Idempotent — safe to call multiple times.
+ * Call once at application startup. Idempotent -- safe to call multiple times.
  * Accepts an optional URL/path to the `.wasm` binary for environments where
  * auto-detection doesn't work (e.g., custom CDN, Service Workers).
  *
  * @param wasmSource - URL, string path, or fetch Response for the WASM binary.
- *   If omitted, auto-detects: script src → import.meta.url → CDN fallback.
+ *   If omitted, auto-detects: script src, import.meta.url, or CDN fallback.
+ *
+ * @example
+ * ```ts
+ * import { initWasm } from 'modern-xlsx';
+ * await initWasm();
+ * ```
  */
 export async function initWasm(wasmSource?: string | URL | Response): Promise<void> {
   if (initialized) return;
@@ -76,6 +93,14 @@ export function initWasmSync(module: WebAssembly.Module | BufferSource): void {
  * Auto-initialize WASM on first use. Wraps an async function to
  * transparently call `initWasm()` before the first operation.
  * Subsequent calls skip initialization (cached Promise pattern).
+ *
+ * @param wasmSource - Optional URL/path to the `.wasm` binary.
+ *
+ * @example
+ * ```ts
+ * await ensureReady();
+ * const wb = await readBuffer(data);
+ * ```
  */
 export async function ensureReady(wasmSource?: string | URL): Promise<void> {
   if (!initialized) {
@@ -83,6 +108,11 @@ export async function ensureReady(wasmSource?: string | URL): Promise<void> {
   }
 }
 
+/**
+ * Guard that throws if WASM has not been initialized.
+ *
+ * @throws ModernXlsxError with code `WASM_INIT_FAILED` if `initWasm()` has not been called.
+ */
 export function ensureInitialized(): void {
   if (!initialized) {
     throw new ModernXlsxError(WASM_INIT_FAILED, 'WASM not initialized. Call initWasm() first.');
@@ -95,7 +125,12 @@ export function ensureInitialized(): void {
  * which is 8-13x faster than serde_wasm_bindgen for large workbooks.
  */
 export function wasmRead(data: Uint8Array): WorkbookData {
-  const json = _wasmReadJson(data);
+  let json: string;
+  try {
+    json = _wasmReadJson(data);
+  } catch (err) {
+    rethrowWasm(err);
+  }
   const parsed: unknown = JSON.parse(json);
   if (!isWorkbookData(parsed)) {
     throw new Error('WASM returned invalid WorkbookData structure');
@@ -108,7 +143,12 @@ export function wasmRead(data: Uint8Array): WorkbookData {
  * If the file is not encrypted, the password is ignored.
  */
 export function wasmReadWithPassword(data: Uint8Array, password: string): WorkbookData {
-  const json = _wasmReadWithPasswordJson(data, password);
+  let json: string;
+  try {
+    json = _wasmReadWithPasswordJson(data, password);
+  } catch (err) {
+    rethrowWasm(err);
+  }
   const parsed: unknown = JSON.parse(json);
   if (!isWorkbookData(parsed)) {
     throw new Error('WASM returned invalid WorkbookData structure');
@@ -140,7 +180,11 @@ function isRepairResult(v: unknown): v is RepairResult {
  * Serializes to JSON string for transfer across the WASM boundary.
  */
 export function wasmWrite(data: WorkbookData): Uint8Array {
-  return _wasmWriteJson(JSON.stringify(data));
+  try {
+    return _wasmWriteJson(JSON.stringify(data));
+  } catch (err) {
+    rethrowWasm(err);
+  }
 }
 
 /**
@@ -148,7 +192,11 @@ export function wasmWrite(data: WorkbookData): Uint8Array {
  * Serializes to JSON string for transfer across the WASM boundary.
  */
 export function wasmWriteWithPassword(data: WorkbookData, password: string): Uint8Array {
-  return _wasmWriteWithPasswordJson(JSON.stringify(data), password);
+  try {
+    return _wasmWriteWithPasswordJson(JSON.stringify(data), password);
+  } catch (err) {
+    rethrowWasm(err);
+  }
 }
 
 /**
@@ -156,7 +204,11 @@ export function wasmWriteWithPassword(data: WorkbookData, password: string): Uin
  * Serializes to JSON string for transfer across the WASM boundary.
  */
 export function wasmWriteBlob(data: WorkbookData): Blob {
-  return _wasmWriteBlobJson(JSON.stringify(data));
+  try {
+    return _wasmWriteBlobJson(JSON.stringify(data));
+  } catch (err) {
+    rethrowWasm(err);
+  }
 }
 
 /**
@@ -164,7 +216,12 @@ export function wasmWriteBlob(data: WorkbookData): Blob {
  * Uses WASM-accelerated validation for structural compliance checking.
  */
 export function wasmValidate(data: WorkbookData): ValidationReport {
-  const json = _wasmValidateJson(JSON.stringify(data));
+  let json: string;
+  try {
+    json = _wasmValidateJson(JSON.stringify(data));
+  } catch (err) {
+    rethrowWasm(err);
+  }
   const parsed: unknown = JSON.parse(json);
   if (!isValidationReport(parsed)) {
     throw new Error('WASM returned invalid ValidationReport structure');
@@ -177,7 +234,12 @@ export function wasmValidate(data: WorkbookData): ValidationReport {
  * a post-repair validation report, and the number of repairs applied.
  */
 export function wasmRepair(data: WorkbookData): RepairResult {
-  const json = _wasmRepairJson(JSON.stringify(data));
+  let json: string;
+  try {
+    json = _wasmRepairJson(JSON.stringify(data));
+  } catch (err) {
+    rethrowWasm(err);
+  }
   const parsed: unknown = JSON.parse(json);
   if (!isRepairResult(parsed)) {
     throw new Error('WASM returned invalid RepairResult structure');

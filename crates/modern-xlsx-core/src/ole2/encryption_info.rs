@@ -59,9 +59,10 @@ impl EncryptionInfo {
     pub fn parse(stream: &[u8]) -> Result<Self> {
         if stream.len() < 8 {
             cold_path();
-            return Err(ModernXlsxError::PasswordProtected(
-                "EncryptionInfo stream too short".into(),
-            ));
+            return Err(ModernXlsxError::PasswordProtected(format!(
+                "EncryptionInfo stream too short: got {} bytes, need at least 8 — the file may be corrupt",
+                stream.len()
+            )));
         }
         let version_major = u16::from_le_bytes([stream[0], stream[1]]);
         let version_minor = u16::from_le_bytes([stream[2], stream[3]]);
@@ -72,7 +73,7 @@ impl EncryptionInfo {
             _ => {
                 cold_path();
                 Err(ModernXlsxError::PasswordProtected(format!(
-                    "Unsupported encryption version {version_major}.{version_minor}"
+                    "Unsupported encryption version {version_major}.{version_minor} — only Standard (2.2/3.2/4.2) and Agile (4.4) are supported"
                 )))
             }
         }

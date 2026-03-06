@@ -30,16 +30,22 @@ pub fn write_zip(entries: &[ZipEntry]) -> Result<Vec<u8>> {
     for entry in entries {
         zip_writer
             .start_file(&entry.name, options)
-            .map_err(|e| ModernXlsxError::ZipWrite(e.to_string()))?;
+            .map_err(|e| ModernXlsxError::ZipWrite(format!(
+                "Failed to start ZIP entry '{}': {e}", entry.name
+            )))?;
 
         zip_writer
             .write_all(&entry.data)
-            .map_err(|e| ModernXlsxError::ZipWrite(e.to_string()))?;
+            .map_err(|e| ModernXlsxError::ZipWrite(format!(
+                "Failed to write {} bytes to ZIP entry '{}': {e}", entry.data.len(), entry.name
+            )))?;
     }
 
     let cursor = zip_writer
         .finish()
-        .map_err(|e| ModernXlsxError::ZipFinalize(e.to_string()))?;
+        .map_err(|e| ModernXlsxError::ZipFinalize(format!(
+            "Failed to finalize ZIP archive ({} entries): {e}", entries.len()
+        )))?;
 
     Ok(cursor.into_inner())
 }

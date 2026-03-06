@@ -115,8 +115,10 @@ impl StreamingWriterCore {
         let path = format!("xl/worksheets/sheet{}.xml", self.sheet_count);
         let opts = zip_options();
         self.zip
-            .start_file(path, opts)
-            .map_err(|e| ModernXlsxError::ZipWrite(e.to_string()))?;
+            .start_file(&path, opts)
+            .map_err(|e| ModernXlsxError::ZipWrite(format!(
+                "Failed to start worksheet ZIP entry '{path}': {e}"
+            )))?;
 
         // Worksheet XML preamble.
         write!(
@@ -144,7 +146,7 @@ impl StreamingWriterCore {
         if !self.current_sheet_open {
             cold_path();
             return Err(ModernXlsxError::XmlWrite(
-                "No sheet is open — call start_sheet() first".into(),
+                "Failed to write row: no sheet is currently open — call start_sheet() before write_row()".into(),
             ));
         }
         self.current_row += 1;
@@ -259,7 +261,7 @@ impl StreamingWriterCore {
         if self.sheet_count == 0 {
             cold_path();
             return Err(ModernXlsxError::InvalidCellValue(
-                "workbook must contain at least one sheet".into(),
+                "Finish failed: workbook must contain at least one sheet — call start_sheet() before finish()".into(),
             ));
         }
 
@@ -418,7 +420,9 @@ impl StreamingWriterCore {
         let cursor = self
             .zip
             .finish()
-            .map_err(|e| ModernXlsxError::ZipFinalize(e.to_string()))?;
+            .map_err(|e| ModernXlsxError::ZipFinalize(format!(
+                "Failed to finalize streaming XLSX archive ({} sheets): {e}", self.sheet_count
+            )))?;
         Ok(cursor.into_inner())
     }
 }

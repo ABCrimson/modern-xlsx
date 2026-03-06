@@ -27,11 +27,20 @@ npm install modern-xlsx
 ## Quick Start
 
 ```typescript
-import { initWasm, Workbook, readFile } from 'modern-xlsx';
-
+import { initWasm, Workbook } from 'modern-xlsx';
 await initWasm();
 
-// --- Create ---
+const wb = new Workbook();
+wb.addSheet('Sheet1').cell('A1').value = 'Hello, Excel!';
+await wb.toFile('output.xlsx');
+```
+
+### Create a Styled Workbook
+
+```typescript
+import { initWasm, Workbook, readFile } from 'modern-xlsx';
+await initWasm();
+
 const wb = new Workbook();
 const ws = wb.addSheet('Sales');
 
@@ -51,15 +60,9 @@ const header = wb.createStyle()
 ws.cell('A1').styleIndex = header;
 ws.cell('B1').styleIndex = header;
 
-// Number format
-const currency = wb.createStyle()
-  .numberFormat('$#,##0.00')
-  .build(wb.styles);
-ws.cell('B2').styleIndex = currency;
-
 await wb.toFile('sales.xlsx');
 
-// --- Read ---
+// Read an existing file
 const existing = await readFile('report.xlsx');
 console.log(existing.getSheet('Sheet1')?.cell('A1').value);
 ```
@@ -581,7 +584,7 @@ const runs = new RichTextBuilder()
 Single `<script>` tag — no bundler required:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.9.1/dist/modern-xlsx.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@latest/dist/modern-xlsx.min.js"></script>
 <script>
   (async () => {
     await ModernXlsx.initWasm();
@@ -593,7 +596,7 @@ Single `<script>` tag — no bundler required:
 </script>
 ```
 
-Also available via unpkg: `https://unpkg.com/modern-xlsx@0.9.1/dist/modern-xlsx.min.js`
+Also available via unpkg: `https://unpkg.com/modern-xlsx@latest/dist/modern-xlsx.min.js`
 
 ### Web Worker (Off-Thread)
 

@@ -53,9 +53,10 @@ impl Ole2Header {
     fn parse(data: &[u8]) -> Result<Self> {
         if data.len() < 512 {
             cold_path();
-            return Err(ModernXlsxError::UnrecognizedFormat(
-                "File too small for OLE2 header".into(),
-            ));
+            return Err(ModernXlsxError::UnrecognizedFormat(format!(
+                "File too small for OLE2 header: got {} bytes, need at least 512",
+                data.len()
+            )));
         }
         let major_version = u16::from_le_bytes([data[26], data[27]]);
         let sector_size = if major_version == 4 { 4096 } else { 512 };
@@ -219,7 +220,9 @@ pub fn read_stream(data: &[u8], name: &str) -> Result<Vec<u8>> {
 
     let entry = entries.iter().find(|e| e.name == name).ok_or_else(|| {
         cold_path();
-        ModernXlsxError::MissingPart(format!("OLE2 stream '{name}' not found"))
+        ModernXlsxError::MissingPart(format!(
+            "OLE2 stream '{name}' not found in compound document — required for decryption"
+        ))
     })?;
 
     let chain = follow_chain(&fat, entry.start_sector);

@@ -17,19 +17,23 @@ impl CellRef {
     pub fn parse(s: &str) -> Result<Self> {
         if s.is_empty() {
             cold_path();
-            return Err(ModernXlsxError::InvalidCellRef("empty string".into()));
+            return Err(ModernXlsxError::InvalidCellRef(
+                "Failed to parse cell reference: input is an empty string".into(),
+            ));
         }
 
         // Find the boundary between letters and digits.
         let first_digit = s
             .bytes()
             .position(|b| b.is_ascii_digit())
-            .ok_or_else(|| ModernXlsxError::InvalidCellRef(format!("no row number in '{s}'")))?;
+            .ok_or_else(|| ModernXlsxError::InvalidCellRef(format!(
+                "Failed to parse cell reference '{s}': no row number found (expected format like 'A1')"
+            )))?;
 
         if first_digit == 0 {
             cold_path();
             return Err(ModernXlsxError::InvalidCellRef(format!(
-                "no column letters in '{s}'"
+                "Failed to parse cell reference '{s}': no column letters found (expected format like 'A1')"
             )));
         }
 
@@ -40,20 +44,22 @@ impl CellRef {
         if !col_part.bytes().all(|b| b.is_ascii_alphabetic()) {
             cold_path();
             return Err(ModernXlsxError::InvalidCellRef(format!(
-                "invalid column letters in '{s}'"
+                "Failed to parse cell reference '{s}': column part contains non-alphabetic characters"
             )));
         }
 
         let col = letters_to_col(col_part)?;
 
         let row_1based: u32 = row_part.parse::<u32>().map_err(|_| {
-            ModernXlsxError::InvalidCellRef(format!("invalid row number in '{s}'"))
+            ModernXlsxError::InvalidCellRef(format!(
+                "Failed to parse cell reference '{s}': row number is not a valid u32 integer"
+            ))
         })?;
 
         if row_1based == 0 {
             cold_path();
             return Err(ModernXlsxError::InvalidCellRef(format!(
-                "row number must be >= 1, got 0 in '{s}'"
+                "Failed to parse cell reference '{s}': row number must be >= 1, got 0 (XLSX rows are 1-based)"
             )));
         }
 
@@ -132,7 +138,7 @@ pub fn letters_to_col(s: &str) -> Result<u32> {
     if s.is_empty() {
         cold_path();
         return Err(ModernXlsxError::InvalidCellRef(
-            "empty column letters".into(),
+            "Failed to parse column letters: input is an empty string".into(),
         ));
     }
 
@@ -142,7 +148,7 @@ pub fn letters_to_col(s: &str) -> Result<u32> {
         if !c.is_ascii_uppercase() {
             cold_path();
             return Err(ModernXlsxError::InvalidCellRef(format!(
-                "invalid character '{}' in column letters",
+                "Failed to parse column letters '{s}': invalid character '{}' (expected A-Z only)",
                 c as char
             )));
         }
@@ -150,7 +156,9 @@ pub fn letters_to_col(s: &str) -> Result<u32> {
             .checked_mul(26)
             .and_then(|v| v.checked_add((c - b'A') as u32 + 1))
             .ok_or_else(|| {
-                ModernXlsxError::InvalidCellRef(format!("column overflow for '{s}'"))
+                ModernXlsxError::InvalidCellRef(format!(
+                    "Failed to parse column letters '{s}': column exceeds maximum XFD (16384 columns)"
+                ))
             })?;
     }
 
@@ -218,5 +226,39 @@ mod tests {
         assert!(CellRef::parse("ABC").is_err());
         // Row = 0
         assert!(CellRef::parse("A0").is_err());
+    }
+
+    #[test]
+    fn test_error_messages_contain_context() {
+        // Empty string error includes "empty"
+        let err = CellRef::parse("").unwrap_err();
+        assert!(
+            err.to_string().contains("empty string"),
+            "expected 'empty string' in: {err}"
+        );
+
+        // Non-alpha column includes the offending input
+        let err = CellRef::parse("1A").unwrap_err();
+        assert!(
+            err.to_string().contains("'1A'"),
+            "expected quoted input in: {err}"
+        );
+
+        // Column overflow includes "XFD" hint
+        let err = letters_to_col("ZZZZZZZZZZ").unwrap_err();
+        assert!(
+            err.to_string().contains("XFD") || err.to_string().contains("overflow"),
+            "expected XFD/overflow hint in: {err}"
+        );
+
+        // Row 0 includes "1-based" hint
+        let err = CellRef::parse("A0").unwrap_err();
+        assert!(
+            err.to_string().contains("1-based") || err.to_string().contains(">= 1"),
+            "expected 1-based hint in: {err}"
+        );
+
+        // Error code is INVALID_CELL_REF
+        assert_eq!(err.code(), "INVALID_CELL_REF");
     }
 }

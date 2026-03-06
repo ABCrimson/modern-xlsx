@@ -27,6 +27,9 @@ Thumbs.db
 # Claude Code
 .claude/
 
+# Test output
+packages/modern-xlsx/test-output/
+
 # Lock files (pnpm uses pnpm-lock.yaml)
 package-lock.json
 .worktrees/

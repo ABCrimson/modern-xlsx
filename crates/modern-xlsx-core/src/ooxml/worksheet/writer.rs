@@ -493,16 +493,47 @@ impl WorksheetXml {
                     let mut fc_elem = BytesStart::new("filterColumn");
                     fc_elem.push_attribute(("colId", ibuf.format(fc.col_id)));
                     writer.write_event(Event::Start(fc_elem)).map_err(map_err)?;
-                    writer.write_event(Event::Start(BytesStart::new("filters"))).map_err(map_err)?;
-                    for fv in &fc.filters {
-                        let mut f_elem = BytesStart::new("filter");
-                        f_elem.push_attribute(("val", fv.as_str()));
-                        writer.write_event(Event::Empty(f_elem)).map_err(map_err)?;
+
+                    if let Some(ref cf) = fc.custom_filters {
+                        // <customFilters>
+                        let mut cf_elem = BytesStart::new("customFilters");
+                        if cf.and_op {
+                            cf_elem.push_attribute(("and", "1"));
+                        }
+                        writer.write_event(Event::Start(cf_elem)).map_err(map_err)?;
+                        for item in &cf.filters {
+                            let mut item_elem = BytesStart::new("customFilter");
+                            if let Some(ref op) = item.operator {
+                                item_elem.push_attribute(("operator", op.as_str()));
+                            }
+                            item_elem.push_attribute(("val", item.val.as_str()));
+                            writer.write_event(Event::Empty(item_elem)).map_err(map_err)?;
+                        }
+                        writer
+                            .write_event(Event::End(BytesEnd::new("customFilters")))
+                            .map_err(map_err)?;
+                    } else {
+                        // <filters>
+                        writer
+                            .write_event(Event::Start(BytesStart::new("filters")))
+                            .map_err(map_err)?;
+                        for fv in &fc.filters {
+                            let mut f_elem = BytesStart::new("filter");
+                            f_elem.push_attribute(("val", fv.as_str()));
+                            writer.write_event(Event::Empty(f_elem)).map_err(map_err)?;
+                        }
+                        writer
+                            .write_event(Event::End(BytesEnd::new("filters")))
+                            .map_err(map_err)?;
                     }
-                    writer.write_event(Event::End(BytesEnd::new("filters"))).map_err(map_err)?;
-                    writer.write_event(Event::End(BytesEnd::new("filterColumn"))).map_err(map_err)?;
+
+                    writer
+                        .write_event(Event::End(BytesEnd::new("filterColumn")))
+                        .map_err(map_err)?;
                 }
-                writer.write_event(Event::End(BytesEnd::new("autoFilter"))).map_err(map_err)?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("autoFilter")))
+                    .map_err(map_err)?;
             }
         }
 
@@ -826,6 +857,54 @@ impl WorksheetXml {
             }
 
             writer.write_event(Event::End(BytesEnd::new("headerFooter"))).map_err(map_err)?;
+        }
+
+        // <rowBreaks> / <colBreaks> — only if page breaks are present.
+        if let Some(ref pb) = self.page_breaks {
+            if !pb.row_breaks.is_empty() {
+                let mut rb = BytesStart::new("rowBreaks");
+                rb.push_attribute(("count", ibuf.format(pb.row_breaks.len())));
+                let manual_count = pb.row_breaks.iter().filter(|b| b.man).count();
+                rb.push_attribute(("manualBreakCount", ibuf.format(manual_count)));
+                writer.write_event(Event::Start(rb)).map_err(map_err)?;
+                for brk in &pb.row_breaks {
+                    let mut elem = BytesStart::new("brk");
+                    elem.push_attribute(("id", ibuf.format(brk.id)));
+                    if let Some(min) = brk.min {
+                        elem.push_attribute(("min", ibuf.format(min)));
+                    }
+                    if let Some(max) = brk.max {
+                        elem.push_attribute(("max", ibuf.format(max)));
+                    }
+                    if brk.man {
+                        elem.push_attribute(("man", "1"));
+                    }
+                    writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+                }
+                writer.write_event(Event::End(BytesEnd::new("rowBreaks"))).map_err(map_err)?;
+            }
+            if !pb.col_breaks.is_empty() {
+                let mut cb = BytesStart::new("colBreaks");
+                cb.push_attribute(("count", ibuf.format(pb.col_breaks.len())));
+                let manual_count = pb.col_breaks.iter().filter(|b| b.man).count();
+                cb.push_attribute(("manualBreakCount", ibuf.format(manual_count)));
+                writer.write_event(Event::Start(cb)).map_err(map_err)?;
+                for brk in &pb.col_breaks {
+                    let mut elem = BytesStart::new("brk");
+                    elem.push_attribute(("id", ibuf.format(brk.id)));
+                    if let Some(min) = brk.min {
+                        elem.push_attribute(("min", ibuf.format(min)));
+                    }
+                    if let Some(max) = brk.max {
+                        elem.push_attribute(("max", ibuf.format(max)));
+                    }
+                    if brk.man {
+                        elem.push_attribute(("man", "1"));
+                    }
+                    writer.write_event(Event::Empty(elem)).map_err(map_err)?;
+                }
+                writer.write_event(Event::End(BytesEnd::new("colBreaks"))).map_err(map_err)?;
+            }
         }
 
         // <drawing r:id="..."/> — ECMA-376 schema requires <drawing> before <tableParts>.

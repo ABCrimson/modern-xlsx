@@ -314,6 +314,22 @@ function buildCellOverrideStyle(wb: Workbook, baseIdx: number, override: CellSty
  *
  * Creates header row, data rows, applies styles, borders, column widths,
  * merge cells, zebra striping, frozen panes, and auto-filter.
+ *
+ * @param wb - The parent Workbook (needed for shared styles).
+ * @param ws - The target Worksheet to draw the table on.
+ * @param opts - Table configuration: headers, rows, styling, and layout options.
+ * @returns A TableResult with range metadata and row/column counts.
+ *
+ * @example
+ * ```ts
+ * const result = drawTable(wb, ws, {
+ *   headers: ['Name', 'Score'],
+ *   rows: [['Alice', 95], ['Bob', 87]],
+ *   headerColor: '4472C4',
+ *   freezeHeader: true,
+ * });
+ * console.log(result.range); // 'A1:B3'
+ * ```
  */
 export function drawTable(wb: Workbook, ws: Worksheet, opts: DrawTableOptions): TableResult {
   const { headers, rows } = opts;
@@ -426,6 +442,20 @@ export interface DrawTableFromDataOptions extends Omit<DrawTableOptions, 'header
  * Create a styled table from a JSON array.
  *
  * Automatically extracts headers from object keys and maps values to rows.
+ *
+ * @param wb - The parent Workbook (needed for shared styles).
+ * @param ws - The target Worksheet to draw the table on.
+ * @param data - Array of JSON objects representing the table rows.
+ * @param opts - Optional overrides for headers, header labels, styling, and layout.
+ * @returns A TableResult with range metadata and row/column counts.
+ *
+ * @example
+ * ```ts
+ * const result = drawTableFromData(wb, ws, [
+ *   { name: 'Alice', score: 95 },
+ *   { name: 'Bob', score: 87 },
+ * ], { autoWidth: true });
+ * ```
  */
 export function drawTableFromData(
   wb: Workbook,

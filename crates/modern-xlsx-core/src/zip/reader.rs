@@ -35,7 +35,9 @@ impl Default for ZipSecurityLimits {
 /// - Skips directory entries.
 pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashMap<String, Vec<u8>>> {
     let cursor = Cursor::new(data);
-    let mut archive = ZipArchive::new(cursor).map_err(|e| ModernXlsxError::ZipRead(e.to_string()))?;
+    let mut archive = ZipArchive::new(cursor).map_err(|e| {
+        ModernXlsxError::ZipRead(format!("Failed to open ZIP archive: {e}"))
+    })?;
 
     let mut entries = HashMap::with_capacity(archive.len());
     let mut total_decompressed: u64 = 0;
@@ -43,7 +45,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
-            .map_err(|e| ModernXlsxError::ZipEntry(e.to_string()))?;
+            .map_err(|e| ModernXlsxError::ZipEntry(format!("Failed to read ZIP entry at index {i}: {e}")))?;
 
         // Skip directories
         if file.is_dir() {
@@ -82,7 +84,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
         // Read the decompressed data (pre-allocate using declared size).
         let mut buf = Vec::with_capacity(declared_size as usize);
         file.read_to_end(&mut buf)
-            .map_err(|e| ModernXlsxError::ZipRead(e.to_string()))?;
+            .map_err(|e| ModernXlsxError::ZipRead(format!("Failed to decompress ZIP entry '{name}': {e}")))?;
 
         let decompressed_size = buf.len() as u64;
 
@@ -192,6 +194,26 @@ mod tests {
         assert!(
             matches!(err, ModernXlsxError::Security(ref msg) if msg.contains("total decompressed size")),
             "expected Security error about total decompressed size, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_error_messages_have_context() {
+        // Bad ZIP archive should mention "Failed to open"
+        let err = read_zip_entries(b"not a zip", &ZipSecurityLimits::default()).unwrap_err();
+        assert!(
+            err.to_string().contains("Failed to open ZIP archive"),
+            "expected 'Failed to open ZIP archive' context, got: {err}"
+        );
+        assert_eq!(err.code(), "ZIP_READ");
+
+        // Path traversal should include the entry name
+        let zip_bytes = build_zip(&[("../evil.txt", b"bad")]);
+        let err = read_zip_entries(&zip_bytes, &ZipSecurityLimits::default()).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("../evil.txt"),
+            "expected entry name in error, got: {msg}"
         );
     }
 }

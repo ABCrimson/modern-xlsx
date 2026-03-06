@@ -130,7 +130,9 @@ impl StreamingReader {
             .get("xl/workbook.xml")
             .ok_or_else(|| {
                 cold_path();
-                ModernXlsxError::MissingPart("xl/workbook.xml".into())
+                ModernXlsxError::MissingPart(
+                    "ZIP entry 'xl/workbook.xml' not found in archive — the file may be corrupt or not a valid XLSX".into()
+                )
             })?;
         let workbook = WorkbookXml::parse(wb_data)?;
 
@@ -214,7 +216,10 @@ impl StreamingReader {
             .get(name)
             .ok_or_else(|| {
                 cold_path();
-                ModernXlsxError::MissingPart(format!("sheet: {name}"))
+                ModernXlsxError::MissingPart(format!(
+                    "Sheet '{name}' not found — available sheets: {:?}",
+                    self.sheet_data.keys().collect::<Vec<_>>()
+                ))
             })?;
         let ws = crate::ooxml::worksheet::WorksheetXml::parse_with_sst(
             data,
@@ -321,6 +326,7 @@ impl StreamingWriter {
                     tab_color: None,
                     tables: Vec::new(),
                     header_footer: None,
+                    page_breaks: None,
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
@@ -409,6 +415,7 @@ mod tests {
                     tab_color: None,
                     tables: Vec::new(),
                     header_footer: None,
+                    page_breaks: None,
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
@@ -473,6 +480,7 @@ mod tests {
                     tab_color: None,
                     tables: Vec::new(),
                     header_footer: None,
+                    page_breaks: None,
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),

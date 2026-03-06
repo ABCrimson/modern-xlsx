@@ -61,6 +61,14 @@ export class StreamingXlsxWriter {
    * Create a new streaming writer.
    *
    * WASM must be initialized before calling this (via `initWasm()`).
+   *
+   * @returns A new StreamingXlsxWriter instance.
+   *
+   * @example
+   * ```ts
+   * await initWasm();
+   * const writer = StreamingXlsxWriter.create();
+   * ```
    */
   static create(): StreamingXlsxWriter {
     ensureInitialized();
@@ -72,6 +80,8 @@ export class StreamingXlsxWriter {
    *
    * Must be called before {@link startSheet}. When omitted a minimal
    * default stylesheet (1 font, 2 fills, 1 border, 1 cell format) is used.
+   *
+   * @param xml - The complete `xl/styles.xml` content string.
    */
   setStylesXml(xml: string): void {
     this.#inner.setStylesXml(xml);
@@ -81,6 +91,8 @@ export class StreamingXlsxWriter {
    * Start a new worksheet with the given name.
    *
    * If another sheet is already open it is closed automatically.
+   *
+   * @param name - The sheet tab name.
    */
   startSheet(name: string): void {
     this.#inner.startSheet(name);
@@ -91,6 +103,8 @@ export class StreamingXlsxWriter {
    *
    * Cells are placed left-to-right starting at column A. Cells with
    * `value: undefined | null` are skipped (sparse row support).
+   *
+   * @param cells - Array of cell inputs for the row.
    */
   writeRow(cells: StreamingCellInput[]): void {
     this.#inner.writeRow(JSON.stringify(cells));
@@ -102,7 +116,9 @@ export class StreamingXlsxWriter {
    * This closes any open sheet, writes the shared string table and
    * metadata parts, and finalizes the ZIP archive.
    *
-   * The writer is consumed — calling any method after `finish()` throws.
+   * The writer is consumed -- calling any method after `finish()` throws.
+   *
+   * @returns The complete XLSX file as a Uint8Array.
    */
   finish(): Uint8Array {
     return this.#inner.finish();

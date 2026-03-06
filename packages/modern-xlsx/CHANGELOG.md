@@ -4,6 +4,38 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-rc.1] - 2026-03-06
+
+Release candidate 1 — API frozen, production-ready feature set.
+
+### Added
+- **PivotTableBuilder:** Fluent builder API for pivot tables (follows ChartBuilder pattern)
+- **Auto-Filter Enhancements:** Custom filters (`CustomFilterData`, `CustomFiltersData`) with full roundtrip
+- **Page Breaks:** `PageBreaksData` type with row/column break parsing and writing
+- **Rich Text Cells:** `Cell.richText` getter/setter, `RichTextBuilder` fluent API, full roundtrip preservation
+- **Error System:** `ModernXlsxError` class with `fromWasmError()` parser, 18 machine-readable error codes
+- **Image Embedding:** PNG/JPEG image support in worksheets
+- New test files: `rich-text.test.ts`, expanded `api-setters.test.ts`, `tables-print-layout.test.ts`
+
+### Changed
+- **API Audit:** Naming consistency, parameter types, return types across all public APIs
+- **WASM Binary:** Rebuilt with auto-filter, page break, rich text, and error improvements
+- **README:** 5-line quick start, improved onboarding, CDN references updated
+- **JSDoc Coverage:** Expanded documentation across exported functions and types
+- Error messages now context-rich and actionable across Rust core (ZIP, XML, OLE2, cell, style errors)
+- ChartBuilder, StyleBuilder expanded with additional JSDoc
+- Workbook API expanded with `addPivotTableFromBuilder()` convenience method
+
+### Fixed
+- Biome lint: all non-null assertions in test files replaced with optional chaining
+- Import ordering: all imports moved to file top per Biome rules
+- `exactOptionalPropertyTypes` compliance in PivotTableBuilder
+
+### Stats
+- Rust: 424 tests (402 unit + 12 golden + 5 security + 4 bench + 1 doctest), clippy clean
+- TypeScript: 1287 tests across 58 files, typecheck clean
+- WASM binary: ~2.0 MB
+
 ## [0.9.2] - 2026-03-06
 
 Streaming writer, write APIs for pivot tables/slicers/timelines, parser refactoring, security audit, examples, and production polish.

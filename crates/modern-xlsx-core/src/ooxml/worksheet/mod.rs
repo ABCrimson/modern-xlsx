@@ -1,4 +1,5 @@
 use super::charts::WorksheetChart;
+use super::shared_strings::RichTextRun;
 use serde::{Deserialize, Serialize};
 
 mod json;
@@ -66,6 +67,29 @@ pub struct OutlineProperties {
     pub summary_right: bool,
 }
 
+/// Page break data for row or column breaks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageBreak {
+    pub id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
+    pub man: bool,
+}
+
+/// Row and column page breaks.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageBreaks {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub row_breaks: Vec<PageBreak>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub col_breaks: Vec<PageBreak>,
+}
+
 /// Parsed representation of a worksheet XML file (`xl/worksheets/sheet*.xml`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,6 +129,8 @@ pub struct WorksheetXml {
     pub tables: Vec<super::tables::TableDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub header_footer: Option<HeaderFooter>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_breaks: Option<PageBreaks>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline_properties: Option<OutlineProperties>,
     /// Sparkline groups (from x14 extension in extLst).
@@ -192,6 +218,11 @@ pub struct Cell {
     /// Data table column input deleted (`dtr2` attribute on `<f>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formula_dtr2: Option<bool>,
+    /// Rich text runs for this cell (when the cell contains mixed-format text).
+    /// Populated from the shared string table during reading, or set directly
+    /// by the API when constructing rich text cells for writing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rich_text: Option<Vec<RichTextRun>>,
 }
 
 /// The type of a cell, determined by the `t` attribute on the `<c>` element.
@@ -594,7 +625,31 @@ pub struct AutoFilter {
 #[serde(rename_all = "camelCase")]
 pub struct FilterColumn {
     pub col_id: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_filters: Option<CustomFilters>,
+}
+
+/// Custom filters within a filter column (e.g., greater-than, contains).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomFilters {
+    /// When `true`, all conditions must match (AND); when `false`, any match suffices (OR).
+    #[serde(default, skip_serializing_if = "crate::ooxml::is_false")]
+    pub and_op: bool,
+    pub filters: Vec<CustomFilter>,
+}
+
+/// A single custom filter condition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomFilter {
+    /// Operator: "lessThan", "lessThanOrEqual", "equal", "notEqual",
+    /// "greaterThanOrEqual", "greaterThan".  Absent means "equal".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator: Option<String>,
+    pub val: String,
 }
 
 /// A conditional value object used in color scales, data bars, and icon sets.
@@ -662,11 +717,14 @@ pub(super) enum ParseState {
     InAutoFilter,
     InFilterColumn,
     InFilters,
+    InCustomFilters,
     InColorScale,
     InDataBar,
     InIconSet,
     HeaderFooter,
     HeaderFooterChild(u8), // 0=oddHeader, 1=oddFooter, 2=evenHeader, 3=evenFooter, 4=firstHeader, 5=firstFooter
+    InRowBreaks,
+    InColBreaks,
     ExtLst,
     ExtSparklines,
     SparklineGroups,
@@ -992,6 +1050,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -1086,6 +1145,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -1181,6 +1241,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -1231,6 +1292,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -1353,6 +1415,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -1505,6 +1568,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -1610,6 +1674,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -1680,6 +1745,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -1760,6 +1826,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -1866,6 +1933,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -1959,6 +2027,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -2019,10 +2088,12 @@ mod tests {
                     FilterColumn {
                         col_id: 0,
                         filters: vec!["Apple".to_string(), "Banana".to_string()],
+                        custom_filters: None,
                     },
                     FilterColumn {
                         col_id: 2,
                         filters: vec!["Red".to_string()],
+                        custom_filters: None,
                     },
                 ],
             }),
@@ -2040,6 +2111,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -2059,6 +2131,161 @@ mod tests {
         assert_eq!(af.filter_columns[0].filters, vec!["Apple", "Banana"]);
         assert_eq!(af.filter_columns[1].col_id, 2);
         assert_eq!(af.filter_columns[1].filters, vec!["Red"]);
+    }
+
+    #[test]
+    fn test_parse_auto_filter_custom_filters() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData/>
+  <autoFilter ref="A1:D10">
+    <filterColumn colId="1">
+      <customFilters and="1">
+        <customFilter operator="greaterThanOrEqual" val="10"/>
+        <customFilter operator="lessThan" val="100"/>
+      </customFilters>
+    </filterColumn>
+  </autoFilter>
+</worksheet>"#;
+
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        let af = ws.auto_filter.as_ref().unwrap();
+        assert_eq!(af.range, "A1:D10");
+        assert_eq!(af.filter_columns.len(), 1);
+        let fc = &af.filter_columns[0];
+        assert_eq!(fc.col_id, 1);
+        assert!(fc.filters.is_empty());
+        let cf = fc.custom_filters.as_ref().unwrap();
+        assert!(cf.and_op);
+        assert_eq!(cf.filters.len(), 2);
+        assert_eq!(cf.filters[0].operator.as_deref(), Some("greaterThanOrEqual"));
+        assert_eq!(cf.filters[0].val, "10");
+        assert_eq!(cf.filters[1].operator.as_deref(), Some("lessThan"));
+        assert_eq!(cf.filters[1].val, "100");
+    }
+
+    #[test]
+    fn test_auto_filter_custom_filters_roundtrip() {
+        let ws = WorksheetXml {
+            dimension: None,
+            rows: vec![],
+            merge_cells: vec![],
+            auto_filter: Some(AutoFilter {
+                range: "B2:E20".to_string(),
+                filter_columns: vec![
+                    FilterColumn {
+                        col_id: 0,
+                        filters: vec!["Yes".to_string()],
+                        custom_filters: None,
+                    },
+                    FilterColumn {
+                        col_id: 3,
+                        filters: vec![],
+                        custom_filters: Some(CustomFilters {
+                            and_op: false,
+                            filters: vec![
+                                CustomFilter { operator: Some("greaterThan".to_string()), val: "50".to_string() },
+                            ],
+                        }),
+                    },
+                    FilterColumn {
+                        col_id: 1,
+                        filters: vec![],
+                        custom_filters: Some(CustomFilters {
+                            and_op: true,
+                            filters: vec![
+                                CustomFilter { operator: Some("greaterThanOrEqual".to_string()), val: "5".to_string() },
+                                CustomFilter { operator: Some("lessThanOrEqual".to_string()), val: "99".to_string() },
+                            ],
+                        }),
+                    },
+                ],
+            }),
+            frozen_pane: None,
+            split_pane: None,
+            pane_selections: vec![],
+            sheet_view: None,
+            columns: vec![],
+            data_validations: vec![],
+            conditional_formatting: vec![],
+            hyperlinks: vec![],
+            page_setup: None,
+            sheet_protection: None,
+            comments: Vec::new(),
+            tab_color: None,
+            tables: vec![],
+            header_footer: None,
+            page_breaks: None,
+            outline_properties: None,
+            sparkline_groups: vec![],
+            charts: vec![],
+            pivot_tables: vec![],
+            threaded_comments: vec![],
+            slicers: Vec::new(),
+            timelines: Vec::new(),
+            preserved_extensions: vec![],
+        };
+
+        let xml = ws.to_xml().unwrap();
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        let af = ws2.auto_filter.as_ref().unwrap();
+        assert_eq!(af.range, "B2:E20");
+        assert_eq!(af.filter_columns.len(), 3);
+
+        // First: regular filters.
+        assert_eq!(af.filter_columns[0].col_id, 0);
+        assert_eq!(af.filter_columns[0].filters, vec!["Yes"]);
+        assert!(af.filter_columns[0].custom_filters.is_none());
+
+        // Second: single custom filter (OR).
+        let cf1 = af.filter_columns[1].custom_filters.as_ref().unwrap();
+        assert!(!cf1.and_op);
+        assert_eq!(cf1.filters.len(), 1);
+        assert_eq!(cf1.filters[0].operator.as_deref(), Some("greaterThan"));
+        assert_eq!(cf1.filters[0].val, "50");
+
+        // Third: two custom filters (AND).
+        let cf2 = af.filter_columns[2].custom_filters.as_ref().unwrap();
+        assert!(cf2.and_op);
+        assert_eq!(cf2.filters.len(), 2);
+        assert_eq!(cf2.filters[0].operator.as_deref(), Some("greaterThanOrEqual"));
+        assert_eq!(cf2.filters[0].val, "5");
+        assert_eq!(cf2.filters[1].operator.as_deref(), Some("lessThanOrEqual"));
+        assert_eq!(cf2.filters[1].val, "99");
+    }
+
+    #[test]
+    fn test_auto_filter_custom_filter_no_operator() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData/>
+  <autoFilter ref="A1:B5">
+    <filterColumn colId="0">
+      <customFilters>
+        <customFilter val="*test*"/>
+      </customFilters>
+    </filterColumn>
+  </autoFilter>
+</worksheet>"#;
+
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        let af = ws.auto_filter.as_ref().unwrap();
+        let fc = &af.filter_columns[0];
+        let cf = fc.custom_filters.as_ref().unwrap();
+        assert!(!cf.and_op);
+        assert_eq!(cf.filters.len(), 1);
+        assert!(cf.filters[0].operator.is_none());
+        assert_eq!(cf.filters[0].val, "*test*");
+
+        // Roundtrip.
+        let xml_out = ws.to_xml().unwrap();
+        let ws2 = WorksheetXml::parse(&xml_out).unwrap();
+        let cf2 = ws2.auto_filter.as_ref().unwrap().filter_columns[0]
+            .custom_filters
+            .as_ref()
+            .unwrap();
+        assert!(cf2.filters[0].operator.is_none());
+        assert_eq!(cf2.filters[0].val, "*test*");
     }
 
     #[test]
@@ -2128,6 +2355,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -2237,6 +2465,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -2298,6 +2527,7 @@ mod tests {
                 odd_footer: Some("&L&D&R&F".into()),
                 ..Default::default()
             }),
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -2340,6 +2570,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -2402,6 +2633,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -2438,6 +2670,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: Some(OutlineProperties {
                 summary_below: false,
                 summary_right: true,
@@ -2487,6 +2720,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -2536,6 +2770,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -2579,6 +2814,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -2710,6 +2946,7 @@ mod tests {
             tab_color: None,
             tables: vec![],
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
@@ -3131,5 +3368,105 @@ mod tests {
         assert!(cell.formula_r1.is_none());
         assert!(cell.formula_r2.is_none());
         assert!(cell.formula_dt2d.is_none());
+    }
+
+    // ---- Page breaks tests ----
+
+    #[test]
+    fn test_parse_row_breaks() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData/>
+  <rowBreaks count="2" manualBreakCount="2">
+    <brk id="10" max="16383" man="1"/>
+    <brk id="20" max="16383" man="1"/>
+  </rowBreaks>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        let pb = ws.page_breaks.as_ref().unwrap();
+        assert_eq!(pb.row_breaks.len(), 2);
+        assert_eq!(pb.row_breaks[0].id, 10);
+        assert_eq!(pb.row_breaks[0].max, Some(16383));
+        assert!(pb.row_breaks[0].man);
+        assert_eq!(pb.row_breaks[1].id, 20);
+        assert!(pb.col_breaks.is_empty());
+    }
+
+    #[test]
+    fn test_parse_col_breaks() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData/>
+  <colBreaks count="1" manualBreakCount="1">
+    <brk id="5" max="1048575" man="1"/>
+  </colBreaks>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        let pb = ws.page_breaks.as_ref().unwrap();
+        assert!(pb.row_breaks.is_empty());
+        assert_eq!(pb.col_breaks.len(), 1);
+        assert_eq!(pb.col_breaks[0].id, 5);
+        assert_eq!(pb.col_breaks[0].max, Some(1048575));
+        assert!(pb.col_breaks[0].man);
+    }
+
+    #[test]
+    fn test_parse_both_row_and_col_breaks() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData/>
+  <rowBreaks count="1" manualBreakCount="1">
+    <brk id="10" max="16383" man="1"/>
+  </rowBreaks>
+  <colBreaks count="1" manualBreakCount="1">
+    <brk id="3" max="1048575" man="1"/>
+  </colBreaks>
+</worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        let pb = ws.page_breaks.as_ref().unwrap();
+        assert_eq!(pb.row_breaks.len(), 1);
+        assert_eq!(pb.col_breaks.len(), 1);
+        assert_eq!(pb.row_breaks[0].id, 10);
+        assert_eq!(pb.col_breaks[0].id, 3);
+    }
+
+    #[test]
+    fn test_roundtrip_page_breaks() {
+        let mut ws = default_test_ws();
+        ws.page_breaks = Some(PageBreaks {
+            row_breaks: vec![
+                PageBreak { id: 10, min: None, max: Some(16383), man: true },
+                PageBreak { id: 25, min: Some(0), max: Some(16383), man: true },
+            ],
+            col_breaks: vec![
+                PageBreak { id: 5, min: None, max: Some(1048575), man: true },
+            ],
+        });
+
+        let xml = ws.to_xml().unwrap();
+        let xml_str = std::str::from_utf8(&xml).unwrap();
+        assert!(xml_str.contains("<rowBreaks"));
+        assert!(xml_str.contains("<colBreaks"));
+        assert!(xml_str.contains("manualBreakCount=\"2\""));
+
+        let ws2 = WorksheetXml::parse(&xml).unwrap();
+        let pb = ws2.page_breaks.as_ref().unwrap();
+        assert_eq!(pb.row_breaks.len(), 2);
+        assert_eq!(pb.row_breaks[0].id, 10);
+        assert_eq!(pb.row_breaks[0].max, Some(16383));
+        assert!(pb.row_breaks[0].man);
+        assert_eq!(pb.row_breaks[1].id, 25);
+        assert_eq!(pb.row_breaks[1].min, Some(0));
+        assert_eq!(pb.col_breaks.len(), 1);
+        assert_eq!(pb.col_breaks[0].id, 5);
+    }
+
+    #[test]
+    fn test_no_page_breaks_by_default() {
+        let ws = default_test_ws();
+        let xml = ws.to_xml().unwrap();
+        let xml_str = std::str::from_utf8(&xml).unwrap();
+        assert!(!xml_str.contains("rowBreaks"));
+        assert!(!xml_str.contains("colBreaks"));
     }
 }

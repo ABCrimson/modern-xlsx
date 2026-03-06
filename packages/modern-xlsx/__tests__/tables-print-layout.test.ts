@@ -405,6 +405,112 @@ describe('Roundtrip: Header/Footer', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Page Breaks
+// ---------------------------------------------------------------------------
+
+describe('Page Breaks', () => {
+  it('sets and gets page breaks', () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+
+    ws.pageBreaks = {
+      rowBreaks: [{ id: 10, max: 16383, man: true }],
+      colBreaks: [{ id: 5, max: 1048575, man: true }],
+    };
+
+    expect(ws.pageBreaks).toEqual({
+      rowBreaks: [{ id: 10, max: 16383, man: true }],
+      colBreaks: [{ id: 5, max: 1048575, man: true }],
+    });
+  });
+
+  it('adds row breaks via helper', () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+
+    ws.addRowBreak(10);
+    ws.addRowBreak(25);
+
+    expect(ws.pageBreaks?.rowBreaks).toHaveLength(2);
+    expect(ws.pageBreaks?.rowBreaks?.[0]?.id).toBe(10);
+    expect(ws.pageBreaks?.rowBreaks?.[0]?.man).toBe(true);
+    expect(ws.pageBreaks?.rowBreaks?.[1]?.id).toBe(25);
+  });
+
+  it('adds col breaks via helper', () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+
+    ws.addColBreak(3);
+
+    expect(ws.pageBreaks?.colBreaks).toHaveLength(1);
+    expect(ws.pageBreaks?.colBreaks?.[0]?.id).toBe(3);
+    expect(ws.pageBreaks?.colBreaks?.[0]?.max).toBe(1048575);
+  });
+
+  it('clears page breaks with null', () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+
+    ws.addRowBreak(10);
+    ws.pageBreaks = null;
+
+    expect(ws.pageBreaks).toBeNull();
+  });
+
+  it('returns null when no page breaks set', () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    expect(ws.pageBreaks).toBeNull();
+  });
+});
+
+describe('Worksheet Print Area (convenience)', () => {
+  it('sets and gets print area on worksheet', () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+
+    ws.setPrintArea('Sheet1!$A$1:$D$50');
+    expect(ws.getPrintArea()).toBe('Sheet1!$A$1:$D$50');
+    // Also accessible via workbook-level API
+    expect(wb.getPrintArea(0)).toBe('Sheet1!$A$1:$D$50');
+  });
+
+  it('clears print area on worksheet', () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+
+    ws.setPrintArea('Sheet1!$A$1:$D$50');
+    ws.setPrintArea(null);
+    expect(ws.getPrintArea()).toBeNull();
+  });
+});
+
+describe('Roundtrip: Page Breaks', () => {
+  it('roundtrips row and column page breaks through WASM', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    ws.cell('A1').value = 'data';
+
+    ws.addRowBreak(10);
+    ws.addRowBreak(20);
+    ws.addColBreak(5);
+
+    const buf = await wb.toBuffer();
+    const wb2 = await readBuffer(buf);
+    const ws2 = wb2.getSheet('Sheet1');
+
+    expect(ws2?.pageBreaks).not.toBeNull();
+    expect(ws2?.pageBreaks?.rowBreaks).toHaveLength(2);
+    expect(ws2?.pageBreaks?.rowBreaks?.[0]?.id).toBe(10);
+    expect(ws2?.pageBreaks?.rowBreaks?.[0]?.man).toBe(true);
+    expect(ws2?.pageBreaks?.rowBreaks?.[1]?.id).toBe(20);
+    expect(ws2?.pageBreaks?.colBreaks).toHaveLength(1);
+    expect(ws2?.pageBreaks?.colBreaks?.[0]?.id).toBe(5);
+  });
+});
+
 describe('Roundtrip: Outline Properties', () => {
   it('roundtrips outline properties through WASM', async () => {
     const wb = new Workbook();

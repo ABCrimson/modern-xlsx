@@ -11,6 +11,13 @@ import init, {
 import { ModernXlsxError, WASM_INIT_FAILED } from './errors.js';
 import type { RepairResult, ValidationReport, WorkbookData } from './types.js';
 
+/**
+ * Re-throw a WASM error as a `ModernXlsxError` with a parsed error code.
+ */
+function rethrowWasm(err: unknown): never {
+  throw ModernXlsxError.fromWasmError(err);
+}
+
 let initPromise: Promise<void> | null = null;
 let initialized = false;
 
@@ -93,7 +100,12 @@ export function ensureInitialized(): void {
  * which is 8-13x faster than serde_wasm_bindgen for large workbooks.
  */
 export function wasmRead(data: Uint8Array): WorkbookData {
-  const json = _wasmReadJson(data);
+  let json: string;
+  try {
+    json = _wasmReadJson(data);
+  } catch (err) {
+    rethrowWasm(err);
+  }
   const parsed: unknown = JSON.parse(json);
   if (!isWorkbookData(parsed)) {
     throw new Error('WASM returned invalid WorkbookData structure');
@@ -125,7 +137,11 @@ function isRepairResult(v: unknown): v is RepairResult {
  * Serializes to JSON string for transfer across the WASM boundary.
  */
 export function wasmWrite(data: WorkbookData): Uint8Array {
-  return _wasmWriteJson(JSON.stringify(data));
+  try {
+    return _wasmWriteJson(JSON.stringify(data));
+  } catch (err) {
+    rethrowWasm(err);
+  }
 }
 
 /**
@@ -133,7 +149,11 @@ export function wasmWrite(data: WorkbookData): Uint8Array {
  * Serializes to JSON string for transfer across the WASM boundary.
  */
 export function wasmWriteBlob(data: WorkbookData): Blob {
-  return _wasmWriteBlobJson(JSON.stringify(data));
+  try {
+    return _wasmWriteBlobJson(JSON.stringify(data));
+  } catch (err) {
+    rethrowWasm(err);
+  }
 }
 
 /**
@@ -141,7 +161,12 @@ export function wasmWriteBlob(data: WorkbookData): Blob {
  * Uses WASM-accelerated validation for structural compliance checking.
  */
 export function wasmValidate(data: WorkbookData): ValidationReport {
-  const json = _wasmValidateJson(JSON.stringify(data));
+  let json: string;
+  try {
+    json = _wasmValidateJson(JSON.stringify(data));
+  } catch (err) {
+    rethrowWasm(err);
+  }
   const parsed: unknown = JSON.parse(json);
   if (!isValidationReport(parsed)) {
     throw new Error('WASM returned invalid ValidationReport structure');
@@ -154,7 +179,12 @@ export function wasmValidate(data: WorkbookData): ValidationReport {
  * a post-repair validation report, and the number of repairs applied.
  */
 export function wasmRepair(data: WorkbookData): RepairResult {
-  const json = _wasmRepairJson(JSON.stringify(data));
+  let json: string;
+  try {
+    json = _wasmRepairJson(JSON.stringify(data));
+  } catch (err) {
+    rethrowWasm(err);
+  }
   const parsed: unknown = JSON.parse(json);
   if (!isRepairResult(parsed)) {
     throw new Error('WASM returned invalid RepairResult structure');

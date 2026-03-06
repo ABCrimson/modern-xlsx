@@ -1146,6 +1146,7 @@ mod tests {
             tab_color: None,
             tables: Vec::new(),
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),

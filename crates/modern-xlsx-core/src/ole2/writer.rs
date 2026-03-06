@@ -158,7 +158,7 @@ pub fn write_ole2(streams: &[(&str, &[u8])]) -> Result<Vec<u8>> {
     if fat_sectors > MAX_HEADER_DIFAT {
         cold_path();
         return Err(ModernXlsxError::ZipWrite(format!(
-            "OLE2 document too large: requires {fat_sectors} FAT sectors (max {MAX_HEADER_DIFAT})"
+            "OLE2 document too large: requires {fat_sectors} FAT sectors (max {MAX_HEADER_DIFAT}) — the encrypted payload exceeds ~3.5 GB"
         )));
     }
 

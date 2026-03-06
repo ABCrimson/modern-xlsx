@@ -14,8 +14,10 @@ export interface WriteOptions {
   password?: string;
 }
 
+/** The date epoch system used by the workbook. `'date1900'` is the default for Windows Excel. */
 export type DateSystem = 'date1900' | 'date1904';
 
+/** The data type stored in a cell. */
 export type CellType =
   | 'sharedString'
   | 'number'
@@ -25,6 +27,7 @@ export type CellType =
   | 'inlineStr'
   | 'stub';
 
+/** Fill pattern type for cell backgrounds. */
 export type PatternType =
   | 'none'
   | 'solid'
@@ -45,6 +48,7 @@ export type PatternType =
   | 'lightGrid'
   | 'lightTrellis';
 
+/** Border line style for cell borders. */
 export type BorderStyle =
   | 'thin'
   | 'medium'
@@ -64,30 +68,55 @@ export type BorderStyle =
 // Cell & Row
 // ---------------------------------------------------------------------------
 
+/** Raw cell data as stored in the workbook data model. */
 export interface CellData {
+  /** A1-style cell reference (e.g., `'B3'`). */
   reference: string;
+  /** The data type of the cell value. */
   cellType: CellType;
+  /** Zero-based index into `StylesData.cellXfs`, or `null` for default. */
   styleIndex: number | null;
+  /** The cell value as a string (numbers are stored as string representations). */
   value: string | null;
+  /** The formula string (without leading `=`), or `null`. */
   formula: string | null;
+  /** Formula type: `'shared'`, `'array'`, or `null`. */
   formulaType?: string | null;
+  /** The range reference for shared/array formulas. */
   formulaRef?: string | null;
+  /** Shared formula group index. */
   sharedIndex?: number | null;
+  /** Inline string content (used for `inlineStr` cell type). */
   inlineString?: string | null;
+  /** Whether this is a dynamic array formula. */
   dynamicArray?: boolean | null;
+  /** R1-style formula reference (for cross-sheet formulas). */
   formulaR1?: string | null;
+  /** R2-style formula reference (for cross-sheet formulas). */
   formulaR2?: string | null;
+  /** Two-dimensional data table flag. */
   formulaDt2d?: boolean | null;
+  /** Data table row 1 flag. */
   formulaDtr1?: boolean | null;
+  /** Data table row 2 flag. */
   formulaDtr2?: boolean | null;
+  /** Rich text runs for mixed-format text within a cell. */
+  richText?: RichTextRun[];
 }
 
+/** Raw row data containing cells and row-level properties. */
 export interface RowData {
+  /** 1-based row index in the worksheet. */
   index: number;
+  /** The cells in this row. */
   readonly cells: CellData[];
+  /** Row height in points, or `null` for default height. */
   height: number | null;
+  /** Whether this row is hidden. */
   hidden: boolean;
+  /** Outline (grouping) level (1-7), or `null` if ungrouped. */
   outlineLevel?: number | null;
+  /** Whether this grouped row is collapsed. */
   collapsed?: boolean;
 }
 
@@ -95,8 +124,11 @@ export interface RowData {
 // Worksheet structures
 // ---------------------------------------------------------------------------
 
+/** Frozen pane configuration for locking rows/columns. */
 export interface FrozenPane {
+  /** Number of rows to freeze from the top. */
   rows: number;
+  /** Number of columns to freeze from the left. */
   cols: number;
 }
 
@@ -120,8 +152,10 @@ export interface PaneSelectionData {
   sqref?: string | null;
 }
 
+/** The view mode for a worksheet tab. */
 export type ViewMode = 'normal' | 'pageBreakPreview' | 'pageLayout';
 
+/** The visibility state of a worksheet tab. */
 export type SheetState = 'visible' | 'hidden' | 'veryHidden';
 
 export interface SheetViewData {
@@ -157,30 +191,57 @@ export interface SheetViewData {
   view?: ViewMode | null;
 }
 
+/** Column definition for width, visibility, and grouping. */
 export interface ColumnInfo {
+  /** 1-based first column index of this span. */
   min: number;
+  /** 1-based last column index of this span. */
   max: number;
+  /** Column width in Excel character units. */
   width: number;
+  /** Whether this column is hidden. */
   hidden: boolean;
+  /** Whether the width was explicitly set (vs. default). */
   customWidth: boolean;
+  /** Outline (grouping) level (1-7), or `null` if ungrouped. */
   outlineLevel?: number | null;
+  /** Whether this grouped column is collapsed. */
   collapsed?: boolean;
 }
 
+/** Auto-filter dropdown configuration for a worksheet range. */
 export interface AutoFilterData {
+  /** The A1-style range covered by the auto-filter (e.g., `'A1:D10'`). */
   range: string;
+  /** Per-column filter criteria. */
   filterColumns?: readonly FilterColumnData[];
 }
 
 export interface FilterColumnData {
   colId: number;
-  readonly filters: string[];
+  filters?: readonly string[];
+  customFilters?: CustomFiltersData | null;
 }
 
+export interface CustomFiltersData {
+  andOp?: boolean;
+  filters: readonly CustomFilterData[];
+}
+
+export interface CustomFilterData {
+  operator?: string | null;
+  val: string;
+}
+
+/** Hyperlink attached to a cell. */
 export interface HyperlinkData {
+  /** The cell reference this hyperlink is attached to (e.g., `'A1'`). */
   cellRef: string;
+  /** The URL or internal reference target (e.g., `'https://example.com'` or `'Sheet2!A1'`). */
   location?: string | null;
+  /** Display text shown in the cell. */
   display?: string | null;
+  /** Tooltip text shown on hover. */
   tooltip?: string | null;
 }
 
@@ -203,6 +264,18 @@ export interface PageSetupData {
   horizontalDpi?: number | null;
   verticalDpi?: number | null;
   margins?: PageMarginsData | null;
+}
+
+export interface PageBreakData {
+  id: number;
+  min?: number | null;
+  max?: number | null;
+  man?: boolean;
+}
+
+export interface PageBreaksData {
+  rowBreaks?: PageBreakData[];
+  colBreaks?: PageBreakData[];
 }
 
 export interface SheetProtectionData {
@@ -789,6 +862,7 @@ export interface WorksheetData {
   tabColor?: string | null;
   tables?: TableDefinitionData[];
   headerFooter?: HeaderFooterData | null;
+  pageBreaks?: PageBreaksData | null;
   outlineProperties?: OutlinePropertiesData | null;
   sparklineGroups?: SparklineGroupData[];
   charts?: WorksheetChartData[];
@@ -802,12 +876,17 @@ export interface WorksheetData {
 // Styles
 // ---------------------------------------------------------------------------
 
+/** A custom number format definition. */
 export interface NumFmt {
+  /** The numeric format ID (built-in: 0-163, custom: 164+). */
   id: number;
+  /** The Excel format code string (e.g., `'#,##0.00'`, `'yyyy-mm-dd'`). */
   formatCode: string;
 }
 
+/** Cell text alignment properties. */
 export interface AlignmentData {
+  /** Horizontal alignment. */
   horizontal?:
     | 'general'
     | 'left'
@@ -818,31 +897,53 @@ export interface AlignmentData {
     | 'centerContinuous'
     | 'distributed'
     | null;
+  /** Vertical alignment. */
   vertical?: 'top' | 'center' | 'bottom' | 'justify' | 'distributed' | null;
+  /** Whether text wraps within the cell. */
   wrapText?: boolean;
+  /** Text rotation in degrees (0-180, or 255 for vertical text). */
   textRotation?: number | null;
+  /** Text indent level. */
   indent?: number | null;
+  /** Whether text shrinks to fit the cell width. */
   shrinkToFit?: boolean;
 }
 
+/** Cell protection properties (effective only when sheet protection is enabled). */
 export interface ProtectionData {
+  /** Whether the cell is locked (prevents editing when sheet is protected). */
   locked: boolean;
+  /** Whether the cell formula is hidden from the user. */
   hidden: boolean;
 }
 
+/** Font properties for cell text rendering. */
 export interface FontData {
+  /** Font family name (e.g., `'Aptos'`, `'Arial'`). */
   name: string | null;
+  /** Font size in points. */
   size: number | null;
+  /** Whether the text is bold. */
   bold: boolean;
+  /** Whether the text is italic. */
   italic: boolean;
+  /** Whether the text is underlined. */
   underline: boolean;
+  /** Whether the text has strikethrough. */
   strike: boolean;
+  /** Font color as hex RGB (e.g., `'FF0000'` for red). */
   color: string | null;
+  /** Vertical alignment: baseline, superscript, or subscript. */
   vertAlign?: 'baseline' | 'superscript' | 'subscript' | null;
+  /** Font family number (1=Roman, 2=Swiss, 3=Modern, etc.). */
   family?: number | null;
+  /** Character set identifier. */
   charset?: number | null;
+  /** Font scheme (e.g., `'major'`, `'minor'`). */
   scheme?: string | null;
+  /** Condense font spacing. */
   condense?: boolean;
+  /** Extend font spacing. */
   extend?: boolean;
 }
 
@@ -857,40 +958,69 @@ export interface GradientFillData {
   stops?: readonly GradientStopData[];
 }
 
+/** Cell background fill properties. */
 export interface FillData {
+  /** Fill pattern type (e.g., `'none'`, `'solid'`, `'gray125'`). */
   patternType: string;
+  /** Foreground color as hex RGB. */
   fgColor: string | null;
+  /** Background color as hex RGB (used with pattern fills). */
   bgColor: string | null;
+  /** Gradient fill configuration (alternative to pattern fill). */
   gradientFill?: GradientFillData | null;
 }
 
+/** A single border edge (left, right, top, or bottom). */
 export interface BorderSideData {
+  /** The border line style (e.g., `'thin'`, `'medium'`, `'double'`). */
   style: BorderStyle;
+  /** Border color as hex RGB, or `null` for automatic. */
   color: string | null;
 }
 
+/** Cell border configuration for all four sides plus optional diagonal. */
 export interface BorderData {
+  /** Left border, or `null` for none. */
   left: BorderSideData | null;
+  /** Right border, or `null` for none. */
   right: BorderSideData | null;
+  /** Top border, or `null` for none. */
   top: BorderSideData | null;
+  /** Bottom border, or `null` for none. */
   bottom: BorderSideData | null;
+  /** Diagonal border, or `null` for none. */
   diagonal?: BorderSideData | null;
+  /** Whether the diagonal goes from bottom-left to top-right. */
   diagonalUp?: boolean;
+  /** Whether the diagonal goes from top-left to bottom-right. */
   diagonalDown?: boolean;
 }
 
+/** A cell format (XF) record referencing font, fill, border, and number format by index. */
 export interface CellXfData {
+  /** Index into `StylesData.numFmts` (0 = General). */
   numFmtId: number;
+  /** Index into `StylesData.fonts`. */
   fontId: number;
+  /** Index into `StylesData.fills`. */
   fillId: number;
+  /** Index into `StylesData.borders`. */
   borderId: number;
+  /** Text alignment configuration. */
   alignment?: AlignmentData | null;
+  /** Cell protection configuration. */
   protection?: ProtectionData | null;
+  /** Whether the font from this XF should be applied. */
   applyFont?: boolean;
+  /** Whether the fill from this XF should be applied. */
   applyFill?: boolean;
+  /** Whether the border from this XF should be applied. */
   applyBorder?: boolean;
+  /** Whether the number format from this XF should be applied. */
   applyNumberFormat?: boolean;
+  /** Whether the alignment from this XF should be applied. */
   applyAlignment?: boolean;
+  /** Whether the protection from this XF should be applied. */
   applyProtection?: boolean;
 }
 
@@ -907,13 +1037,21 @@ export interface CellStyleData {
   builtinId?: number | null;
 }
 
+/** The shared style tables for the entire workbook. */
 export interface StylesData {
+  /** Custom number format definitions (IDs 164+). */
   numFmts: NumFmt[];
+  /** Font definitions referenced by CellXfData.fontId. */
   fonts: FontData[];
+  /** Fill definitions referenced by CellXfData.fillId. */
   fills: FillData[];
+  /** Border definitions referenced by CellXfData.borderId. */
   borders: BorderData[];
+  /** Cell format records -- each cell's `styleIndex` indexes into this array. */
   cellXfs: CellXfData[];
+  /** Differential formatting styles (used by conditional formatting and tables). */
   dxfs?: DxfStyleData[];
+  /** Named cell styles (e.g., `'Normal'`, `'Heading 1'`). */
   cellStyles?: CellStyleData[];
 }
 
@@ -948,18 +1086,33 @@ export interface SheetData {
   worksheet: WorksheetData;
 }
 
+/** A named range or defined name in the workbook. */
 export interface DefinedNameData {
+  /** The defined name (e.g., `'Revenue'`, `'_xlnm.Print_Area'`). */
   name: string;
+  /** The range reference or formula value (e.g., `'Sheet1!$A$1:$A$10'`). */
   value: string;
+  /** Zero-based sheet index for sheet-scoped names, or `null` for workbook-scoped. */
   sheetId: number | null;
 }
 
+/** A single text segment with optional formatting within a rich text cell. */
 export interface RichTextRun {
+  /** The text content for this segment. */
   text: string;
+  /** Whether this segment is bold. */
   bold?: boolean;
+  /** Whether this segment is italic. */
   italic?: boolean;
+  /** Whether this segment is underlined. */
+  underline?: boolean;
+  /** Whether this segment has strikethrough. */
+  strike?: boolean;
+  /** Font family name for this segment. */
   fontName?: string;
+  /** Font size in points for this segment. */
   fontSize?: number;
+  /** Text color as hex RGB for this segment (e.g., `'FF0000'`). */
   color?: string;
 }
 

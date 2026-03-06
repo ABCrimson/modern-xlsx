@@ -160,7 +160,9 @@ fn parse_common(data: &[u8], limits: &ZipSecurityLimits, password: Option<&str>)
         .get("xl/workbook.xml")
         .ok_or_else(|| {
             cold_path();
-            ModernXlsxError::MissingPart("xl/workbook.xml".into())
+            ModernXlsxError::MissingPart(
+                "ZIP entry 'xl/workbook.xml' not found in archive — the file may be corrupt or not a valid XLSX".into()
+            )
         })?;
     let workbook_xml = WorkbookXml::parse(workbook_data)?;
 
@@ -223,8 +225,8 @@ fn parse_common(data: &[u8], limits: &ZipSecurityLimits, password: Option<&str>)
             cold_path();
             warn!("could not resolve sheet target for rId: {}", sheet_info.r_id);
             ModernXlsxError::MissingPart(format!(
-                "relationship {} for sheet '{}'",
-                sheet_info.r_id, sheet_info.name
+                "Failed to resolve sheet '{}': relationship '{}' not found in xl/_rels/workbook.xml.rels",
+                sheet_info.name, sheet_info.r_id
             ))
         })?;
 
@@ -656,6 +658,53 @@ fn resolve_rel_target(sheet_path: &str, target: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Rich text resolution
+// ---------------------------------------------------------------------------
+
+/// Propagate rich text runs from the SST to individual SharedString cells.
+///
+/// The parser resolves SST indices to plain text values, so we build a reverse
+/// map (text -> rich runs) and attach the runs to matching cells.  Since SST
+/// entries are deduplicated, the mapping is unambiguous.
+fn resolve_cell_rich_text(
+    sst: &SharedStringTable,
+    sheets: &mut [SheetData],
+) {
+    use std::collections::HashMap;
+    use crate::ooxml::worksheet::CellType;
+
+    // Build text -> rich_runs lookup (only for entries that have runs).
+    let mut rich_map: HashMap<&str, &[crate::ooxml::shared_strings::RichTextRun]> =
+        HashMap::new();
+
+    for (i, opt_runs) in sst.rich_runs.iter().enumerate() {
+        if let Some(runs) = opt_runs
+            && let Some(text) = sst.strings.get(i)
+        {
+            rich_map.insert(text.as_str(), runs.as_slice());
+        }
+    }
+
+    if rich_map.is_empty() {
+        return;
+    }
+
+    // Walk all cells and attach rich text where the value matches.
+    for sheet in sheets.iter_mut() {
+        for row in &mut sheet.worksheet.rows {
+            for cell in &mut row.cells {
+                if cell.cell_type == CellType::SharedString
+                    && let Some(ref val) = cell.value
+                    && let Some(runs) = rich_map.get(val.as_str())
+                {
+                    cell.rich_text = Some(runs.to_vec());
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Public API — struct-based reader
 // ---------------------------------------------------------------------------
 
@@ -730,6 +779,14 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
         if !tl.is_empty() {
             sheet.worksheet.timelines = tl;
         }
+    }
+
+    // Propagate rich text runs from the SST to individual cells.
+    // The SST stores rich text parallel to plain text; cells hold the resolved
+    // plain text value. Build a reverse map (text → rich runs) and attach runs
+    // to matching SharedString cells.
+    if !ctx.sst.rich_runs.is_empty() {
+        resolve_cell_rich_text(&ctx.sst, &mut sheets);
     }
 
     let preserved_entries = collect_preserved(&mut ctx);
@@ -807,7 +864,9 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
     let estimated_size = (data_len * 15).max(4096);
     let mut out = String::with_capacity(estimated_size);
 
-    let serde_err = |e: serde_json::Error| ModernXlsxError::XmlParse(e.to_string());
+    let serde_err = |e: serde_json::Error| {
+        ModernXlsxError::XmlParse(format!("Failed to serialize workbook JSON: {e}"))
+    };
 
     out.push_str("{\"sheets\":[");
 
@@ -828,7 +887,9 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
 
         let ws_data = ctx.entries.get(path).ok_or_else(|| {
             cold_path();
-            ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
+            ModernXlsxError::MissingPart(format!(
+                "ZIP entry '{}' not found for sheet '{}' — check xl/_rels/workbook.xml.rels targets", path, name
+            ))
         })?;
         WorksheetXml::parse_to_json(ws_data, Some(&ctx.sst), &sheet_comments[i], &sheet_tables[i], &mut out)?;
 
@@ -1005,7 +1066,9 @@ fn parse_sheets(
             debug!("parsing worksheet (parallel): {}", name);
             let sheet_data = entries.get(path).ok_or_else(|| {
                 cold_path();
-                ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
+                ModernXlsxError::MissingPart(format!(
+                    "ZIP entry '{}' not found for sheet '{}' — check xl/_rels/workbook.xml.rels targets", path, name
+                ))
             })?;
             let worksheet = WorksheetXml::parse_with_sst(sheet_data, Some(sst))?;
             Ok(SheetData {
@@ -1033,7 +1096,9 @@ fn parse_sheets(
             debug!("parsing worksheet: {}", name);
             let sheet_data = entries.get(path).ok_or_else(|| {
                 cold_path();
-                ModernXlsxError::MissingPart(format!("{} for sheet '{}'", path, name))
+                ModernXlsxError::MissingPart(format!(
+                    "ZIP entry '{}' not found for sheet '{}' — check xl/_rels/workbook.xml.rels targets", path, name
+                ))
             })?;
             let worksheet = WorksheetXml::parse_with_sst(sheet_data, Some(sst))?;
             Ok(SheetData {
@@ -1166,6 +1231,7 @@ mod tests {
             tab_color: None,
             tables: Vec::new(),
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
@@ -1289,6 +1355,7 @@ mod tests {
             tab_color: None,
             tables: Vec::new(),
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
@@ -1387,6 +1454,7 @@ mod tests {
             tab_color: None,
             tables: Vec::new(),
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
@@ -1561,6 +1629,7 @@ mod tests {
             tab_color: None,
             tables: Vec::new(),
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
@@ -1700,6 +1769,7 @@ mod tests {
                 tab_color: None,
                 tables: Vec::new(),
                 header_footer: None,
+                page_breaks: None,
                 outline_properties: None,
                 sparkline_groups: Vec::new(),
                 charts: Vec::new(),
@@ -1803,6 +1873,7 @@ mod tests {
                     tab_color: None,
                     tables: Vec::new(),
                     header_footer: None,
+                    page_breaks: None,
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
@@ -1905,6 +1976,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -1943,6 +2015,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),

@@ -173,6 +173,120 @@ describe('Worksheet.autoFilter', () => {
     ws.autoFilter = null;
     expect(ws.autoFilter).toBeNull();
   });
+
+  it('set auto filter with custom filters', () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    ws.autoFilter = {
+      range: 'A1:D10',
+      filterColumns: [
+        {
+          colId: 1,
+          customFilters: {
+            andOp: true,
+            filters: [
+              { operator: 'greaterThanOrEqual', val: '10' },
+              { operator: 'lessThan', val: '100' },
+            ],
+          },
+        },
+      ],
+    };
+    expect(ws.autoFilter?.range).toBe('A1:D10');
+    const fc = ws.autoFilter?.filterColumns?.[0];
+    expect(fc?.colId).toBe(1);
+    expect(fc?.customFilters?.andOp).toBe(true);
+    expect(fc?.customFilters?.filters).toHaveLength(2);
+    expect(fc?.customFilters?.filters[0].operator).toBe('greaterThanOrEqual');
+    expect(fc?.customFilters?.filters[0].val).toBe('10');
+    expect(fc?.customFilters?.filters[1].operator).toBe('lessThan');
+    expect(fc?.customFilters?.filters[1].val).toBe('100');
+  });
+
+  it('roundtrip auto filter with custom filters', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    ws.autoFilter = {
+      range: 'A1:C5',
+      filterColumns: [
+        { colId: 0, filters: ['Apple', 'Banana'] },
+        {
+          colId: 2,
+          customFilters: {
+            filters: [{ operator: 'greaterThan', val: '50' }],
+          },
+        },
+      ],
+    };
+
+    const buffer = await wb.toBuffer();
+    const wb2 = await readBuffer(buffer);
+    const ws2 = wb2.getSheet('Sheet1');
+    expect(ws2?.autoFilter?.range).toBe('A1:C5');
+    expect(ws2?.autoFilter?.filterColumns).toHaveLength(2);
+
+    const fc0 = ws2?.autoFilter?.filterColumns?.[0];
+    expect(fc0?.colId).toBe(0);
+    expect(fc0?.filters).toEqual(['Apple', 'Banana']);
+
+    const fc1 = ws2?.autoFilter?.filterColumns?.[1];
+    expect(fc1?.colId).toBe(2);
+    expect(fc1?.customFilters?.filters).toHaveLength(1);
+    expect(fc1?.customFilters?.filters[0].operator).toBe('greaterThan');
+    expect(fc1?.customFilters?.filters[0].val).toBe('50');
+  });
+
+  it('roundtrip auto filter with AND custom filters', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    ws.autoFilter = {
+      range: 'B2:E20',
+      filterColumns: [
+        {
+          colId: 1,
+          customFilters: {
+            andOp: true,
+            filters: [
+              { operator: 'greaterThanOrEqual', val: '5' },
+              { operator: 'lessThanOrEqual', val: '99' },
+            ],
+          },
+        },
+      ],
+    };
+
+    const buffer = await wb.toBuffer();
+    const wb2 = await readBuffer(buffer);
+    const ws2 = wb2.getSheet('Sheet1');
+    const cf = ws2?.autoFilter?.filterColumns?.[0]?.customFilters;
+    expect(cf?.andOp).toBe(true);
+    expect(cf?.filters).toHaveLength(2);
+    expect(cf?.filters[0].val).toBe('5');
+    expect(cf?.filters[1].val).toBe('99');
+  });
+
+  it('custom filter without operator (wildcard pattern)', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    ws.autoFilter = {
+      range: 'A1:B5',
+      filterColumns: [
+        {
+          colId: 0,
+          customFilters: {
+            filters: [{ val: '*test*' }],
+          },
+        },
+      ],
+    };
+
+    const buffer = await wb.toBuffer();
+    const wb2 = await readBuffer(buffer);
+    const ws2 = wb2.getSheet('Sheet1');
+    const cf = ws2?.autoFilter?.filterColumns?.[0]?.customFilters;
+    expect(cf?.filters[0].operator).toBeUndefined();
+    expect(cf?.filters[0].val).toBe('*test*');
+  });
 });
 
 describe('Worksheet.frozenPane', () => {

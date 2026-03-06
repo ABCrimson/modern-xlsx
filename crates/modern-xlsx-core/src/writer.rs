@@ -68,7 +68,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     if workbook.sheets.is_empty() {
         cold_path();
         return Err(ModernXlsxError::InvalidCellValue(
-            "workbook must contain at least one sheet".into(),
+            "Write failed: workbook must contain at least one sheet — add a sheet before calling write()".into(),
         ));
     }
 
@@ -85,11 +85,15 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                     let Some(ref val) = cell.value else {
                         cold_path();
                         return Err(ModernXlsxError::InvalidCellValue(format!(
-                            "SharedString cell {} has no value",
-                            cell.reference
+                            "SharedString cell '{}' in sheet '{}' has no value — set cell.value to the string text",
+                            cell.reference, sheet.name
                         )));
                     };
-                    sst_builder.insert(val);
+                    if let Some(ref runs) = cell.rich_text {
+                        sst_builder.insert_rich(val, runs.clone());
+                    } else {
+                        sst_builder.insert(val);
+                    }
                 }
             }
         }
@@ -898,6 +902,7 @@ mod tests {
                     tab_color: None,
                     tables: Vec::new(),
                     header_footer: None,
+                    page_breaks: None,
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
@@ -951,6 +956,7 @@ mod tests {
                     tab_color: None,
                     tables: Vec::new(),
                     header_footer: None,
+                    page_breaks: None,
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
@@ -1044,6 +1050,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -1076,6 +1083,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -1438,6 +1446,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -1470,6 +1479,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -1556,6 +1566,7 @@ mod tests {
             tab_color: None,
             tables: Vec::new(),
             header_footer: None,
+            page_breaks: None,
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
@@ -1627,6 +1638,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -1659,6 +1671,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -2005,6 +2018,7 @@ mod tests {
                     tab_color: None,
                     tables: vec![table],
                     header_footer: None,
+                    page_breaks: None,
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
@@ -2133,6 +2147,7 @@ mod tests {
                 tab_color: None,
                 tables,
                 header_footer: None,
+                page_breaks: None,
                 outline_properties: None,
                 sparkline_groups: Vec::new(),
                 charts: Vec::new(),
@@ -2227,6 +2242,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -2259,6 +2275,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -2291,6 +2308,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -2363,6 +2381,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -2395,6 +2414,7 @@ mod tests {
                         tab_color: None,
                         tables: Vec::new(),
                         header_footer: None,
+                        page_breaks: None,
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
@@ -2549,6 +2569,7 @@ mod tests {
                     tab_color: None,
                     tables: Vec::new(),
                     header_footer: None,
+                    page_breaks: None,
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts,

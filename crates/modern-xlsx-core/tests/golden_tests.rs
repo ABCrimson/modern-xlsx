@@ -36,6 +36,7 @@ fn minimal_worksheet(rows: Vec<Row>) -> WorksheetXml {
         comments: vec![],
         tab_color: None,
         header_footer: None,
+        page_breaks: None,
         outline_properties: None,
         tables: vec![],
         sparkline_groups: vec![],

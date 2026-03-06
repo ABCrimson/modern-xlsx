@@ -5,6 +5,7 @@ import { ChartBuilder } from './chart-builder.js';
 import { isDateFormatCode, serialToDate } from './dates.js';
 import { COMMENT_NOT_FOUND, INVALID_ARGUMENT, ModernXlsxError, SHEET_NOT_FOUND } from './errors.js';
 import { getBuiltinFormat } from './format-cell.js';
+import { PivotTableBuilder } from './pivot-builder.js';
 import { StyleBuilder } from './style-builder.js';
 import type {
   AutoFilterData,
@@ -22,6 +23,8 @@ import type {
   HeaderFooterData,
   HyperlinkData,
   OutlinePropertiesData,
+  PageBreakData,
+  PageBreaksData,
   PageMarginsData,
   PageSetupData,
   PaneSelectionData,
@@ -29,6 +32,7 @@ import type {
   PivotCacheRecordsData,
   PivotTableData,
   RepairResult,
+  RichTextRun,
   RowData,
   SheetData,
   SheetProtectionData,
@@ -93,17 +97,67 @@ function binaryInsertIndex(rows: readonly RowData[], index: number): number {
 }
 
 // ---------------------------------------------------------------------------
+// Rich text SST resolution helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a reverse map from plain text to rich text runs using the SST.
+ * Returns `null` if the SST has no rich text entries.
+ */
+function buildRichTextMap(
+  sst:
+    | { readonly strings: string[]; readonly richRuns?: (RichTextRun[] | null)[] }
+    | undefined
+    | null,
+): Map<string, RichTextRun[]> | null {
+  if (!sst?.richRuns?.length) return null;
+  const map = new Map<string, RichTextRun[]>();
+  for (let i = 0; i < sst.richRuns.length; i++) {
+    const runs = sst.richRuns[i];
+    const key = sst.strings[i];
+    if (runs && key !== undefined) {
+      map.set(key, runs);
+    }
+  }
+  return map.size > 0 ? map : null;
+}
+
+// ---------------------------------------------------------------------------
 // Workbook
 // ---------------------------------------------------------------------------
 
-/** Represents an Excel workbook containing sheets, styles, and metadata. */
+/**
+ * Represents an Excel workbook containing sheets, styles, and metadata.
+ *
+ * This is the root object for reading, writing, and manipulating XLSX files.
+ * Obtain an instance via {@link readBuffer}, {@link readFile}, or construct
+ * a new empty workbook with `new Workbook()`.
+ *
+ * @example
+ * ```ts
+ * const wb = new Workbook();
+ * const ws = wb.addSheet('Data');
+ * ws.cell('A1').value = 'Hello';
+ * const bytes = await wb.toBuffer();
+ * ```
+ */
 export class Workbook {
   private readonly data: WorkbookData;
   private readonly imageAnchors = new Map<string, { anchor: ImageAnchor; imageIndex: number }[]>();
   private readonly imageRels = new Map<string, { rId: string; target: string }[]>();
   private _sheetIndex = new Map<string, number>();
 
-  /** Create a new workbook, optionally seeded with existing data from a read operation. */
+  /**
+   * Create a new workbook, optionally seeded with existing data from a read operation.
+   *
+   * @param data - Partial workbook data to seed the workbook with. Omit for an empty workbook.
+   *
+   * @example
+   * ```ts
+   * const wb = new Workbook();
+   * wb.addSheet('Sheet1');
+   * ```
+   */
   constructor(data?: Partial<WorkbookData>) {
     this.data = {
       sheets: data?.sheets ?? [],
@@ -124,6 +178,7 @@ export class Workbook {
     if (data?.timelineCaches) this.data.timelineCaches = data.timelineCaches;
     if (data?.preservedEntries) this.data.preservedEntries = data.preservedEntries;
     this._rebuildSheetIndex();
+    this._resolveRichText();
   }
 
   private _rebuildSheetIndex(): void {
@@ -131,6 +186,30 @@ export class Workbook {
     for (let i = 0; i < this.data.sheets.length; i++) {
       const sheet = this.data.sheets[i];
       if (sheet) this._sheetIndex.set(sheet.name, i);
+    }
+  }
+
+  /**
+   * Propagate rich text runs from the shared string table to individual cells.
+   *
+   * The WASM JSON streaming reader resolves SST indices to plain text but does
+   * not populate the `richText` field on cells. This method builds a reverse
+   * map (text -> rich runs) from the SST and attaches runs to matching
+   * SharedString cells that don't already have rich text set.
+   */
+  private _resolveRichText(): void {
+    const richMap = buildRichTextMap(this.data.sharedStrings);
+    if (!richMap) return;
+
+    for (const sheet of this.data.sheets) {
+      for (const row of sheet.worksheet.rows) {
+        for (const cell of row.cells) {
+          if (cell.cellType === 'sharedString' && cell.value != null && !cell.richText) {
+            const runs = richMap.get(cell.value);
+            if (runs) cell.richText = runs;
+          }
+        }
+      }
     }
   }
 
@@ -154,12 +233,36 @@ export class Workbook {
     return this.data.styles;
   }
 
-  /** Creates a new fluent style builder for constructing cell styles. */
+  /**
+   * Creates a new fluent style builder for constructing cell styles.
+   *
+   * @returns A fresh StyleBuilder instance.
+   *
+   * @example
+   * ```ts
+   * const idx = wb.createStyle()
+   *   .font({ bold: true, size: 14 })
+   *   .fill({ pattern: 'solid', fgColor: 'FFFF00' })
+   *   .build(wb.styles);
+   * ws.cell('A1').styleIndex = idx;
+   * ```
+   */
   createStyle(): StyleBuilder {
     return new StyleBuilder();
   }
 
-  /** Returns the worksheet with the given name, or `undefined` if not found. */
+  /**
+   * Returns the worksheet with the given name, or `undefined` if not found.
+   *
+   * @param name - The sheet tab name to look up.
+   * @returns The matching Worksheet, or `undefined`.
+   *
+   * @example
+   * ```ts
+   * const ws = wb.getSheet('Sales');
+   * if (ws) console.log(ws.cell('A1').value);
+   * ```
+   */
   getSheet(name: string): Worksheet | undefined {
     const idx = this._sheetIndex.get(name);
     if (idx === undefined) return undefined;
@@ -167,7 +270,17 @@ export class Workbook {
     return sheet ? new Worksheet(sheet, this.data.styles, this.data) : undefined;
   }
 
-  /** Returns the worksheet at the given 0-based index, or `undefined` if out of range. */
+  /**
+   * Returns the worksheet at the given 0-based index, or `undefined` if out of range.
+   *
+   * @param index - Zero-based sheet index.
+   * @returns The Worksheet at the given position, or `undefined`.
+   *
+   * @example
+   * ```ts
+   * const firstSheet = wb.getSheetByIndex(0);
+   * ```
+   */
   getSheetByIndex(index: number): Worksheet | undefined {
     const sheet = this.data.sheets[index];
     return sheet ? new Worksheet(sheet, this.data.styles, this.data) : undefined;
@@ -176,7 +289,17 @@ export class Workbook {
   /**
    * Adds a new empty sheet to the workbook and returns it.
    * The name is validated per ECMA-376 rules (max 31 chars, no special characters).
+   *
+   * @param name - The sheet tab name. Must be unique and 1-31 characters.
+   * @returns The newly created Worksheet.
    * @throws If the name is invalid or a sheet with that name already exists.
+   *
+   * @example
+   * ```ts
+   * const ws = wb.addSheet('Q1 Report');
+   * ws.cell('A1').value = 'Revenue';
+   * ws.cell('B1').value = 50000;
+   * ```
    */
   addSheet(name: string): Worksheet {
     validateSheetName(name);
@@ -201,7 +324,15 @@ export class Workbook {
 
   /**
    * Removes a sheet by name or 0-based index.
+   *
+   * @param nameOrIndex - The sheet name or zero-based index to remove.
    * @returns `true` if the sheet was removed, `false` if not found.
+   *
+   * @example
+   * ```ts
+   * wb.removeSheet('OldSheet');
+   * wb.removeSheet(2);
+   * ```
    */
   removeSheet(nameOrIndex: string | number): boolean {
     const idx =
@@ -216,6 +347,15 @@ export class Workbook {
 
   /**
    * Moves a sheet from one position to another.
+   *
+   * @param fromIndex - Zero-based source position.
+   * @param toIndex - Zero-based destination position.
+   * @throws If either index is out of range.
+   *
+   * @example
+   * ```ts
+   * wb.moveSheet(2, 0); // move third sheet to first position
+   * ```
    */
   moveSheet(fromIndex: number, toIndex: number): void {
     if (fromIndex < 0 || fromIndex >= this.data.sheets.length) {
@@ -232,7 +372,17 @@ export class Workbook {
 
   /**
    * Clones a sheet and inserts the copy at the end (or given position).
-   * @returns The new Worksheet.
+   *
+   * @param sourceIndex - Zero-based index of the sheet to clone.
+   * @param newName - Tab name for the cloned sheet.
+   * @param insertIndex - Optional zero-based position to insert the clone.
+   * @returns The newly created Worksheet (deep copy of the source).
+   * @throws If the source index is invalid or the new name already exists.
+   *
+   * @example
+   * ```ts
+   * const copy = wb.cloneSheet(0, 'Sheet1 Copy');
+   * ```
    */
   cloneSheet(sourceIndex: number, newName: string, insertIndex?: number): Worksheet {
     if (sourceIndex < 0 || sourceIndex >= this.data.sheets.length) {
@@ -255,6 +405,15 @@ export class Workbook {
 
   /**
    * Renames a sheet.
+   *
+   * @param nameOrIndex - The current sheet name or zero-based index.
+   * @param newName - The new tab name (validated per ECMA-376 rules).
+   * @throws If the sheet is not found, or the new name is invalid/duplicate.
+   *
+   * @example
+   * ```ts
+   * wb.renameSheet('Sheet1', 'January');
+   * ```
    */
   renameSheet(nameOrIndex: string | number, newName: string): void {
     const idx =
@@ -276,6 +435,14 @@ export class Workbook {
 
   /**
    * Hides a sheet. At least one sheet must remain visible.
+   *
+   * @param nameOrIndex - The sheet name or zero-based index to hide.
+   * @throws If the sheet is not found or it is the last visible sheet.
+   *
+   * @example
+   * ```ts
+   * wb.hideSheet('Internal');
+   * ```
    */
   hideSheet(nameOrIndex: string | number): void {
     const idx =
@@ -297,6 +464,14 @@ export class Workbook {
 
   /**
    * Unhides a sheet (sets state to visible).
+   *
+   * @param nameOrIndex - The sheet name or zero-based index to unhide.
+   * @throws If the sheet is not found.
+   *
+   * @example
+   * ```ts
+   * wb.unhideSheet('Internal');
+   * ```
    */
   unhideSheet(nameOrIndex: string | number): void {
     const idx =
@@ -318,7 +493,18 @@ export class Workbook {
     return this.data.definedNames ?? [];
   }
 
-  /** Adds a named range. If `sheetId` is provided, the name is scoped to that sheet. */
+  /**
+   * Adds a named range. If `sheetId` is provided, the name is scoped to that sheet.
+   *
+   * @param name - The defined name (e.g., `'TotalSales'`).
+   * @param value - The range reference (e.g., `'Sheet1!$A$1:$A$10'`).
+   * @param sheetId - Optional zero-based sheet index to scope the name to.
+   *
+   * @example
+   * ```ts
+   * wb.addNamedRange('Revenue', 'Sheet1!$B$2:$B$100');
+   * ```
+   */
   addNamedRange(name: string, value: string, sheetId?: number): void {
     this.data.definedNames ??= [];
     this.data.definedNames.push({
@@ -328,14 +514,32 @@ export class Workbook {
     });
   }
 
-  /** Returns the named range with the given name, or `undefined` if not found. */
+  /**
+   * Returns the named range with the given name, or `undefined` if not found.
+   *
+   * @param name - The defined name to look up.
+   * @returns The matching DefinedNameData, or `undefined`.
+   *
+   * @example
+   * ```ts
+   * const range = wb.getNamedRange('Revenue');
+   * console.log(range?.value); // 'Sheet1!$B$2:$B$100'
+   * ```
+   */
   getNamedRange(name: string): DefinedNameData | undefined {
     return this.data.definedNames?.find((d) => d.name === name);
   }
 
   /**
    * Removes a named range by name.
+   *
+   * @param name - The defined name to remove.
    * @returns `true` if the named range was removed, `false` if not found.
+   *
+   * @example
+   * ```ts
+   * wb.removeNamedRange('OldRange');
+   * ```
    */
   removeNamedRange(name: string): boolean {
     if (!this.data.definedNames) return false;
@@ -476,7 +680,11 @@ export class Workbook {
     return this.data.pivotCaches ?? [];
   }
 
-  /** Adds a pivot cache definition at the workbook level. */
+  /**
+   * Adds a pivot cache definition at the workbook level.
+   *
+   * @param cache - The pivot cache definition to add.
+   */
   addPivotCache(cache: PivotCacheDefinitionData): void {
     this.data.pivotCaches ??= [];
     this.data.pivotCaches.push(cache);
@@ -487,7 +695,11 @@ export class Workbook {
     return this.data.pivotCacheRecords ?? [];
   }
 
-  /** Adds pivot cache records at the workbook level. */
+  /**
+   * Adds pivot cache records at the workbook level.
+   *
+   * @param records - The pivot cache records to add.
+   */
   addPivotCacheRecords(records: PivotCacheRecordsData): void {
     this.data.pivotCacheRecords ??= [];
     this.data.pivotCacheRecords.push(records);
@@ -498,7 +710,11 @@ export class Workbook {
     return this.data.slicerCaches ?? [];
   }
 
-  /** Adds a slicer cache at the workbook level. */
+  /**
+   * Adds a slicer cache at the workbook level.
+   *
+   * @param cache - The slicer cache definition to add.
+   */
   addSlicerCache(cache: SlicerCacheData): void {
     this.data.slicerCaches ??= [];
     this.data.slicerCaches.push(cache);
@@ -509,7 +725,11 @@ export class Workbook {
     return this.data.timelineCaches ?? [];
   }
 
-  /** Adds a timeline cache at the workbook level. */
+  /**
+   * Adds a timeline cache at the workbook level.
+   *
+   * @param cache - The timeline cache definition to add.
+   */
   addTimelineCache(cache: TimelineCacheData): void {
     this.data.timelineCaches ??= [];
     this.data.timelineCaches.push(cache);
@@ -523,6 +743,13 @@ export class Workbook {
    * @param options - Optional write options. Pass `{ password: '...' }` to encrypt
    *   the file with Agile Encryption (AES-256-CBC, SHA-512). An empty string
    *   password is treated as "no encryption".
+   * @returns The XLSX file as a Uint8Array.
+   *
+   * @example
+   * ```ts
+   * const bytes = await wb.toBuffer();
+   * await fs.writeFile('output.xlsx', bytes);
+   * ```
    */
   async toBuffer(options?: WriteOptions): Promise<Uint8Array> {
     ensureInitialized();
@@ -538,6 +765,12 @@ export class Workbook {
    *
    * @param path - File path to write to.
    * @param options - Optional write options. Pass `{ password: '...' }` to encrypt.
+   *
+   * @example
+   * ```ts
+   * await wb.toFile('./report.xlsx');
+   * await wb.toFile('./secret.xlsx', { password: 's3cret' });
+   * ```
    */
   async toFile(path: string, options?: WriteOptions): Promise<void> {
     const buffer = await this.toBuffer(options);
@@ -548,6 +781,14 @@ export class Workbook {
   /**
    * Validate the workbook for OOXML compliance issues.
    * Returns a structured report with errors, warnings, and fix suggestions.
+   *
+   * @returns A ValidationReport with categorized issues and severity levels.
+   *
+   * @example
+   * ```ts
+   * const report = wb.validate();
+   * console.log(report.issues.length, 'issues found');
+   * ```
    */
   validate(): ValidationReport {
     ensureInitialized();
@@ -558,7 +799,14 @@ export class Workbook {
    * Validate and auto-repair the workbook.
    * Fixes repairable issues (dangling style indices, missing default styles,
    * bad sheet names, missing theme, invalid metadata, row ordering).
-   * Returns a new Workbook with repairs applied, plus a validation report.
+   *
+   * @returns An object containing the repaired Workbook, a validation report, and the number of repairs made.
+   *
+   * @example
+   * ```ts
+   * const { workbook, repairCount } = wb.repair();
+   * console.log(`${repairCount} issues repaired`);
+   * ```
    */
   repair(): { workbook: Workbook; report: ValidationReport; repairCount: number } {
     ensureInitialized();
@@ -579,10 +827,16 @@ export class Workbook {
    * Add an image (PNG bytes) anchored to a cell range on the given sheet.
    * The image is embedded via `preservedEntries` and OOXML drawing XML.
    *
-   * @param sheetName - Target sheet name
-   * @param anchor - Cell range to anchor the image to
-   * @param imageBytes - Raw PNG image bytes
-   * @param format - Image format extension (default: `'png'`)
+   * @param sheetName - Target sheet name.
+   * @param anchor - Cell range to anchor the image to.
+   * @param imageBytes - Raw image bytes.
+   * @param format - Image format extension (default: `'png'`).
+   *
+   * @example
+   * ```ts
+   * const png = fs.readFileSync('logo.png');
+   * wb.addImage('Sheet1', { from: 'B2', to: 'E10' }, png);
+   * ```
    */
   addImage(
     sheetName: string,
@@ -643,10 +897,17 @@ export class Workbook {
   /**
    * Generate a barcode and embed it as an image anchored to the given cell range.
    *
-   * @param sheetName - Target sheet name
-   * @param anchor - Cell range to anchor the barcode image to
-   * @param value - Data to encode in the barcode
-   * @param options - Barcode type, rendering, and sizing options
+   * @param sheetName - Target sheet name.
+   * @param anchor - Cell range to anchor the barcode image to.
+   * @param value - Data to encode in the barcode.
+   * @param options - Barcode type, rendering, and sizing options.
+   *
+   * @example
+   * ```ts
+   * wb.addBarcode('Sheet1', { from: 'A1', to: 'C5' }, '12345', {
+   *   type: 'code128',
+   * });
+   * ```
    */
   addBarcode(
     sheetName: string,
@@ -658,7 +919,11 @@ export class Workbook {
     this.addImage(sheetName, anchor, pngBytes);
   }
 
-  /** Returns the raw internal `WorkbookData` for serialization or inspection. */
+  /**
+   * Returns the raw internal `WorkbookData` for serialization or inspection.
+   *
+   * @returns The complete workbook data model as a plain JSON-serializable object.
+   */
   toJSON(): WorkbookData {
     return this.data;
   }
@@ -668,13 +933,33 @@ export class Workbook {
 // Worksheet
 // ---------------------------------------------------------------------------
 
-/** Represents a single worksheet within a workbook. */
+/**
+ * Represents a single worksheet within a workbook.
+ *
+ * Provides access to cells, rows, columns, merge ranges, charts, pivot tables,
+ * comments, hyperlinks, page setup, and other sheet-level features.
+ *
+ * @example
+ * ```ts
+ * const ws = wb.addSheet('Data');
+ * ws.cell('A1').value = 'Name';
+ * ws.cell('B1').value = 'Score';
+ * ws.frozenPane = { rows: 1, cols: 0 };
+ * ```
+ */
 export class Worksheet {
   private readonly data: SheetData;
   /** @internal */ readonly styles: StylesData | undefined;
   /** @internal */ private readonly workbookData: WorkbookData | undefined;
 
-  /** Wraps an existing sheet data object. Typically obtained via `Workbook.getSheet()` or `Workbook.addSheet()`. */
+  /**
+   * Wraps an existing sheet data object. Typically obtained via
+   * `Workbook.getSheet()` or `Workbook.addSheet()`.
+   *
+   * @param data - The underlying sheet data model.
+   * @param styles - Optional shared styles from the parent workbook.
+   * @param workbookData - Optional parent workbook data for cross-sheet operations.
+   */
   constructor(data: SheetData, styles?: StylesData, workbookData?: WorkbookData) {
     this.data = data;
     this.styles = styles;
@@ -732,7 +1017,17 @@ export class Worksheet {
     this.data.worksheet.columns = cols;
   }
 
-  /** Sets the width of a single 1-based column, creating or updating its definition. */
+  /**
+   * Sets the width of a single 1-based column, creating or updating its definition.
+   *
+   * @param col - The 1-based column index.
+   * @param width - The column width in Excel character units.
+   *
+   * @example
+   * ```ts
+   * ws.setColumnWidth(1, 20); // column A = 20 chars wide
+   * ```
+   */
   setColumnWidth(col: number, width: number): void {
     const existing = this.data.worksheet.columns.find((c) => c.min === col && c.max === col);
     if (existing) {
@@ -756,7 +1051,16 @@ export class Worksheet {
     return this.data.worksheet.mergeCells;
   }
 
-  /** Adds a merged cell range (e.g., `"A1:C3"`). Duplicates are ignored. */
+  /**
+   * Adds a merged cell range (e.g., `"A1:C3"`). Duplicates are ignored.
+   *
+   * @param range - The A1-style range to merge (e.g., `'A1:C3'`).
+   *
+   * @example
+   * ```ts
+   * ws.addMergeCell('A1:D1'); // merge header across 4 columns
+   * ```
+   */
   addMergeCell(range: string): void {
     if (!this.data.worksheet.mergeCells.includes(range)) {
       this.data.worksheet.mergeCells.push(range);
@@ -765,6 +1069,8 @@ export class Worksheet {
 
   /**
    * Removes a merged cell range.
+   *
+   * @param range - The A1-style range to un-merge (e.g., `'A1:C3'`).
    * @returns `true` if the range was removed, `false` if not found.
    */
   removeMergeCell(range: string): boolean {
@@ -799,7 +1105,21 @@ export class Worksheet {
     return this.data.worksheet.hyperlinks ?? [];
   }
 
-  /** Adds a hyperlink to a cell. The `location` is a URL or internal reference (e.g., `"Sheet2!A1"`). */
+  /**
+   * Adds a hyperlink to a cell. The `location` is a URL or internal reference.
+   *
+   * @param cellRef - The cell reference to attach the hyperlink to (e.g., `'A1'`).
+   * @param location - URL or internal reference (e.g., `'https://example.com'` or `'Sheet2!A1'`).
+   * @param opts - Optional display text and tooltip.
+   *
+   * @example
+   * ```ts
+   * ws.addHyperlink('A1', 'https://example.com', {
+   *   display: 'Visit Site',
+   *   tooltip: 'Opens example.com',
+   * });
+   * ```
+   */
   addHyperlink(
     cellRef: string,
     location: string,
@@ -816,6 +1136,8 @@ export class Worksheet {
 
   /**
    * Removes the hyperlink on the given cell reference.
+   *
+   * @param cellRef - The cell reference to remove the hyperlink from (e.g., `'A1'`).
    * @returns `true` if the hyperlink was removed, `false` if not found.
    */
   removeHyperlink(cellRef: string): boolean {
@@ -962,7 +1284,20 @@ export class Worksheet {
     return this.data.worksheet.dataValidations ?? [];
   }
 
-  /** Adds a data validation rule to the given cell range reference. */
+  /**
+   * Adds a data validation rule to the given cell range reference.
+   *
+   * @param ref - The cell range to validate (e.g., `'B2:B100'`).
+   * @param rule - The validation rule (type, operator, formula, prompt, etc.).
+   *
+   * @example
+   * ```ts
+   * ws.addValidation('B2:B100', {
+   *   type: 'list',
+   *   formula1: '"Yes,No,Maybe"',
+   * });
+   * ```
+   */
   addValidation(ref: string, rule: Omit<DataValidationData, 'sqref'>): void {
     this.data.worksheet.dataValidations ??= [];
     this.data.worksheet.dataValidations.push({ sqref: ref, ...rule });
@@ -970,6 +1305,8 @@ export class Worksheet {
 
   /**
    * Removes the data validation rule for the given cell range reference.
+   *
+   * @param ref - The cell range whose validation rule should be removed.
    * @returns `true` if the rule was removed, `false` if not found.
    */
   removeValidation(ref: string): boolean {
@@ -987,7 +1324,18 @@ export class Worksheet {
     return this.data.worksheet.comments ?? [];
   }
 
-  /** Adds a comment to the given cell reference. */
+  /**
+   * Adds a comment to the given cell reference.
+   *
+   * @param cellRef - The cell reference (e.g., `'A1'`).
+   * @param author - The comment author name.
+   * @param text - The comment text.
+   *
+   * @example
+   * ```ts
+   * ws.addComment('A1', 'Alice', 'Please review this value');
+   * ```
+   */
   addComment(cellRef: string, author: string, text: string): void {
     this.data.worksheet.comments ??= [];
     this.data.worksheet.comments.push({ cellRef, author, text });
@@ -995,6 +1343,8 @@ export class Worksheet {
 
   /**
    * Removes the comment on the given cell reference.
+   *
+   * @param cellRef - The cell reference whose comment should be removed.
    * @returns `true` if the comment was removed, `false` if not found.
    */
   removeComment(cellRef: string): boolean {
@@ -1015,7 +1365,17 @@ export class Worksheet {
   /**
    * Adds a threaded comment to the given cell reference.
    * Creates a person entry in the workbook if the author does not exist yet.
+   *
+   * @param cell - The cell reference (e.g., `'A1'`).
+   * @param text - The comment text.
+   * @param author - The display name of the author.
    * @returns The unique ID of the created comment.
+   *
+   * @example
+   * ```ts
+   * const id = ws.addThreadedComment('A1', 'Looks good!', 'Alice');
+   * ws.replyToComment(id, 'Thanks!', 'Bob');
+   * ```
    */
   addThreadedComment(cell: string, text: string, author: string): string {
     const wb = this.workbookData;
@@ -1097,8 +1457,18 @@ export class Worksheet {
   // --- Cell access ---
 
   /**
-   * Returns the cell at the given A1-style reference (e.g., `"B3"`), creating the row and cell if needed.
+   * Returns the cell at the given A1-style reference, creating the row and cell if needed.
    * The returned `Cell` is a live wrapper -- mutations are reflected in the underlying sheet data.
+   *
+   * @param ref - A1-style cell reference (e.g., `'B3'`, `'AA100'`).
+   * @returns A mutable Cell wrapper.
+   *
+   * @example
+   * ```ts
+   * const cell = ws.cell('B3');
+   * cell.value = 42;
+   * cell.formula = 'A3*2';
+   * ```
    */
   cell(ref: string): Cell {
     const decoded = decodeCellRef(ref);
@@ -1129,13 +1499,28 @@ export class Worksheet {
 
   // --- Row utilities ---
 
-  /** Sets the height (in points) of the given 1-based row, creating it if needed. */
+  /**
+   * Sets the height (in points) of the given 1-based row, creating it if needed.
+   *
+   * @param rowIndex - The 1-based row index.
+   * @param height - Row height in points (e.g., 24 for double-height).
+   *
+   * @example
+   * ```ts
+   * ws.setRowHeight(1, 30); // set header row to 30pt
+   * ```
+   */
   setRowHeight(rowIndex: number, height: number): void {
     const row = this.ensureRow(rowIndex);
     row.height = height;
   }
 
-  /** Sets the visibility of the given 1-based row, creating it if needed. */
+  /**
+   * Sets the visibility of the given 1-based row, creating it if needed.
+   *
+   * @param rowIndex - The 1-based row index.
+   * @param hidden - `true` to hide the row, `false` to show it.
+   */
   setRowHidden(rowIndex: number, hidden: boolean): void {
     const row = this.ensureRow(rowIndex);
     row.hidden = hidden;
@@ -1158,12 +1543,21 @@ export class Worksheet {
     return this.data.worksheet.tables ?? [];
   }
 
-  /** Returns the table with the given display name, or `undefined` if not found. */
+  /**
+   * Returns the table with the given display name, or `undefined` if not found.
+   *
+   * @param displayName - The table display name to look up.
+   * @returns The matching TableDefinitionData, or `undefined`.
+   */
   getTable(displayName: string): TableDefinitionData | undefined {
     return this.data.worksheet.tables?.find((t) => t.displayName === displayName);
   }
 
-  /** Adds a table definition to the sheet. */
+  /**
+   * Adds a table definition to the sheet.
+   *
+   * @param table - The table definition to add (range, columns, style, etc.).
+   */
   addTable(table: TableDefinitionData): void {
     this.data.worksheet.tables ??= [];
     this.data.worksheet.tables.push(table);
@@ -1171,6 +1565,8 @@ export class Worksheet {
 
   /**
    * Removes the table with the given display name.
+   *
+   * @param displayName - The table display name to remove.
    * @returns `true` if the table was removed, `false` if not found.
    */
   removeTable(displayName: string): boolean {
@@ -1205,13 +1601,42 @@ export class Worksheet {
 
   // --- Pivot Table / Slicer / Timeline mutation ---
 
-  /** Adds a pivot table definition to this sheet. */
+  /**
+   * Adds a pivot table definition to this sheet.
+   *
+   * @param pt - The pivot table data to add.
+   */
   addPivotTable(pt: PivotTableData): void {
     this.data.worksheet.pivotTables ??= [];
     this.data.worksheet.pivotTables.push(pt);
   }
 
-  /** Removes a pivot table by index. Returns true if removed. */
+  /**
+   * Adds a pivot table using a fluent builder callback.
+   *
+   * @example
+   * ```ts
+   * ws.addPivotTableFromBuilder((b) => {
+   *   b.name('SalesPivot')
+   *    .cacheId(0)
+   *    .location('A3:D20')
+   *    .addRowField({ fieldIndex: 0, name: 'Region' })
+   *    .addDataField({ fieldIndex: 2, subtotal: 'sum', name: 'Total Revenue' });
+   * });
+   * ```
+   */
+  addPivotTableFromBuilder(configure: (builder: PivotTableBuilder) => void): void {
+    const builder = new PivotTableBuilder();
+    configure(builder);
+    this.addPivotTable(builder.build());
+  }
+
+  /**
+   * Removes a pivot table by index.
+   *
+   * @param index - Zero-based index of the pivot table to remove.
+   * @returns `true` if the pivot table was removed, `false` if index out of range.
+   */
   removePivotTable(index: number): boolean {
     if (
       !this.data.worksheet.pivotTables ||
@@ -1223,13 +1648,22 @@ export class Worksheet {
     return true;
   }
 
-  /** Adds a slicer to this sheet. */
+  /**
+   * Adds a slicer to this sheet.
+   *
+   * @param slicer - The slicer definition to add.
+   */
   addSlicer(slicer: SlicerData): void {
     this.data.worksheet.slicers ??= [];
     this.data.worksheet.slicers.push(slicer);
   }
 
-  /** Removes a slicer by index. Returns true if removed. */
+  /**
+   * Removes a slicer by index.
+   *
+   * @param index - Zero-based index of the slicer to remove.
+   * @returns `true` if the slicer was removed, `false` if index out of range.
+   */
   removeSlicer(index: number): boolean {
     if (!this.data.worksheet.slicers || index < 0 || index >= this.data.worksheet.slicers.length)
       return false;
@@ -1237,13 +1671,22 @@ export class Worksheet {
     return true;
   }
 
-  /** Adds a timeline to this sheet. */
+  /**
+   * Adds a timeline to this sheet.
+   *
+   * @param timeline - The timeline definition to add.
+   */
   addTimeline(timeline: TimelineData): void {
     this.data.worksheet.timelines ??= [];
     this.data.worksheet.timelines.push(timeline);
   }
 
-  /** Removes a timeline by index. Returns true if removed. */
+  /**
+   * Removes a timeline by index.
+   *
+   * @param index - Zero-based index of the timeline to remove.
+   * @returns `true` if the timeline was removed, `false` if index out of range.
+   */
   removeTimeline(index: number): boolean {
     if (
       !this.data.worksheet.timelines ||
@@ -1257,6 +1700,9 @@ export class Worksheet {
 
   /**
    * Adds a chart to this worksheet using a builder callback.
+   *
+   * @param type - The chart type (e.g., `'bar'`, `'line'`, `'pie'`, `'scatter'`).
+   * @param configure - A callback that receives a ChartBuilder for fluent configuration.
    *
    * @example
    * ```ts
@@ -1278,6 +1724,8 @@ export class Worksheet {
 
   /**
    * Adds a pre-built chart definition to this worksheet.
+   *
+   * @param chart - The complete chart data object (produced by `ChartBuilder.build()`).
    */
   addChartData(chart: WorksheetChartData): void {
     validateChartData(chart);
@@ -1287,6 +1735,8 @@ export class Worksheet {
 
   /**
    * Removes a chart by index.
+   *
+   * @param index - Zero-based index of the chart to remove.
    * @returns `true` if removed, `false` if index out of range.
    */
   removeChart(index: number): boolean {
@@ -1306,6 +1756,82 @@ export class Worksheet {
   /** Sets or clears the header/footer configuration. */
   set headerFooter(hf: HeaderFooterData | null) {
     this.data.worksheet.headerFooter = hf;
+  }
+
+  // --- Page breaks ---
+
+  /** Returns the page breaks configuration, or `null` if unset. */
+  get pageBreaks(): PageBreaksData | null {
+    return this.data.worksheet.pageBreaks ?? null;
+  }
+
+  /** Sets or clears the page breaks configuration. */
+  set pageBreaks(pb: PageBreaksData | null) {
+    this.data.worksheet.pageBreaks = pb;
+  }
+
+  /**
+   * Adds a manual row page break (horizontal break before the given row).
+   * @param row 1-based row index where the page break is inserted.
+   */
+  addRowBreak(row: number): void {
+    this.data.worksheet.pageBreaks ??= {};
+    this.data.worksheet.pageBreaks.rowBreaks ??= [];
+    const brk: PageBreakData = { id: row, max: 16383, man: true };
+    this.data.worksheet.pageBreaks.rowBreaks.push(brk);
+  }
+
+  /**
+   * Adds a manual column page break (vertical break before the given column).
+   * @param col 1-based column index where the page break is inserted.
+   */
+  addColBreak(col: number): void {
+    this.data.worksheet.pageBreaks ??= {};
+    this.data.worksheet.pageBreaks.colBreaks ??= [];
+    const brk: PageBreakData = { id: col, max: 1048575, man: true };
+    this.data.worksheet.pageBreaks.colBreaks.push(brk);
+  }
+
+  // --- Print area ---
+
+  /**
+   * Sets the print area for this sheet via a `_xlnm.Print_Area` defined name.
+   * @param ref The range reference (e.g., `"Sheet1!$A$1:$D$50"`). Pass `null` to clear.
+   */
+  setPrintArea(ref: string | null): void {
+    if (!this.workbookData) return;
+    const sheetIndex = this.workbookData.sheets.indexOf(this.data);
+    if (sheetIndex === -1) return;
+    this.workbookData.definedNames ??= [];
+    const idx = this.workbookData.definedNames.findIndex(
+      (d) => d.name === '_xlnm.Print_Area' && d.sheetId === sheetIndex,
+    );
+    if (ref === null) {
+      if (idx !== -1) this.workbookData.definedNames.splice(idx, 1);
+    } else if (idx !== -1) {
+      const entry = this.workbookData.definedNames[idx];
+      if (entry) entry.value = ref;
+    } else {
+      this.workbookData.definedNames.push({
+        name: '_xlnm.Print_Area',
+        value: ref,
+        sheetId: sheetIndex,
+      });
+    }
+  }
+
+  /**
+   * Gets the print area for this sheet.
+   * @returns The defined name value (e.g., `"Sheet1!$A$1:$D$50"`) or `null`.
+   */
+  getPrintArea(): string | null {
+    if (!this.workbookData) return null;
+    const sheetIndex = this.workbookData.sheets.indexOf(this.data);
+    if (sheetIndex === -1) return null;
+    const dn = this.workbookData.definedNames?.find(
+      (d) => d.name === '_xlnm.Print_Area' && d.sheetId === sheetIndex,
+    );
+    return dn?.value ?? null;
   }
 
   // --- Outline properties ---
@@ -1442,7 +1968,11 @@ export class Worksheet {
     return this.data.worksheet.sparklineGroups ?? [];
   }
 
-  /** Adds a sparkline group to this sheet. */
+  /**
+   * Adds a sparkline group to this sheet.
+   *
+   * @param group - The sparkline group definition.
+   */
   addSparklineGroup(group: SparklineGroupData): void {
     this.data.worksheet.sparklineGroups ??= [];
     this.data.worksheet.sparklineGroups.push(group);
@@ -1458,12 +1988,31 @@ export class Worksheet {
 // Cell
 // ---------------------------------------------------------------------------
 
-/** Represents a single cell within a worksheet row. Mutations are applied directly to the underlying data. */
+/**
+ * Represents a single cell within a worksheet row.
+ * Mutations are applied directly to the underlying data.
+ *
+ * Obtained via `Worksheet.cell()`. Setting `value` auto-detects the cell type
+ * from the JS type (string, number, boolean).
+ *
+ * @example
+ * ```ts
+ * const cell = ws.cell('A1');
+ * cell.value = 'Hello';
+ * cell.formula = 'UPPER(A2)';
+ * cell.styleIndex = boldStyleIdx;
+ * ```
+ */
 export class Cell {
   private readonly data: CellData;
   private readonly styles: StylesData | undefined;
 
-  /** Wraps an existing cell data object. Typically obtained via `Worksheet.cell()`. */
+  /**
+   * Wraps an existing cell data object. Typically obtained via `Worksheet.cell()`.
+   *
+   * @param data - The underlying cell data model.
+   * @param styles - Optional shared styles for number format resolution.
+   */
   constructor(data: CellData, styles?: StylesData) {
     this.data = data;
     this.styles = styles;
@@ -1572,6 +2121,34 @@ export class Cell {
     const fmt = this.numberFormat;
     if (!fmt || !isDateFormatCode(fmt)) return null;
     return serialToDate(Number.parseFloat(this.data.value));
+  }
+
+  /**
+   * Returns the rich text runs for this cell, or `undefined` if the cell
+   * has no rich text formatting. Each run contains a text segment and
+   * optional formatting properties (bold, italic, underline, strike,
+   * fontName, fontSize, color).
+   */
+  get richText(): readonly RichTextRun[] | undefined {
+    return this.data.richText;
+  }
+
+  /**
+   * Sets rich text runs on this cell, enabling mixed formatting within a
+   * single cell. The cell type is automatically set to `"sharedString"` and
+   * the plain-text value is updated to the concatenation of all run texts.
+   *
+   * Pass `undefined` to clear rich text.
+   */
+  set richText(runs: readonly RichTextRun[] | undefined) {
+    if (runs === undefined) {
+      delete this.data.richText;
+      return;
+    }
+    this.data.richText = [...runs];
+    // Auto-set the cell type and plain-text value.
+    this.data.cellType = 'sharedString';
+    this.data.value = runs.map((r) => r.text).join('');
   }
 }
 

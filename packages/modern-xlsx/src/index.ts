@@ -1,3 +1,8 @@
+import type { ReadOptions } from './types.js';
+// Internal imports for readBuffer, writeBlob, readFile
+import { ensureInitialized, wasmRead, wasmReadWithPassword, wasmWriteBlob } from './wasm-loader.js';
+import { Workbook as _Workbook } from './workbook.js';
+
 // Barcode & QR code generation
 export type {
   BarcodeMatrix,
@@ -52,9 +57,26 @@ export {
   COMMENT_NOT_FOUND,
   INVALID_ARGUMENT,
   INVALID_CELL_REF,
+  INVALID_CELL_VALUE,
+  INVALID_DATE,
+  INVALID_FORMAT,
+  INVALID_STYLE,
+  IO_ERROR,
+  LEGACY_FORMAT,
+  MISSING_PART,
   ModernXlsxError,
+  PASSWORD_PROTECTED,
+  SECURITY,
   SHEET_NOT_FOUND,
+  UNRECOGNIZED_FORMAT,
+  WASM_ERROR,
   WASM_INIT_FAILED,
+  XML_PARSE,
+  XML_WRITE,
+  ZIP_ENTRY,
+  ZIP_FINALIZE,
+  ZIP_READ,
+  ZIP_WRITE,
 } from './errors.js';
 // Formatting
 export type { FormatCellOptions, FormatCellResult } from './format-cell.js';
@@ -103,6 +125,12 @@ export {
   tokenize,
 } from './formula/index.js';
 export { HeaderFooterBuilder } from './header-footer.js';
+export type {
+  PivotDataFieldOptions,
+  PivotFieldOptions,
+  PivotPageFieldOptions,
+} from './pivot-builder.js';
+export { PivotTableBuilder } from './pivot-builder.js';
 export { RichTextBuilder } from './rich-text.js';
 // Streaming writer
 export type { StreamingCellInput } from './streaming-writer.js';
@@ -158,6 +186,8 @@ export type {
   CommentData,
   ConditionalFormattingData,
   ConditionalFormattingRuleData,
+  CustomFilterData,
+  CustomFiltersData,
   DataBarData,
   DataLabelsData,
   DataValidationData,
@@ -183,6 +213,8 @@ export type {
   MarkerStyleType,
   NumFmt,
   OutlinePropertiesData,
+  PageBreakData,
+  PageBreaksData,
   PageMarginsData,
   PageSetupData,
   PaneSelectionData,
@@ -277,21 +309,26 @@ export { Cell, Workbook, Worksheet } from './workbook.js';
 export type { XlsxWorker, XlsxWorkerOptions } from './worker-api.js';
 export { createXlsxWorker } from './worker-api.js';
 
-import type { ReadOptions } from './types.js';
-// Internal imports for readBuffer, writeBlob, readFile
-import { ensureInitialized, wasmRead, wasmReadWithPassword, wasmWriteBlob } from './wasm-loader.js';
-import { Workbook as _Workbook } from './workbook.js';
-
 /**
  * Read an XLSX file buffer and return a Workbook instance.
  * WASM must be initialized first via `initWasm()`.
  *
  * Data crosses the WASM boundary as a JSON string (serde_json in Rust,
- * JSON.parse in JS) for optimal performance — 8-13x faster than
+ * JSON.parse in JS) for optimal performance -- 8-13x faster than
  * serde_wasm_bindgen for large workbooks (100K+ rows).
  *
  * @param data - Raw XLSX bytes (possibly encrypted OLE2 container).
  * @param options - Optional read options. Pass `{ password: '...' }` for encrypted files.
+ * @returns A fully-parsed Workbook instance ready for reading/writing.
+ *
+ * @example
+ * ```ts
+ * import { initWasm, readBuffer } from 'modern-xlsx';
+ *
+ * await initWasm();
+ * const wb = await readBuffer(fileBytes);
+ * const ws = wb.getSheet('Sheet1');
+ * ```
  */
 export async function readBuffer(data: Uint8Array, options?: ReadOptions): Promise<_Workbook> {
   ensureInitialized();
@@ -303,6 +340,16 @@ export async function readBuffer(data: Uint8Array, options?: ReadOptions): Promi
  * Write a Workbook directly to a Blob for browser download.
  * WASM must be initialized first via `initWasm()`.
  * Only available in browser environments that support the Blob API.
+ *
+ * @param wb - The Workbook to serialize.
+ * @returns A Blob containing the XLSX file bytes.
+ *
+ * @example
+ * ```ts
+ * const blob = writeBlob(wb);
+ * const url = URL.createObjectURL(blob);
+ * anchor.href = url;
+ * ```
  */
 export function writeBlob(wb: _Workbook): Blob {
   ensureInitialized();
@@ -316,6 +363,16 @@ export function writeBlob(wb: _Workbook): Blob {
  *
  * @param path - File path to read.
  * @param options - Optional read options. Pass `{ password: '...' }` for encrypted files.
+ * @returns A fully-parsed Workbook instance ready for reading/writing.
+ *
+ * @example
+ * ```ts
+ * import { initWasm, readFile } from 'modern-xlsx';
+ *
+ * await initWasm();
+ * const wb = await readFile('./report.xlsx');
+ * console.log(wb.sheetNames);
+ * ```
  */
 export async function readFile(path: string, options?: ReadOptions): Promise<_Workbook> {
   const { readFile: fsReadFile } = await import('node:fs/promises');
@@ -323,4 +380,5 @@ export async function readFile(path: string, options?: ReadOptions): Promise<_Wo
   return readBuffer(new Uint8Array(buffer), options);
 }
 
-export const VERSION = '0.8.6' as const;
+/** The current library version string. */
+export const VERSION = '1.0.0-rc.1' as const;

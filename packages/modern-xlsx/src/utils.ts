@@ -35,6 +35,16 @@ interface DataBounds {
  *
  * By default, the first row is treated as the header row.
  * Pass `header: 'A'` to use column letters as keys.
+ *
+ * @param ws - The Worksheet to convert.
+ * @param opts - Options for header mode, range, default value, and row limit.
+ * @returns An array of objects where keys are header names and values are cell values.
+ *
+ * @example
+ * ```ts
+ * const data = sheetToJson(ws);
+ * console.log(data[0]); // { Name: 'Alice', Score: 95 }
+ * ```
  */
 export function sheetToJson<T extends Record<string, unknown> = Record<string, unknown>>(
   ws: Worksheet,
@@ -193,6 +203,18 @@ export interface JsonToSheetOptions {
 
 /**
  * Create a Worksheet from an array of JSON objects.
+ *
+ * @param data - Array of objects. Object keys become header labels.
+ * @param opts - Options for header order and whether to skip the header row.
+ * @returns A new Worksheet populated with the data.
+ *
+ * @example
+ * ```ts
+ * const ws = jsonToSheet([
+ *   { name: 'Alice', age: 30 },
+ *   { name: 'Bob', age: 25 },
+ * ]);
+ * ```
  */
 export function jsonToSheet(data: Record<string, unknown>[], opts?: JsonToSheetOptions): Worksheet {
   if (data.length === 0) {
@@ -257,6 +279,19 @@ export interface AoaToSheetOptions {
 
 /**
  * Create a Worksheet from a 2D array (array of arrays).
+ *
+ * @param data - 2D array where each inner array is a row of cell values.
+ * @param opts - Options including the origin cell reference.
+ * @returns A new Worksheet populated with the data.
+ *
+ * @example
+ * ```ts
+ * const ws = aoaToSheet([
+ *   ['Name', 'Score'],
+ *   ['Alice', 95],
+ *   ['Bob', 87],
+ * ]);
+ * ```
  */
 export function aoaToSheet(data: unknown[][], opts?: AoaToSheetOptions): Worksheet {
   const origin = opts?.origin ? decodeCellRef(opts.origin) : { row: 0, col: 0 };
@@ -298,6 +333,16 @@ export interface SheetToCsvOptions {
 
 /**
  * Convert a Worksheet to a CSV string.
+ *
+ * @param ws - The Worksheet to convert.
+ * @param opts - Options for separator, quoting, and row limit.
+ * @returns A CSV-formatted string.
+ *
+ * @example
+ * ```ts
+ * const csv = sheetToCsv(ws);
+ * fs.writeFileSync('output.csv', csv);
+ * ```
  */
 export function sheetToCsv(ws: Worksheet, opts?: SheetToCsvOptions): string {
   const sep = opts?.separator ?? ',';
@@ -367,6 +412,15 @@ export interface SheetToTxtOptions {
 
 /**
  * Convert a Worksheet to a tab-separated text string.
+ *
+ * @param ws - The Worksheet to convert.
+ * @param opts - Options for row limit.
+ * @returns A tab-separated string.
+ *
+ * @example
+ * ```ts
+ * const tsv = sheetToTxt(ws);
+ * ```
  */
 export function sheetToTxt(ws: Worksheet, opts?: SheetToTxtOptions): string {
   return sheetToCsv(ws, {
@@ -384,6 +438,15 @@ export function sheetToTxt(ws: Worksheet, opts?: SheetToTxtOptions): string {
  *
  * Format: `"A1=100"` for values, `"A3='SUM(A1:A2)"` for formulas.
  * String values are prefixed with `'` to distinguish from numbers.
+ *
+ * @param ws - The Worksheet to extract from.
+ * @returns An array of `"REF=VALUE"` strings.
+ *
+ * @example
+ * ```ts
+ * const formulae = sheetToFormulae(ws);
+ * // ['A1=100', "A2='Hello", "A3='SUM(A1:A2)"]
+ * ```
  */
 export function sheetToFormulae(ws: Worksheet): string[] {
   const result: string[] = [];
@@ -419,6 +482,16 @@ export interface SheetToHtmlOptions {
 
 /**
  * Convert a Worksheet to an HTML table string.
+ *
+ * @param ws - The Worksheet to convert.
+ * @param opts - Options for CSS class, inline styles, and thead rendering.
+ * @returns An HTML `<table>` string.
+ *
+ * @example
+ * ```ts
+ * const html = sheetToHtml(ws, { header: true, className: 'data-table' });
+ * document.getElementById('container').innerHTML = html;
+ * ```
  */
 export function sheetToHtml(ws: Worksheet, opts?: SheetToHtmlOptions): string {
   const rows = ws.rows;
@@ -513,6 +586,18 @@ export interface SheetAddAoaOptions {
 
 /**
  * Append array-of-arrays data to an existing Worksheet.
+ *
+ * @param ws - The target Worksheet to append data to.
+ * @param data - 2D array of values to append.
+ * @param opts - Options including the starting cell reference.
+ *
+ * @example
+ * ```ts
+ * sheetAddAoa(ws, [
+ *   ['Extra1', 100],
+ *   ['Extra2', 200],
+ * ], { origin: 'A10' });
+ * ```
  */
 export function sheetAddAoa(ws: Worksheet, data: unknown[][], opts?: SheetAddAoaOptions): void {
   const origin = opts?.origin ? decodeCellRef(opts.origin) : { row: nextEmptyRow(ws), col: 0 };
@@ -548,6 +633,17 @@ export interface SheetAddJsonOptions {
 
 /**
  * Append JSON objects to an existing Worksheet.
+ *
+ * @param ws - The target Worksheet to append data to.
+ * @param data - Array of objects to append as rows.
+ * @param opts - Options for header order, skipping headers, and origin cell.
+ *
+ * @example
+ * ```ts
+ * sheetAddJson(ws, [
+ *   { name: 'Charlie', age: 28 },
+ * ], { skipHeader: true, origin: 'A5' });
+ * ```
  */
 export function sheetAddJson(
   ws: Worksheet,

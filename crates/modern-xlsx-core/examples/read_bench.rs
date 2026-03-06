@@ -81,6 +81,7 @@ fn main() {
         comments: Vec::new(),
         tab_color: None,
         header_footer: None,
+        page_breaks: None,
         outline_properties: None,
         tables: vec![],
         sparkline_groups: vec![],

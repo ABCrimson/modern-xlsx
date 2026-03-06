@@ -66,7 +66,7 @@ pub fn serial_to_date(serial: f64, system: DateSystem) -> Result<DateTimeCompone
     if serial < 0.0 {
         cold_path();
         return Err(ModernXlsxError::InvalidDate(format!(
-            "serial number must be non-negative, got {serial}"
+            "Failed to convert serial number {serial}: value must be non-negative (negative serial numbers are not valid in Excel)"
         )));
     }
 
@@ -121,7 +121,9 @@ fn serial_to_date_1900(
         .checked_add_signed(chrono::Duration::days(adjusted))
         .ok_or_else(|| {
             cold_path();
-            ModernXlsxError::InvalidDate(format!("date overflow for serial {day_int}"))
+            ModernXlsxError::InvalidDate(format!(
+                "Failed to convert serial number {day_int}: date overflow — the value is too large for the calendar"
+            ))
         })?;
 
     Ok(DateTimeComponents {
@@ -147,7 +149,9 @@ fn serial_to_date_1904(
         .checked_add_signed(chrono::Duration::days(day_int))
         .ok_or_else(|| {
             cold_path();
-            ModernXlsxError::InvalidDate(format!("date overflow for serial {day_int}"))
+            ModernXlsxError::InvalidDate(format!(
+                "Failed to convert serial number {day_int}: date overflow — the value is too large for the calendar"
+            ))
         })?;
 
     Ok(DateTimeComponents {
@@ -189,7 +193,7 @@ fn date_to_serial_1900(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
     let date = NaiveDate::from_ymd_opt(dt.year, dt.month, dt.day).ok_or_else(|| {
         cold_path();
         ModernXlsxError::InvalidDate(format!(
-            "invalid date: {}-{}-{}",
+            "Failed to construct date from {}-{:02}-{:02}: not a valid calendar date",
             dt.year, dt.month, dt.day
         ))
     })?;
@@ -207,7 +211,7 @@ fn date_to_serial_1904(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
     let date = NaiveDate::from_ymd_opt(dt.year, dt.month, dt.day).ok_or_else(|| {
         cold_path();
         ModernXlsxError::InvalidDate(format!(
-            "invalid date: {}-{}-{}",
+            "Failed to construct date from {}-{:02}-{:02}: not a valid calendar date",
             dt.year, dt.month, dt.day
         ))
     })?;
@@ -302,5 +306,34 @@ mod tests {
         assert_eq!(dt.year, 1899);
         assert_eq!(dt.month, 12);
         assert_eq!(dt.day, 31);
+    }
+
+    #[test]
+    fn test_error_messages_have_context() {
+        // Negative serial should mention the value
+        let err = serial_to_date(-5.0, DateSystem::Date1900).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("-5"), "expected serial value in error, got: {msg}");
+        assert!(
+            msg.contains("non-negative"),
+            "expected 'non-negative' hint, got: {msg}"
+        );
+        assert_eq!(err.code(), "INVALID_DATE");
+
+        // Invalid calendar date
+        let bad_dt = DateTimeComponents {
+            year: 2024, month: 13, day: 1,
+            hour: 0, minute: 0, second: 0, millisecond: 0,
+        };
+        let err = date_to_serial(&bad_dt, DateSystem::Date1900).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("2024-13-01"),
+            "expected formatted date in error, got: {msg}"
+        );
+        assert!(
+            msg.contains("not a valid calendar date"),
+            "expected calendar hint, got: {msg}"
+        );
     }
 }

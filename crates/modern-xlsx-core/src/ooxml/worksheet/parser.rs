@@ -6,10 +6,10 @@ use quick_xml::Reader;
 use super::json::{cell_type_json_str, json_escape_to, write_f64_json};
 use super::{
     AutoFilter, Cell, CellType, Cfvo, ColorScale, ColumnInfo, ConditionalFormatting,
-    ConditionalFormattingRule, DataBar, DataValidation, FilterColumn, FrozenPane, HeaderFooter,
-    Hyperlink, IconSet, OutlineProperties, PageSetup, PaneSelection, ParseState, Row,
-    SheetProtection, SheetViewData, Sparkline, SparklineGroup, SplitPane, WorksheetXml,
-    parse_col_element,
+    ConditionalFormattingRule, CustomFilter, CustomFilters, DataBar, DataValidation, FilterColumn,
+    FrozenPane, HeaderFooter, Hyperlink, IconSet, OutlineProperties, PageBreak, PageBreaks,
+    PageSetup, PaneSelection, ParseState, Row, SheetProtection, SheetViewData, Sparkline,
+    SparklineGroup, SplitPane, WorksheetXml, parse_col_element,
 };
 use crate::ooxml::push_entity;
 use crate::{ModernXlsxError, Result};
@@ -483,6 +483,23 @@ fn parse_outline_pr_attrs(e: &BytesStart<'_>) -> OutlineProperties {
     op
 }
 
+/// Parse `<brk>` (break) attributes into a `PageBreak`.
+#[inline]
+fn parse_brk_attrs(e: &BytesStart<'_>) -> PageBreak {
+    let mut brk = PageBreak { id: 0, min: None, max: None, man: false };
+    for attr in e.attributes().flatten() {
+        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        match attr.key.local_name().as_ref() {
+            b"id" => brk.id = val.parse().unwrap_or(0),
+            b"min" => brk.min = val.parse().ok(),
+            b"max" => brk.max = val.parse().ok(),
+            b"man" => brk.man = val == "1" || val.eq_ignore_ascii_case("true"),
+            _ => {}
+        }
+    }
+    brk
+}
+
 /// Parse `<sparklineGroup>` attributes into a `SparklineGroup`.
 fn parse_sparkline_group_attrs(e: &BytesStart<'_>) -> SparklineGroup {
     let mut group = SparklineGroup::default();
@@ -589,6 +606,7 @@ impl WorksheetXml {
         let mut tab_color: Option<String> = None;
         let mut header_footer: Option<HeaderFooter> = None;
         let mut hf_text_buf = String::new();
+        let mut page_breaks: Option<PageBreaks> = None;
         let mut outline_properties: Option<OutlineProperties> = None;
 
         // Sparkline/extLst parsing state.
@@ -645,6 +663,9 @@ impl WorksheetXml {
         let mut cur_af_columns: Vec<FilterColumn> = Vec::new();
         let mut cur_filter_col_id: u32 = 0;
         let mut cur_filter_vals: Vec<String> = Vec::new();
+        let mut cur_custom_filters: Option<CustomFilters> = None;
+        let mut cur_custom_filter_and: bool = false;
+        let mut cur_custom_filter_items: Vec<CustomFilter> = Vec::new();
 
         // Conditional formatting sub-element state.
         let mut cur_cfvos: Vec<Cfvo> = Vec::new();
@@ -792,9 +813,16 @@ impl WorksheetXml {
                                 .and_then(|v| v.parse::<u32>().ok())
                                 .unwrap_or(0);
                             cur_filter_vals.clear();
+                            cur_custom_filters = None;
                         }
                         (ParseState::InFilterColumn, b"filters") => {
                             state = ParseState::InFilters;
+                        }
+                        (ParseState::InFilterColumn, b"customFilters") => {
+                            state = ParseState::InCustomFilters;
+                            cur_custom_filter_and = find_attr_str(e, b"and")
+                                .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+                            cur_custom_filter_items.clear();
                         }
                         (ParseState::Root, b"headerFooter") => {
                             header_footer = Some(parse_header_footer_attrs(e));
@@ -806,6 +834,16 @@ impl WorksheetXml {
                         (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
                         (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
                         (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
+
+                        // ---- rowBreaks / colBreaks ----
+                        (ParseState::Root, b"rowBreaks") => {
+                            page_breaks.get_or_insert_with(PageBreaks::default);
+                            state = ParseState::InRowBreaks;
+                        }
+                        (ParseState::Root, b"colBreaks") => {
+                            page_breaks.get_or_insert_with(PageBreaks::default);
+                            state = ParseState::InColBreaks;
+                        }
 
                         // ---- extLst / sparklines ----
                         (ParseState::Root, b"extLst") => {
@@ -943,6 +981,17 @@ impl WorksheetXml {
                         (ParseState::Root, b"sheetProtection") => {
                             sheet_protection = Some(parse_sheet_protection_attrs(e));
                         }
+                        // brk (page break, always self-closing).
+                        (ParseState::InRowBreaks, b"brk") => {
+                            if let Some(ref mut pb) = page_breaks {
+                                pb.row_breaks.push(parse_brk_attrs(e));
+                            }
+                        }
+                        (ParseState::InColBreaks, b"brk") => {
+                            if let Some(ref mut pb) = page_breaks {
+                                pb.col_breaks.push(parse_brk_attrs(e));
+                            }
+                        }
                         // cfvo in colorScale/dataBar/iconSet.
                         (ParseState::InColorScale | ParseState::InDataBar | ParseState::InIconSet, b"cfvo") => {
                             cur_cfvos.push(parse_cfvo_attrs(e));
@@ -964,6 +1013,12 @@ impl WorksheetXml {
                             if let Some(val) = find_attr_str(e, b"val") {
                                 cur_filter_vals.push(val);
                             }
+                        }
+                        // custom filter values (self-closing <customFilter>).
+                        (ParseState::InCustomFilters, b"customFilter") => {
+                            let val = find_attr_str(e, b"val").unwrap_or_default();
+                            let operator = find_attr_str(e, b"operator");
+                            cur_custom_filter_items.push(CustomFilter { operator, val });
                         }
                         // Sparkline color elements (self-closing).
                         (ParseState::SparklineGroup, _) => {
@@ -1068,6 +1123,7 @@ impl WorksheetXml {
                                 formula_dt2d: cur_formula.formula_dt2d.take(),
                                 formula_dtr1: cur_formula.formula_dtr1.take(),
                                 formula_dtr2: cur_formula.formula_dtr2.take(),
+                                rich_text: None,
                             });
                             state = ParseState::InRow;
                         }
@@ -1153,10 +1209,18 @@ impl WorksheetXml {
                         (ParseState::InFilters, b"filters") => {
                             state = ParseState::InFilterColumn;
                         }
+                        (ParseState::InCustomFilters, b"customFilters") => {
+                            cur_custom_filters = Some(CustomFilters {
+                                and_op: cur_custom_filter_and,
+                                filters: std::mem::take(&mut cur_custom_filter_items),
+                            });
+                            state = ParseState::InFilterColumn;
+                        }
                         (ParseState::InFilterColumn, b"filterColumn") => {
                             cur_af_columns.push(FilterColumn {
                                 col_id: cur_filter_col_id,
                                 filters: std::mem::take(&mut cur_filter_vals),
+                                custom_filters: cur_custom_filters.take(),
                             });
                             state = ParseState::InAutoFilter;
                         }
@@ -1196,6 +1260,12 @@ impl WorksheetXml {
                             state = ParseState::HeaderFooter;
                         }
                         (ParseState::HeaderFooter, b"headerFooter") => {
+                            state = ParseState::Root;
+                        }
+                        (ParseState::InRowBreaks, b"rowBreaks") => {
+                            state = ParseState::Root;
+                        }
+                        (ParseState::InColBreaks, b"colBreaks") => {
                             state = ParseState::Root;
                         }
 
@@ -1277,6 +1347,7 @@ impl WorksheetXml {
             tab_color,
             tables: Vec::new(),
             header_footer,
+            page_breaks,
             outline_properties,
             sparkline_groups,
             charts: Vec::new(),
@@ -1330,6 +1401,7 @@ impl WorksheetXml {
         let mut tab_color: Option<String> = None;
         let mut header_footer: Option<HeaderFooter> = None;
         let mut hf_text_buf = String::new();
+        let mut page_breaks: Option<PageBreaks> = None;
         let mut outline_properties: Option<OutlineProperties> = None;
 
         // Sparkline/extLst parsing state.
@@ -1374,6 +1446,9 @@ impl WorksheetXml {
         let mut cur_af_columns: Vec<FilterColumn> = Vec::new();
         let mut cur_filter_col_id: u32 = 0;
         let mut cur_filter_vals: Vec<String> = Vec::new();
+        let mut cur_custom_filters: Option<CustomFilters> = None;
+        let mut cur_custom_filter_and: bool = false;
+        let mut cur_custom_filter_items: Vec<CustomFilter> = Vec::new();
         let mut cur_cfvos: Vec<Cfvo> = Vec::new();
         let mut cur_cf_colors: Vec<String> = Vec::new();
         let mut cur_cf_bar_color = String::new();
@@ -1559,8 +1634,15 @@ impl WorksheetXml {
                                 .and_then(|v| v.parse::<u32>().ok())
                                 .unwrap_or(0);
                             cur_filter_vals.clear();
+                            cur_custom_filters = None;
                         }
                         (ParseState::InFilterColumn, b"filters") => state = ParseState::InFilters,
+                        (ParseState::InFilterColumn, b"customFilters") => {
+                            state = ParseState::InCustomFilters;
+                            cur_custom_filter_and = find_attr_str(e, b"and")
+                                .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+                            cur_custom_filter_items.clear();
+                        }
 
                         (ParseState::Root, b"headerFooter") => {
                             header_footer = Some(parse_header_footer_attrs(e));
@@ -1572,6 +1654,16 @@ impl WorksheetXml {
                         (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
                         (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
                         (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
+
+                        // ---- rowBreaks / colBreaks ----
+                        (ParseState::Root, b"rowBreaks") => {
+                            page_breaks.get_or_insert_with(PageBreaks::default);
+                            state = ParseState::InRowBreaks;
+                        }
+                        (ParseState::Root, b"colBreaks") => {
+                            page_breaks.get_or_insert_with(PageBreaks::default);
+                            state = ParseState::InColBreaks;
+                        }
 
                         // ---- extLst / sparklines ----
                         (ParseState::Root, b"extLst") => {
@@ -1718,6 +1810,17 @@ impl WorksheetXml {
                         (ParseState::Root, b"sheetProtection") => {
                             sheet_protection = Some(parse_sheet_protection_attrs(e));
                         }
+                        // brk (page break, always self-closing).
+                        (ParseState::InRowBreaks, b"brk") => {
+                            if let Some(ref mut pb) = page_breaks {
+                                pb.row_breaks.push(parse_brk_attrs(e));
+                            }
+                        }
+                        (ParseState::InColBreaks, b"brk") => {
+                            if let Some(ref mut pb) = page_breaks {
+                                pb.col_breaks.push(parse_brk_attrs(e));
+                            }
+                        }
                         (ParseState::InColorScale | ParseState::InDataBar | ParseState::InIconSet, b"cfvo") => {
                             cur_cfvos.push(parse_cfvo_attrs(e));
                         }
@@ -1735,6 +1838,11 @@ impl WorksheetXml {
                             if let Some(val) = find_attr_str(e, b"val") {
                                 cur_filter_vals.push(val);
                             }
+                        }
+                        (ParseState::InCustomFilters, b"customFilter") => {
+                            let val = find_attr_str(e, b"val").unwrap_or_default();
+                            let operator = find_attr_str(e, b"operator");
+                            cur_custom_filter_items.push(CustomFilter { operator, val });
                         }
                         // Sparkline color elements (self-closing).
                         (ParseState::SparklineGroup, _) => {
@@ -1963,10 +2071,18 @@ impl WorksheetXml {
                             state = ParseState::Root;
                         }
                         (ParseState::InFilters, b"filters") => state = ParseState::InFilterColumn,
+                        (ParseState::InCustomFilters, b"customFilters") => {
+                            cur_custom_filters = Some(CustomFilters {
+                                and_op: cur_custom_filter_and,
+                                filters: std::mem::take(&mut cur_custom_filter_items),
+                            });
+                            state = ParseState::InFilterColumn;
+                        }
                         (ParseState::InFilterColumn, b"filterColumn") => {
                             cur_af_columns.push(FilterColumn {
                                 col_id: cur_filter_col_id,
                                 filters: std::mem::take(&mut cur_filter_vals),
+                                custom_filters: cur_custom_filters.take(),
                             });
                             state = ParseState::InAutoFilter;
                         }
@@ -2006,6 +2122,12 @@ impl WorksheetXml {
                             state = ParseState::HeaderFooter;
                         }
                         (ParseState::HeaderFooter, b"headerFooter") => {
+                            state = ParseState::Root;
+                        }
+                        (ParseState::InRowBreaks, b"rowBreaks") => {
+                            state = ParseState::Root;
+                        }
+                        (ParseState::InColBreaks, b"colBreaks") => {
                             state = ParseState::Root;
                         }
 
@@ -2138,6 +2260,10 @@ impl WorksheetXml {
         if let Some(ref hf) = header_footer {
             out.push_str(",\"headerFooter\":");
             out.push_str(&serde_json::to_string(hf)?);
+        }
+        if let Some(ref pb) = page_breaks {
+            out.push_str(",\"pageBreaks\":");
+            out.push_str(&serde_json::to_string(pb)?);
         }
         if let Some(ref op) = outline_properties {
             out.push_str(",\"outlineProperties\":");

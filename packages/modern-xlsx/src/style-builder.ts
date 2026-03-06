@@ -15,6 +15,16 @@ import type {
  *
  * Chain setter methods then call {@link build} to register the style
  * in a `StylesData` object and obtain a reusable style index.
+ *
+ * @example
+ * ```ts
+ * const idx = new StyleBuilder()
+ *   .font({ bold: true, color: 'FF0000' })
+ *   .fill({ pattern: 'solid', fgColor: 'FFFF00' })
+ *   .border({ bottom: { style: 'thin', color: '000000' } })
+ *   .build(wb.styles);
+ * ws.cell('A1').styleIndex = idx;
+ * ```
  */
 export class StyleBuilder {
   private fontData: Partial<FontData> = {};
@@ -24,13 +34,33 @@ export class StyleBuilder {
   private alignmentData: Partial<AlignmentData> | null = null;
   private protectionData: Partial<ProtectionData> | null = null;
 
-  /** Set font properties (name, size, bold, italic, color, etc.). */
+  /**
+   * Set font properties (name, size, bold, italic, color, etc.).
+   *
+   * @param opts - Partial font data to merge into the current font.
+   * @returns `this` for chaining.
+   *
+   * @example
+   * ```ts
+   * builder.font({ name: 'Arial', size: 14, bold: true });
+   * ```
+   */
   font(opts: Partial<FontData>): this {
     Object.assign(this.fontData, opts);
     return this;
   }
 
-  /** Set fill properties (pattern type, foreground color, background color). */
+  /**
+   * Set fill properties (pattern type, foreground color, background color).
+   *
+   * @param opts - Fill options with pattern type and colors as hex RGB strings.
+   * @returns `this` for chaining.
+   *
+   * @example
+   * ```ts
+   * builder.fill({ pattern: 'solid', fgColor: '4472C4' });
+   * ```
+   */
   fill(opts: { pattern?: PatternType; fgColor?: string | null; bgColor?: string | null }): this {
     if (opts.pattern !== undefined) this.fillData.patternType = opts.pattern;
     if (opts.fgColor !== undefined) this.fillData.fgColor = opts.fgColor;
@@ -38,7 +68,20 @@ export class StyleBuilder {
     return this;
   }
 
-  /** Set border styles and colors for each side (left, right, top, bottom). */
+  /**
+   * Set border styles and colors for each side (left, right, top, bottom).
+   *
+   * @param opts - Border definitions for each side.
+   * @returns `this` for chaining.
+   *
+   * @example
+   * ```ts
+   * builder.border({
+   *   bottom: { style: 'double', color: '000000' },
+   *   top: { style: 'thin' },
+   * });
+   * ```
+   */
   border(opts: {
     left?: { style: BorderStyle; color?: string | null };
     right?: { style: BorderStyle; color?: string | null };
@@ -55,29 +98,64 @@ export class StyleBuilder {
     return this;
   }
 
-  /** Set alignment properties (horizontal, vertical, wrap text, rotation, indent). */
+  /**
+   * Set alignment properties (horizontal, vertical, wrap text, rotation, indent).
+   *
+   * @param opts - Alignment options to merge into the current alignment.
+   * @returns `this` for chaining.
+   *
+   * @example
+   * ```ts
+   * builder.alignment({ horizontal: 'center', wrapText: true });
+   * ```
+   */
   alignment(opts: Partial<AlignmentData>): this {
     this.alignmentData ??= {};
     Object.assign(this.alignmentData, opts);
     return this;
   }
 
-  /** Set cell protection properties (locked, hidden). */
+  /**
+   * Set cell protection properties (locked, hidden).
+   *
+   * @param opts - Protection options.
+   * @returns `this` for chaining.
+   */
   protection(opts: Partial<ProtectionData>): this {
     this.protectionData ??= {};
     Object.assign(this.protectionData, opts);
     return this;
   }
 
-  /** Set a custom number format code (e.g. `"#,##0.00"`, `"yyyy-mm-dd"`). */
+  /**
+   * Set a custom number format code (e.g., `'#,##0.00'`, `'yyyy-mm-dd'`).
+   *
+   * @param code - The Excel number format code string.
+   * @returns `this` for chaining.
+   *
+   * @example
+   * ```ts
+   * builder.numberFormat('#,##0.00');
+   * ```
+   */
   numberFormat(code: string): this {
     this.numFmtCode = code;
     return this;
   }
 
   /**
-   * Build the style and add it to the styles data. Returns the style index
-   * that can be assigned to cell.styleIndex.
+   * Build the style and register it in the given styles data object.
+   *
+   * @param styles - The workbook's shared StylesData (typically `wb.styles`).
+   * @returns The zero-based style index to assign to `cell.styleIndex`.
+   *
+   * @example
+   * ```ts
+   * const idx = new StyleBuilder()
+   *   .font({ bold: true })
+   *   .build(wb.styles);
+   * ws.cell('A1').styleIndex = idx;
+   * ```
    */
   build(styles: StylesData): number {
     const fontId = pushFont(styles, this.fontData);

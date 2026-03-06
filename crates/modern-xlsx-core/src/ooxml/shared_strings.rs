@@ -17,15 +17,19 @@ use crate::{ModernXlsxError, Result};
 #[serde(rename_all = "camelCase")]
 pub struct RichTextRun {
     pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bold: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub italic: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub underline: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strike: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
 }
 
@@ -73,6 +77,8 @@ impl SharedStringTable {
         let mut run_text = String::new();
         let mut run_bold: Option<bool> = None;
         let mut run_italic: Option<bool> = None;
+        let mut run_underline: Option<bool> = None;
+        let mut run_strike: Option<bool> = None;
         let mut run_font_name: Option<String> = None;
         let mut run_font_size: Option<f64> = None;
         let mut run_color: Option<String> = None;
@@ -92,6 +98,8 @@ impl SharedStringTable {
                             run_text.clear();
                             run_bold = None;
                             run_italic = None;
+                            run_underline = None;
+                            run_strike = None;
                             run_font_name = None;
                             run_font_size = None;
                             run_color = None;
@@ -143,6 +151,12 @@ impl SharedStringTable {
                         }
                         b"i" if in_rpr => {
                             run_italic = Some(true);
+                        }
+                        b"u" if in_rpr => {
+                            run_underline = Some(true);
+                        }
+                        b"strike" if in_rpr => {
+                            run_strike = Some(true);
                         }
                         b"rFont" if in_rpr => {
                             if let Some(attr) = e.attributes().flatten()
@@ -207,6 +221,8 @@ impl SharedStringTable {
                                 text: std::mem::take(&mut run_text),
                                 bold: run_bold,
                                 italic: run_italic,
+                                underline: run_underline,
+                                strike: run_strike,
                                 font_name: run_font_name.take(),
                                 font_size: run_font_size.take(),
                                 color: run_color.take(),
@@ -338,6 +354,8 @@ impl SharedStringTable {
                     // Write <rPr> only if there is formatting.
                     if run.bold.is_some()
                         || run.italic.is_some()
+                        || run.underline.is_some()
+                        || run.strike.is_some()
                         || run.font_name.is_some()
                         || run.font_size.is_some()
                         || run.color.is_some()
@@ -359,6 +377,20 @@ impl SharedStringTable {
                             writer
                                 .write_event(Event::Empty(
                                     BytesStart::new("i"),
+                                ))
+                                .map_err(map_write_err)?;
+                        }
+                        if run.underline == Some(true) {
+                            writer
+                                .write_event(Event::Empty(
+                                    BytesStart::new("u"),
+                                ))
+                                .map_err(map_write_err)?;
+                        }
+                        if run.strike == Some(true) {
+                            writer
+                                .write_event(Event::Empty(
+                                    BytesStart::new("strike"),
                                 ))
                                 .map_err(map_write_err)?;
                         }
@@ -454,11 +486,15 @@ impl SharedStringTable {
 /// A builder for constructing a Shared String Table when writing an XLSX file.
 ///
 /// Strings are deduplicated: inserting the same string twice returns the same
-/// index both times.
+/// index both times. Rich text entries override the plain text entry when
+/// inserted for the same key string.
 #[derive(Debug, Clone, Default)]
 pub struct SharedStringTableBuilder {
     strings: Vec<String>,
     index: HashMap<String, usize>,
+    /// Rich text runs parallel to `strings`. If entry *i* has rich text,
+    /// `rich_runs[i]` is `Some(runs)`, otherwise `None`.
+    rich_runs: Vec<Option<Vec<RichTextRun>>>,
 }
 
 impl SharedStringTableBuilder {
@@ -467,6 +503,7 @@ impl SharedStringTableBuilder {
         SharedStringTableBuilder {
             strings: Vec::new(),
             index: HashMap::new(),
+            rich_runs: Vec::new(),
         }
     }
 
@@ -498,10 +535,45 @@ impl SharedStringTableBuilder {
             Entry::Occupied(e) => *e.get(),
             Entry::Vacant(e) => {
                 self.strings.push(s.to_owned());
+                self.rich_runs.push(None);
                 e.insert(next_idx);
                 next_idx
             }
         }
+    }
+
+    /// Insert a rich text entry and return its zero-based index.
+    ///
+    /// The plain text key is the concatenation of all run texts. If that key
+    /// was previously inserted (plain or rich), the existing index is returned
+    /// and the rich runs are upgraded to the new runs.
+    pub fn insert_rich(&mut self, key: &str, runs: Vec<RichTextRun>) -> usize {
+        use std::collections::hash_map::Entry;
+        let next_idx = self.strings.len();
+        match self.index.entry(key.to_owned()) {
+            Entry::Occupied(e) => {
+                let idx = *e.get();
+                // Upgrade to rich text if it was previously plain.
+                if idx < self.rich_runs.len() {
+                    self.rich_runs[idx] = Some(runs);
+                }
+                idx
+            }
+            Entry::Vacant(e) => {
+                self.strings.push(key.to_owned());
+                self.rich_runs.push(Some(runs));
+                e.insert(next_idx);
+                next_idx
+            }
+        }
+    }
+
+    /// Return the rich text runs for the entry at `index`, if it is a rich
+    /// text entry.
+    pub fn get_rich_runs(&self, index: usize) -> Option<&[RichTextRun]> {
+        self.rich_runs
+            .get(index)
+            .and_then(|opt| opt.as_deref())
     }
 
     /// Serialize the shared string table to XML bytes suitable for
@@ -536,27 +608,127 @@ impl SharedStringTableBuilder {
             .write_event(Event::Start(sst_start))
             .map_err(map_write_err)?;
 
-        // Each string: <si><t>text</t></si>
-        for s in &self.strings {
+        // Each string: <si><t>text</t></si> or <si><r>...</r>...</si>
+        for (i, s) in self.strings.iter().enumerate() {
+            let runs = self
+                .rich_runs
+                .get(i)
+                .and_then(|opt| opt.as_ref());
+
             writer
                 .write_event(Event::Start(BytesStart::new("si")))
                 .map_err(map_write_err)?;
-            let mut t_elem = BytesStart::new("t");
-            if s.starts_with(' ') || s.ends_with(' ')
-                || s.starts_with('\t') || s.ends_with('\t')
-                || s.starts_with('\n') || s.ends_with('\n')
-            {
-                t_elem.push_attribute(("xml:space", "preserve"));
+
+            if let Some(runs) = runs {
+                // Rich text entry — write each <r>.
+                for run in runs {
+                    writer
+                        .write_event(Event::Start(BytesStart::new("r")))
+                        .map_err(map_write_err)?;
+
+                    // Write <rPr> only if there is formatting.
+                    if run.bold.is_some()
+                        || run.italic.is_some()
+                        || run.underline.is_some()
+                        || run.strike.is_some()
+                        || run.font_name.is_some()
+                        || run.font_size.is_some()
+                        || run.color.is_some()
+                    {
+                        writer
+                            .write_event(Event::Start(BytesStart::new("rPr")))
+                            .map_err(map_write_err)?;
+
+                        if run.bold == Some(true) {
+                            writer
+                                .write_event(Event::Empty(BytesStart::new("b")))
+                                .map_err(map_write_err)?;
+                        }
+                        if run.italic == Some(true) {
+                            writer
+                                .write_event(Event::Empty(BytesStart::new("i")))
+                                .map_err(map_write_err)?;
+                        }
+                        if run.underline == Some(true) {
+                            writer
+                                .write_event(Event::Empty(BytesStart::new("u")))
+                                .map_err(map_write_err)?;
+                        }
+                        if run.strike == Some(true) {
+                            writer
+                                .write_event(Event::Empty(BytesStart::new("strike")))
+                                .map_err(map_write_err)?;
+                        }
+                        if let Some(size) = run.font_size {
+                            let mut sz = BytesStart::new("sz");
+                            let size_str = size.to_string();
+                            sz.push_attribute(("val", size_str.as_str()));
+                            writer
+                                .write_event(Event::Empty(sz))
+                                .map_err(map_write_err)?;
+                        }
+                        if let Some(ref color) = run.color {
+                            let mut c = BytesStart::new("color");
+                            c.push_attribute(("rgb", color.as_str()));
+                            writer
+                                .write_event(Event::Empty(c))
+                                .map_err(map_write_err)?;
+                        }
+                        if let Some(ref name) = run.font_name {
+                            let mut f = BytesStart::new("rFont");
+                            f.push_attribute(("val", name.as_str()));
+                            writer
+                                .write_event(Event::Empty(f))
+                                .map_err(map_write_err)?;
+                        }
+
+                        writer
+                            .write_event(Event::End(BytesEnd::new("rPr")))
+                            .map_err(map_write_err)?;
+                    }
+
+                    // <t>text</t>
+                    let mut t_elem = BytesStart::new("t");
+                    if run.text.starts_with(' ') || run.text.ends_with(' ')
+                        || run.text.starts_with('\t') || run.text.ends_with('\t')
+                        || run.text.starts_with('\n') || run.text.ends_with('\n')
+                    {
+                        t_elem.push_attribute(("xml:space", "preserve"));
+                    }
+                    writer
+                        .write_event(Event::Start(t_elem))
+                        .map_err(map_write_err)?;
+                    writer
+                        .write_event(Event::Text(BytesText::new(&run.text)))
+                        .map_err(map_write_err)?;
+                    writer
+                        .write_event(Event::End(BytesEnd::new("t")))
+                        .map_err(map_write_err)?;
+
+                    writer
+                        .write_event(Event::End(BytesEnd::new("r")))
+                        .map_err(map_write_err)?;
+                }
+            } else {
+                // Plain text entry.
+                let mut t_elem = BytesStart::new("t");
+                if s.starts_with(' ') || s.ends_with(' ')
+                    || s.starts_with('\t') || s.ends_with('\t')
+                    || s.starts_with('\n') || s.ends_with('\n')
+                {
+                    t_elem.push_attribute(("xml:space", "preserve"));
+                }
+                writer
+                    .write_event(Event::Start(t_elem))
+                    .map_err(map_write_err)?;
+                writer
+                    .write_event(Event::Text(BytesText::new(s)))
+                    .map_err(map_write_err)?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("t")))
+                    .map_err(map_write_err)?;
             }
-            writer
-                .write_event(Event::Start(t_elem))
-                .map_err(map_write_err)?;
-            writer
-                .write_event(Event::Text(BytesText::new(s)))
-                .map_err(map_write_err)?;
-            writer
-                .write_event(Event::End(BytesEnd::new("t")))
-                .map_err(map_write_err)?;
+
             writer
                 .write_event(Event::End(BytesEnd::new("si")))
                 .map_err(map_write_err)?;
@@ -735,6 +907,8 @@ mod tests {
                         text: "Bold".to_string(),
                         bold: Some(true),
                         italic: None,
+                        underline: None,
+                        strike: None,
                         font_name: Some("Calibri".to_string()),
                         font_size: Some(12.0),
                         color: Some("FF0000".to_string()),
@@ -743,6 +917,8 @@ mod tests {
                         text: " italic".to_string(),
                         bold: None,
                         italic: Some(true),
+                        underline: None,
+                        strike: None,
                         font_name: None,
                         font_size: None,
                         color: None,
@@ -797,6 +973,8 @@ mod tests {
                     text: "hello".to_string(),
                     bold: Some(true),
                     italic: None,
+                    underline: None,
+                    strike: None,
                     font_name: None,
                     font_size: None,
                     color: None,
@@ -805,6 +983,8 @@ mod tests {
                     text: " world".to_string(),
                     bold: None,
                     italic: None,
+                    underline: None,
+                    strike: None,
                     font_name: None,
                     font_size: None,
                     color: None,
@@ -822,6 +1002,133 @@ mod tests {
         assert_eq!(runs[0].text, "hello");
         assert_eq!(runs[0].bold, Some(true));
         assert_eq!(runs[1].text, " world");
+    }
+
+    #[test]
+    fn test_parse_rich_text_underline_strike() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+  <si>
+    <r>
+      <rPr><u/><strike/></rPr>
+      <t>crossed out</t>
+    </r>
+  </si>
+</sst>"#;
+
+        let sst = SharedStringTable::parse(xml.as_bytes()).unwrap();
+        assert_eq!(sst.len(), 1);
+        assert_eq!(sst.get(0), Some("crossed out"));
+
+        let runs = sst.get_rich_runs(0).expect("should have rich runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].underline, Some(true));
+        assert_eq!(runs[0].strike, Some(true));
+        assert_eq!(runs[0].bold, None);
+        assert_eq!(runs[0].italic, None);
+    }
+
+    #[test]
+    fn test_underline_strike_roundtrip_via_sst_to_xml() {
+        let sst = SharedStringTable {
+            strings: vec!["underline strike".to_string()],
+            rich_runs: vec![Some(vec![RichTextRun {
+                text: "underline strike".to_string(),
+                bold: None,
+                italic: None,
+                underline: Some(true),
+                strike: Some(true),
+                font_name: None,
+                font_size: None,
+                color: None,
+            }])],
+        };
+
+        let xml = sst.to_xml().unwrap();
+        let sst2 = SharedStringTable::parse(&xml).unwrap();
+
+        let runs = sst2.get_rich_runs(0).expect("should have rich runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].underline, Some(true));
+        assert_eq!(runs[0].strike, Some(true));
+    }
+
+    #[test]
+    fn test_builder_insert_rich() {
+        let mut builder = SharedStringTableBuilder::new();
+        builder.insert("plain");
+        let runs = vec![
+            RichTextRun {
+                text: "bold".to_string(),
+                bold: Some(true),
+                italic: None,
+                underline: None,
+                strike: None,
+                font_name: None,
+                font_size: None,
+                color: None,
+            },
+            RichTextRun {
+                text: " normal".to_string(),
+                bold: None,
+                italic: None,
+                underline: None,
+                strike: None,
+                font_name: None,
+                font_size: None,
+                color: None,
+            },
+        ];
+        let idx = builder.insert_rich("bold normal", runs);
+        assert_eq!(idx, 1);
+        assert_eq!(builder.len(), 2);
+
+        // Verify rich text survives write → parse roundtrip.
+        let xml = builder.to_xml().unwrap();
+        let sst = SharedStringTable::parse(&xml).unwrap();
+
+        assert_eq!(sst.get(0), Some("plain"));
+        assert!(sst.get_rich_runs(0).is_none());
+
+        assert_eq!(sst.get(1), Some("bold normal"));
+        let parsed_runs = sst.get_rich_runs(1).expect("should have rich runs");
+        assert_eq!(parsed_runs.len(), 2);
+        assert_eq!(parsed_runs[0].text, "bold");
+        assert_eq!(parsed_runs[0].bold, Some(true));
+        assert_eq!(parsed_runs[1].text, " normal");
+    }
+
+    #[test]
+    fn test_builder_insert_rich_upgrades_plain() {
+        let mut builder = SharedStringTableBuilder::new();
+        // First insert as plain text.
+        let idx_plain = builder.insert("hello");
+        assert_eq!(idx_plain, 0);
+        assert!(builder.get_rich_runs(0).is_none());
+
+        // Then insert the same key as rich text — should upgrade.
+        let runs = vec![RichTextRun {
+            text: "hello".to_string(),
+            bold: Some(true),
+            italic: None,
+            underline: None,
+            strike: None,
+            font_name: None,
+            font_size: None,
+            color: None,
+        }];
+        let idx_rich = builder.insert_rich("hello", runs);
+        assert_eq!(idx_rich, 0); // same index
+        assert_eq!(builder.len(), 1); // not duplicated
+
+        // Write and re-parse to verify rich text is emitted.
+        let xml = builder.to_xml().unwrap();
+        let sst = SharedStringTable::parse(&xml).unwrap();
+        assert_eq!(sst.len(), 1);
+
+        let parsed_runs = sst.get_rich_runs(0).expect("should have rich runs after upgrade");
+        assert_eq!(parsed_runs.len(), 1);
+        assert_eq!(parsed_runs[0].bold, Some(true));
     }
 
     #[test]
