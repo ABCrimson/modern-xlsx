@@ -42,6 +42,9 @@
     "LICENSE",
     "README.md"
   ],
+  "bin": {
+    "modern-xlsx": "./dist/cli.mjs"
+  },
   "sideEffects": false,
   "engines": {
     "node": ">=24.0.0"

@@ -3,7 +3,7 @@ import { defineConfig } from 'tsdown';
 export default defineConfig([
   // ESM build — primary module for bundlers and Node.js
   {
-    entry: ['src/index.ts'],
+    entry: ['src/index.ts', 'src/cli.ts'],
     format: 'esm',
     target: 'esnext',
     dts: true,
