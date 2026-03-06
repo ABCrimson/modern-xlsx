@@ -2,6 +2,16 @@ use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 use web_sys::{Blob, BlobPropertyBag};
 
+/// Parse a JSON workbook string, mapping serde errors to `JsError`.
+fn parse_workbook(json: &str) -> Result<modern_xlsx_core::WorkbookData, JsError> {
+    serde_json::from_str(json).map_err(|e| JsError::new(&format!("JSON parse error: {e}")))
+}
+
+/// Convert any `Display` error to `JsError`.
+fn to_js_err(e: impl std::fmt::Display) -> JsError {
+    JsError::new(&e.to_string())
+}
+
 /// Read an XLSX file and return parsed workbook data as a JSON string.
 ///
 /// Accepts a `Uint8Array` containing the raw `.xlsx` bytes.
@@ -13,8 +23,7 @@ use web_sys::{Blob, BlobPropertyBag};
 /// This is critical for WASM performance where `memory.grow` calls are expensive.
 #[wasm_bindgen]
 pub fn read(data: &[u8]) -> Result<String, JsError> {
-    modern_xlsx_core::reader::read_xlsx_json(data)
-        .map_err(|e| JsError::new(&e.to_string()))
+    modern_xlsx_core::reader::read_xlsx_json(data).map_err(to_js_err)
 }
 
 /// Read an encrypted XLSX file with a password.
@@ -24,8 +33,7 @@ pub fn read(data: &[u8]) -> Result<String, JsError> {
 /// If the file is not encrypted, the password is ignored and reading proceeds normally.
 #[wasm_bindgen(js_name = readWithPassword)]
 pub fn read_with_password(data: &[u8], password: &str) -> Result<String, JsError> {
-    modern_xlsx_core::reader::read_xlsx_json_with_password(data, password)
-        .map_err(|e| JsError::new(&e.to_string()))
+    modern_xlsx_core::reader::read_xlsx_json_with_password(data, password).map_err(to_js_err)
 }
 
 /// Write XLSX file bytes from a JSON string describing the workbook.
@@ -37,11 +45,8 @@ pub fn read_with_password(data: &[u8], password: &str) -> Result<String, JsError
 /// JSON string approach used in `read()`.
 #[wasm_bindgen]
 pub fn write(json: &str) -> Result<Uint8Array, JsError> {
-    let workbook: modern_xlsx_core::WorkbookData =
-        serde_json::from_str(json)
-            .map_err(|e| JsError::new(&e.to_string()))?;
-    let bytes = modern_xlsx_core::writer::write_xlsx(&workbook)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let workbook = parse_workbook(json)?;
+    let bytes = modern_xlsx_core::writer::write_xlsx(&workbook).map_err(to_js_err)?;
     let arr = Uint8Array::new_with_length(bytes.len() as u32);
     arr.copy_from(&bytes);
     Ok(arr)
@@ -53,11 +58,9 @@ pub fn write(json: &str) -> Result<Uint8Array, JsError> {
 /// Returns a `Uint8Array` containing the encrypted OLE2 compound document.
 #[wasm_bindgen(js_name = writeWithPassword)]
 pub fn write_with_password(json: &str, password: &str) -> Result<Uint8Array, JsError> {
-    let workbook: modern_xlsx_core::WorkbookData =
-        serde_json::from_str(json)
-            .map_err(|e| JsError::new(&format!("JSON parse error: {e}")))?;
-    let bytes = modern_xlsx_core::writer::write_xlsx_with_password(&workbook, password)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let workbook = parse_workbook(json)?;
+    let bytes =
+        modern_xlsx_core::writer::write_xlsx_with_password(&workbook, password).map_err(to_js_err)?;
     let arr = Uint8Array::new_with_length(bytes.len() as u32);
     arr.copy_from(&bytes);
     Ok(arr)
@@ -84,12 +87,9 @@ pub fn write_blob(json: &str) -> Result<Blob, JsError> {
 /// Returns a JSON string containing the `ValidationReport`.
 #[wasm_bindgen]
 pub fn validate(json: &str) -> Result<String, JsError> {
-    let workbook: modern_xlsx_core::WorkbookData =
-        serde_json::from_str(json)
-            .map_err(|e| JsError::new(&e.to_string()))?;
+    let workbook = parse_workbook(json)?;
     let report = modern_xlsx_core::validate::validate_workbook(&workbook);
-    serde_json::to_string(&report)
-        .map_err(|e| JsError::new(&e.to_string()))
+    serde_json::to_string(&report).map_err(to_js_err)
 }
 
 /// Validate and auto-repair a workbook. Returns repaired workbook as JSON.
@@ -98,9 +98,7 @@ pub fn validate(json: &str) -> Result<String, JsError> {
 /// Returns a JSON object with `{ workbook, report, repairCount }`.
 #[wasm_bindgen]
 pub fn repair(json: &str) -> Result<String, JsError> {
-    let mut workbook: modern_xlsx_core::WorkbookData =
-        serde_json::from_str(json)
-            .map_err(|e| JsError::new(&e.to_string()))?;
+    let mut workbook = parse_workbook(json)?;
     let repair_count = modern_xlsx_core::validate::repair_workbook(&mut workbook);
     let report = modern_xlsx_core::validate::validate_workbook(&workbook);
 
@@ -110,8 +108,7 @@ pub fn repair(json: &str) -> Result<String, JsError> {
         "report": report,
         "repairCount": repair_count,
     });
-    serde_json::to_string(&result)
-        .map_err(|e| JsError::new(&e.to_string()))
+    serde_json::to_string(&result).map_err(to_js_err)
 }
 
 /// Get the library version.
