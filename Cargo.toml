@@ -47,7 +47,7 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "console", "Performance"] }
 
 # Cryptography — ECMA-376 Agile + Standard Encryption
-digest = { version = "0.10", features = ["alloc"] }
+digest = { version = "0.11", features = ["alloc"] }
 sha2 = "0.10"
 sha1 = "0.10"
 zeroize = { version = "1.8", features = ["derive"] }
