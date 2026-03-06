@@ -66,19 +66,21 @@ console.log(existing.getSheet('Sheet1')?.cell('A1').value);
 
 ## Performance
 
-Benchmarks on a 100,000-row workbook (Node.js, single thread):
+Benchmarks on Node.js (single thread, v0.9.0):
 
 | Operation | modern-xlsx | SheetJS CE | Factor |
 |-----------|------------:|-----------:|-------:|
-| **Read 100K rows** | 1,377 ms | 5,942 ms | **4.3x faster** |
-| **Read 10K rows** | 156 ms | 732 ms | **4.7x faster** |
-| **Write 10K** (cell-by-cell) | 469 ms | 645 ms | **1.4x faster** |
-| **Write 100K** (batch) | 1,172 ms | 6,248 ms | **5.3x faster** |
-| aoaToSheet (50K) | 242 ms | 508 ms | **2.1x faster** |
-| sheetToCsv (10K) | 134 ms | 151 ms | **1.1x faster** |
-| sheetToJson (10K) | 130 ms | 127 ms | ~1.0x |
+| **Read 100K rows** | 472 ms | 1,901 ms | **4.0x faster** |
+| **Read 10K rows** | 69 ms | 170 ms | **2.5x faster** |
+| **Write 100K** (batch `aoaToSheet`) | 232 ms | 1,950 ms | **8.4x faster** |
+| **Write 50K** (batch `aoaToSheet`) | 49 ms | 80 ms | **1.6x faster** |
+| **Write 10K** (cell-by-cell) | 175 ms | 125 ms | 0.7x |
+| sheetToCsv (10K) | 37 ms | 31 ms | ~1.0x |
+| sheetToJson (10K) | 36 ms | 22 ms | ~0.6x |
 
-> ESM 133 KB + IIFE 60 KB + WASM 1.1 MB. Zero runtime dependencies. Output files **8.4x smaller**.
+**Summary:** modern-xlsx is **4-8x faster for bulk read/write** (its primary use case). SheetJS is faster for cell-by-cell writes and small utility conversions. For large workbooks, the WASM-accelerated Rust core delivers significant throughput gains.
+
+> ESM 133 KB + IIFE 60 KB + WASM 1.1 MB. Zero runtime dependencies.
 
 ## Feature Comparison
 
@@ -572,7 +574,7 @@ const runs = new RichTextBuilder()
 Single `<script>` tag — no bundler required:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.8.6/dist/modern-xlsx.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@0.9.0/dist/modern-xlsx.min.js"></script>
 <script>
   (async () => {
     await ModernXlsx.initWasm();
@@ -584,7 +586,7 @@ Single `<script>` tag — no bundler required:
 </script>
 ```
 
-Also available via unpkg: `https://unpkg.com/modern-xlsx@0.8.6/dist/modern-xlsx.min.js`
+Also available via unpkg: `https://unpkg.com/modern-xlsx@0.9.0/dist/modern-xlsx.min.js`
 
 ### Web Worker (Off-Thread)
 
