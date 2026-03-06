@@ -16,7 +16,11 @@ use crate::ooxml::{
     charts,
     comments,
     doc_props,
-    relationships::{Relationships, REL_COMMENTS, REL_DRAWING, REL_TABLE},
+    pivot_table::{PivotCacheDefinitionData, PivotCacheRecordsData, PivotTableData},
+    relationships::{
+        Relationships, REL_COMMENTS, REL_DRAWING, REL_PIVOT_CACHE_DEF, REL_PIVOT_CACHE_REC,
+        REL_PIVOT_TABLE, REL_TABLE,
+    },
     shared_strings::SharedStringTable,
     styles::Styles,
     tables::TableDefinition,
@@ -70,6 +74,8 @@ struct ReaderContext {
     doc_properties: Option<crate::ooxml::doc_props::DocProperties>,
     theme_colors: Option<crate::ooxml::theme::ThemeColors>,
     calc_chain: Vec<crate::ooxml::calc_chain::CalcChainEntry>,
+    /// Workbook-level relationships (needed for pivot cache resolution).
+    wb_rels: Relationships,
     /// (sheet_name, zip_path, visibility_state) triples in workbook order.
     sheet_targets: Vec<(String, String, SheetState)>,
     /// Paths of parsed entries (used to compute preserved_entries).
@@ -205,6 +211,7 @@ fn parse_common(data: &[u8], limits: &ZipSecurityLimits, password: Option<&str>)
         doc_properties,
         theme_colors,
         calc_chain,
+        wb_rels,
         sheet_targets,
         known_dynamic,
     })
@@ -335,6 +342,88 @@ fn resolve_charts(
     Ok(sheet_charts)
 }
 
+/// Resolve pivot table definitions for each sheet from worksheet .rels files.
+fn resolve_pivot_tables(
+    ctx: &mut ReaderContext,
+) -> Result<Vec<Vec<PivotTableData>>> {
+    let mut sheet_pivots = vec![Vec::new(); ctx.sheet_targets.len()];
+
+    for (i, (_name, sheet_path, _state)) in ctx.sheet_targets.iter().enumerate() {
+        let rels_path = derive_rels_path(sheet_path);
+
+        if let Some(rels_data) = ctx.entries.get(&rels_path) {
+            let ws_rels = Relationships::parse(rels_data)?;
+
+            for rel in ws_rels.find_by_type(REL_PIVOT_TABLE) {
+                let pivot_path = resolve_rel_target(sheet_path, &rel.target);
+
+                if let Some(pivot_data) = ctx.entries.get(&pivot_path) {
+                    debug!("parsing pivot table from: {}", pivot_path);
+                    sheet_pivots[i].push(PivotTableData::parse(pivot_data)?);
+                    ctx.known_dynamic.insert(pivot_path);
+                } else {
+                    warn!("pivot table file not found: {}", pivot_path);
+                }
+            }
+        }
+    }
+
+    Ok(sheet_pivots)
+}
+
+/// Resolve pivot cache definitions and records from workbook .rels.
+fn resolve_pivot_caches(
+    ctx: &mut ReaderContext,
+) -> Result<(Vec<PivotCacheDefinitionData>, Vec<PivotCacheRecordsData>)> {
+    let mut cache_defs: Vec<PivotCacheDefinitionData> = Vec::new();
+    let mut cache_recs: Vec<PivotCacheRecordsData> = Vec::new();
+
+    // Collect targets first to avoid borrow conflict with ctx.entries.
+    let cache_targets: Vec<String> = ctx
+        .wb_rels
+        .find_by_type(REL_PIVOT_CACHE_DEF)
+        .map(|rel| {
+            if rel.target.starts_with('/') {
+                rel.target.trim_start_matches('/').to_string()
+            } else {
+                format!("xl/{}", rel.target)
+            }
+        })
+        .collect();
+
+    for cache_path in cache_targets {
+        if let Some(cache_data) = ctx.entries.get(&cache_path) {
+            debug!("parsing pivot cache definition from: {}", cache_path);
+            cache_defs.push(PivotCacheDefinitionData::parse(cache_data)?);
+            ctx.known_dynamic.insert(cache_path.clone());
+
+            // Look for corresponding records via cache definition .rels.
+            let cache_rels_path = derive_rels_path(&cache_path);
+            if let Some(cr_data) = ctx.entries.get(&cache_rels_path) {
+                let cache_rels = Relationships::parse(cr_data)?;
+
+                for rel in cache_rels.find_by_type(REL_PIVOT_CACHE_REC) {
+                    let records_path = resolve_rel_target(&cache_path, &rel.target);
+
+                    if let Some(rec_data) = ctx.entries.get(&records_path) {
+                        debug!("parsing pivot cache records from: {}", records_path);
+                        cache_recs.push(PivotCacheRecordsData::parse(rec_data)?);
+                        ctx.known_dynamic.insert(records_path);
+                    } else {
+                        warn!("pivot cache records file not found: {}", records_path);
+                    }
+                }
+
+                ctx.known_dynamic.insert(cache_rels_path);
+            }
+        } else {
+            warn!("pivot cache definition file not found: {}", cache_path);
+        }
+    }
+
+    Ok((cache_defs, cache_recs))
+}
+
 /// Collect all ZIP entries that were not parsed into preserved_entries.
 ///
 /// Takes ownership of entries via `drain()` to avoid cloning large byte
@@ -389,6 +478,8 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
     let sheet_comments = resolve_comments(&mut ctx)?;
     let sheet_tables = resolve_tables(&mut ctx)?;
     let sheet_charts = resolve_charts(&mut ctx)?;
+    let sheet_pivots = resolve_pivot_tables(&mut ctx)?;
+    let (pivot_caches, pivot_cache_records) = resolve_pivot_caches(&mut ctx)?;
 
     // Parse each worksheet XML.
     // When the "parallel" feature is enabled, sheets are parsed concurrently.
@@ -415,6 +506,13 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
         }
     }
 
+    // Attach pivot tables to their respective worksheets.
+    for (sheet, pivots) in sheets.iter_mut().zip(sheet_pivots) {
+        if !pivots.is_empty() {
+            sheet.worksheet.pivot_tables = pivots;
+        }
+    }
+
     let preserved_entries = collect_preserved(&mut ctx);
 
     Ok(WorkbookData {
@@ -428,6 +526,8 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
         calc_chain: ctx.calc_chain,
         workbook_views: ctx.workbook_xml.workbook_views,
         protection: ctx.workbook_xml.protection,
+        pivot_caches,
+        pivot_cache_records,
         preserved_entries,
     })
 }
@@ -470,6 +570,8 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
     let sheet_comments = resolve_comments(&mut ctx)?;
     let sheet_tables = resolve_tables(&mut ctx)?;
     let sheet_charts = resolve_charts(&mut ctx)?;
+    let sheet_pivots = resolve_pivot_tables(&mut ctx)?;
+    let (pivot_caches, pivot_cache_records) = resolve_pivot_caches(&mut ctx)?;
 
     // --- Build JSON output ---
     // Estimate ~80 bytes per cell × 10 cells/row × number of rows.
@@ -501,7 +603,7 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
         })?;
         WorksheetXml::parse_to_json(ws_data, Some(&ctx.sst), &sheet_comments[i], &sheet_tables[i], &mut out)?;
 
-        // Inject charts into the worksheet JSON (before the closing '}'}).
+        // Inject charts into the worksheet JSON (before the closing '}').
         if !sheet_charts[i].is_empty() {
             // Pop the closing '}' written by parse_to_json.
             debug_assert_eq!(out.as_bytes().last(), Some(&b'}'));
@@ -509,6 +611,17 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
             out.push_str(",\"charts\":");
             out.push_str(
                 &serde_json::to_string(&sheet_charts[i]).map_err(serde_err)?,
+            );
+            out.push('}');
+        }
+
+        // Inject pivot tables into the worksheet JSON (before the closing '}').
+        if !sheet_pivots[i].is_empty() {
+            debug_assert_eq!(out.as_bytes().last(), Some(&b'}'));
+            out.pop();
+            out.push_str(",\"pivotTables\":");
+            out.push_str(
+                &serde_json::to_string(&sheet_pivots[i]).map_err(serde_err)?,
             );
             out.push('}');
         }
@@ -567,6 +680,18 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
     if let Some(ref prot) = ctx.workbook_xml.protection {
         out.push_str(",\"protection\":");
         out.push_str(&serde_json::to_string(prot).map_err(serde_err)?);
+    }
+
+    // pivotCaches
+    if !pivot_caches.is_empty() {
+        out.push_str(",\"pivotCaches\":");
+        out.push_str(&serde_json::to_string(&pivot_caches).map_err(serde_err)?);
+    }
+
+    // pivotCacheRecords
+    if !pivot_cache_records.is_empty() {
+        out.push_str(",\"pivotCacheRecords\":");
+        out.push_str(&serde_json::to_string(&pivot_cache_records).map_err(serde_err)?);
     }
 
     // preservedEntries
@@ -761,6 +886,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
+            pivot_tables: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -880,6 +1006,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
+            pivot_tables: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -974,6 +1101,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
+            pivot_tables: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1144,6 +1272,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
+            pivot_tables: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1279,6 +1408,7 @@ mod tests {
                 outline_properties: None,
                 sparkline_groups: Vec::new(),
                 charts: Vec::new(),
+                pivot_tables: Vec::new(),
                 preserved_extensions: Vec::new(),
             };
             let ws_xml = ws.to_xml().unwrap();
@@ -1378,6 +1508,7 @@ mod tests {
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
+                    pivot_tables: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -1390,6 +1521,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1471,6 +1604,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1505,6 +1639,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1518,6 +1653,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 

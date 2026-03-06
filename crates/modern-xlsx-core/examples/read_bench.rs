@@ -85,6 +85,7 @@ fn main() {
         tables: vec![],
         sparkline_groups: vec![],
         charts: vec![],
+        pivot_tables: vec![],
         preserved_extensions: vec![],
     };
     let wb = WorkbookData {
@@ -102,6 +103,8 @@ fn main() {
         calc_chain: Vec::new(),
         workbook_views: Vec::new(),
         protection: None,
+        pivot_caches: Vec::new(),
+        pivot_cache_records: Vec::new(),
         preserved_entries: Default::default(),
     };
 

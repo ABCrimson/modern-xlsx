@@ -41,9 +41,10 @@ impl PivotAxis {
 }
 
 /// Subtotal aggregation function for pivot data fields.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SubtotalFunction {
+    #[default]
     Sum,
     Count,
     Average,
@@ -57,12 +58,6 @@ pub enum SubtotalFunction {
     Var,
     #[serde(rename = "varP")]
     VarP,
-}
-
-impl Default for SubtotalFunction {
-    fn default() -> Self {
-        Self::Sum
-    }
 }
 
 impl SubtotalFunction {

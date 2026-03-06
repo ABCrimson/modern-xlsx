@@ -40,6 +40,7 @@ fn minimal_worksheet(rows: Vec<Row>) -> WorksheetXml {
         tables: vec![],
         sparkline_groups: vec![],
         charts: vec![],
+        pivot_tables: vec![],
         preserved_extensions: vec![],
     }
 }
@@ -61,6 +62,8 @@ fn minimal_workbook(name: &str, worksheet: WorksheetXml) -> WorkbookData {
         calc_chain: vec![],
         workbook_views: vec![],
         protection: None,
+        pivot_caches: vec![],
+        pivot_cache_records: vec![],
         preserved_entries: std::collections::BTreeMap::new(),
     }
 }
@@ -171,6 +174,8 @@ fn golden_multi_sheet_roundtrip() {
         calc_chain: vec![],
         workbook_views: vec![],
         protection: None,
+        pivot_caches: vec![],
+        pivot_cache_records: vec![],
         preserved_entries: std::collections::BTreeMap::new(),
     };
     roundtrip_golden(&wb, "multi_sheet_roundtrip");

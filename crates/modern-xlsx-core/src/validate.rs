@@ -1145,6 +1145,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
+            pivot_tables: Vec::new(),
             preserved_extensions: Vec::new(),
         }
     }
@@ -1165,6 +1166,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: Default::default(),
         }
     }

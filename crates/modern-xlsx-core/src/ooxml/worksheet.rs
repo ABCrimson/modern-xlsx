@@ -171,6 +171,9 @@ pub struct WorksheetXml {
     /// Charts embedded in this worksheet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub charts: Vec<WorksheetChart>,
+    /// Pivot tables attached to this worksheet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pivot_tables: Vec<super::pivot_table::PivotTableData>,
     /// Non-sparkline extension XML preserved as raw strings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preserved_extensions: Vec<String>,
@@ -2089,6 +2092,7 @@ impl WorksheetXml {
             outline_properties,
             sparkline_groups,
             charts: Vec::new(),
+            pivot_tables: Vec::new(),
             preserved_extensions,
         })
     }
@@ -5019,6 +5023,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5109,6 +5114,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5200,6 +5206,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5246,6 +5253,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5364,6 +5372,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5512,6 +5521,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5613,6 +5623,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5679,6 +5690,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5755,6 +5767,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5857,6 +5870,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -5946,6 +5960,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -6023,6 +6038,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -6107,6 +6123,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -6212,6 +6229,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
 
@@ -6269,6 +6287,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
@@ -6307,6 +6326,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
@@ -6365,6 +6385,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
@@ -6400,6 +6421,7 @@ mod tests {
             }),
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml_with_sst(None, &[], None).unwrap();
@@ -6442,6 +6464,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
@@ -6487,6 +6510,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
@@ -6526,6 +6550,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         };
         let xml = ws.to_xml().unwrap();
@@ -6653,6 +6678,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: vec![],
             charts: vec![],
+            pivot_tables: vec![],
             preserved_extensions: vec![],
         }
     }

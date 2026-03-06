@@ -68,6 +68,12 @@ pub struct WorkbookData {
     /// Workbook-level protection settings from `<workbookProtection>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protection: Option<WorkbookProtection>,
+    /// Pivot cache definitions from xl/pivotCache/.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pivot_caches: Vec<crate::ooxml::pivot_table::PivotCacheDefinitionData>,
+    /// Pivot cache records from xl/pivotCache/.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pivot_cache_records: Vec<crate::ooxml::pivot_table::PivotCacheRecordsData>,
     /// Opaque ZIP entries not parsed by the reader (drawings, media, charts, etc.)
     /// Preserved through roundtrip without modification.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

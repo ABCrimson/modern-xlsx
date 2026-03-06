@@ -14,9 +14,12 @@ use crate::ooxml::{
     comments,
     content_types::{
         ContentTypes, CT_CHART, CT_COMMENTS, CT_CUSTOM_XML_PROPS, CT_DRAWING, CT_EXTERNAL_LINK,
-        CT_TABLE, CT_XML,
+        CT_PIVOT_CACHE_DEF, CT_PIVOT_CACHE_REC, CT_PIVOT_TABLE, CT_TABLE, CT_XML,
     },
-    relationships::{Relationships, REL_CHART, REL_COMMENTS, REL_DRAWING, REL_TABLE},
+    relationships::{
+        Relationships, REL_CHART, REL_COMMENTS, REL_DRAWING, REL_PIVOT_CACHE_DEF,
+        REL_PIVOT_CACHE_REC, REL_PIVOT_TABLE, REL_TABLE,
+    },
     shared_strings::SharedStringTableBuilder,
     workbook::{SheetInfo, SheetState, WorkbookXml},
     worksheet::CellType,
@@ -152,6 +155,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     // Also write comments XML, table XML, and worksheet .rels files.
     let mut global_table_id: u32 = 0;
     let mut global_chart_id: u32 = 0;
+    let mut global_pivot_id: u32 = 0;
     let mut generated_rels: HashSet<String> = HashSet::new();
 
     for (i, sheet) in workbook.sheets.iter().enumerate() {
@@ -159,7 +163,8 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         let has_comments = !sheet.worksheet.comments.is_empty();
         let has_tables = !sheet.worksheet.tables.is_empty();
         let has_charts = !sheet.worksheet.charts.is_empty();
-        let needs_rels = has_comments || has_tables || has_charts;
+        let has_pivot_tables = !sheet.worksheet.pivot_tables.is_empty();
+        let needs_rels = has_comments || has_tables || has_charts || has_pivot_tables;
 
         // Build (or merge) the worksheet .rels when we need to add relationships.
         let rels_path = format!("xl/worksheets/_rels/sheet{sheet_num}.xml.rels");
@@ -398,6 +403,34 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             }
         }
 
+        // --- Pivot Tables ---
+        if has_pivot_tables {
+            debug!(
+                "writing {} pivot tables for sheet {}",
+                sheet.worksheet.pivot_tables.len(),
+                sheet_num
+            );
+            for pt in &sheet.worksheet.pivot_tables {
+                global_pivot_id += 1;
+                let pt_xml = pt.to_xml()?;
+                let pt_path = format!("xl/pivotTables/pivotTable{global_pivot_id}.xml");
+
+                content_types.add_override(format!("/{pt_path}"), CT_PIVOT_TABLE);
+
+                entries.push(ZipEntry {
+                    name: pt_path,
+                    data: pt_xml,
+                });
+
+                let rid_num = ws_rels.next_r_id();
+                ws_rels.add(
+                    format!("rId{rid_num}"),
+                    REL_PIVOT_TABLE,
+                    format!("../pivotTables/pivotTable{global_pivot_id}.xml"),
+                );
+            }
+        }
+
         // --- Write worksheet .rels ---
         if needs_rels {
             generated_rels.insert(rels_path.clone());
@@ -405,6 +438,78 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 name: rels_path,
                 data: ws_rels.to_xml()?,
             });
+        }
+    }
+
+    // 5b. Write workbook-level pivot caches.
+    {
+        let mut wb_rels_extra = Relationships::new();
+
+        for (ci, cache) in workbook.pivot_caches.iter().enumerate() {
+            let cache_id = ci + 1;
+            let cache_xml = cache.to_xml()?;
+            let cache_path = format!("xl/pivotCache/pivotCacheDefinition{cache_id}.xml");
+
+            content_types.add_override(format!("/{cache_path}"), CT_PIVOT_CACHE_DEF);
+
+            entries.push(ZipEntry {
+                name: cache_path.clone(),
+                data: cache_xml,
+            });
+
+            wb_rels_extra.add(
+                format!("rId_pc{cache_id}"),
+                REL_PIVOT_CACHE_DEF,
+                format!("pivotCache/pivotCacheDefinition{cache_id}.xml"),
+            );
+
+            // Write corresponding records if present.
+            if let Some(records) = workbook.pivot_cache_records.get(ci) {
+                let rec_xml = records.to_xml()?;
+                let rec_path = format!("xl/pivotCache/pivotCacheRecords{cache_id}.xml");
+
+                content_types.add_override(format!("/{rec_path}"), CT_PIVOT_CACHE_REC);
+
+                entries.push(ZipEntry {
+                    name: rec_path,
+                    data: rec_xml,
+                });
+
+                // Write cache definition .rels pointing to the records file.
+                let mut cache_rels = Relationships::new();
+                cache_rels.add(
+                    "rId1".to_string(),
+                    REL_PIVOT_CACHE_REC,
+                    format!("pivotCacheRecords{cache_id}.xml"),
+                );
+                let cache_rels_path = format!(
+                    "xl/pivotCache/_rels/pivotCacheDefinition{cache_id}.xml.rels"
+                );
+                entries.push(ZipEntry {
+                    name: cache_rels_path.clone(),
+                    data: cache_rels.to_xml()?,
+                });
+                generated_rels.insert(cache_rels_path);
+            }
+
+            generated_rels.insert(cache_path);
+        }
+
+        // Merge pivot cache rels into the workbook .rels entry.
+        if !wb_rels_extra.relationships.is_empty() {
+            // Find the existing wb_rels entry and append pivot cache relationships.
+            if let Some(entry) = entries.iter_mut().find(|e| e.name == "xl/_rels/workbook.xml.rels")
+            {
+                let mut existing_wb_rels = Relationships::parse(&entry.data)?;
+                for rel in &wb_rels_extra.relationships {
+                    existing_wb_rels.add(
+                        format!("rId{}", existing_wb_rels.next_r_id()),
+                        rel.rel_type.clone(),
+                        rel.target.clone(),
+                    );
+                }
+                entry.data = existing_wb_rels.to_xml()?;
+            }
         }
     }
 
@@ -566,6 +671,7 @@ mod tests {
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
+                    pivot_tables: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -578,6 +684,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         }
     }
@@ -610,6 +718,7 @@ mod tests {
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
+                    pivot_tables: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -622,6 +731,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -654,6 +765,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
         let result = write_xlsx(&wb);
@@ -689,6 +802,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -717,6 +831,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -730,6 +845,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1070,6 +1187,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1098,6 +1216,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1111,6 +1230,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1175,6 +1296,7 @@ mod tests {
             outline_properties: None,
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
+            pivot_tables: Vec::new(),
             preserved_extensions: Vec::new(),
         };
 
@@ -1242,6 +1364,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1270,6 +1393,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1283,6 +1407,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1607,6 +1733,7 @@ mod tests {
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
+                    pivot_tables: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -1619,6 +1746,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1726,6 +1855,7 @@ mod tests {
                 outline_properties: None,
                 sparkline_groups: Vec::new(),
                 charts: Vec::new(),
+                pivot_tables: Vec::new(),
                 preserved_extensions: Vec::new(),
             },
         };
@@ -1744,6 +1874,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1811,6 +1943,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1839,6 +1972,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1867,6 +2001,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1880,6 +2015,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1930,6 +2067,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1958,6 +2096,7 @@ mod tests {
                         outline_properties: None,
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
+                        pivot_tables: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1971,6 +2110,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -2103,6 +2244,7 @@ mod tests {
                     outline_properties: None,
                     sparkline_groups: Vec::new(),
                     charts,
+                    pivot_tables: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -2115,6 +2257,8 @@ mod tests {
             calc_chain: Vec::new(),
             workbook_views: Vec::new(),
             protection: None,
+            pivot_caches: Vec::new(),
+            pivot_cache_records: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         }
     }
