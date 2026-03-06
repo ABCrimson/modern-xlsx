@@ -633,6 +633,7 @@ fn map_err(e: std::io::Error) -> ModernXlsxError {
 }
 
 impl ChartGrouping {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::Clustered => "clustered",
@@ -644,6 +645,7 @@ impl ChartGrouping {
 }
 
 impl ScatterStyle {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::LineMarker => "lineMarker",
@@ -656,6 +658,7 @@ impl ScatterStyle {
 }
 
 impl RadarStyle {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::Standard => "standard",
@@ -666,6 +669,7 @@ impl RadarStyle {
 }
 
 impl MarkerStyle {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::Circle => "circle",
@@ -683,6 +687,7 @@ impl MarkerStyle {
 }
 
 impl LegendPosition {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::Top => "t",
@@ -695,6 +700,7 @@ impl LegendPosition {
 }
 
 impl AxisPosition {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::Bottom => "b",
@@ -706,6 +712,7 @@ impl AxisPosition {
 }
 
 impl TickLabelPosition {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::High => "high",
@@ -717,6 +724,7 @@ impl TickLabelPosition {
 }
 
 impl TickMark {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::Cross => "cross",
@@ -728,6 +736,7 @@ impl TickMark {
 }
 
 impl TrendlineType {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::Linear => "linear",
@@ -753,6 +762,7 @@ impl TrendlineType {
 }
 
 impl ErrorBarType {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::FixedVal => "fixedVal",
@@ -776,6 +786,7 @@ impl ErrorBarType {
 }
 
 impl ErrorBarDirection {
+    #[inline]
     fn xml_val(self) -> &'static str {
         match self {
             Self::Both => "both",
@@ -3398,17 +3409,15 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                 // <c:chart r:id="rId1"/> — may also appear as just `chart`.
                 if local == b"chart" && in_anchor {
                     // Extract r:id attribute.
-                    for attr in e.attributes().flatten() {
-                        let key = attr.key.as_ref();
-                        // Match both `r:id` and bare `id` with namespace prefix.
-                        if key == b"r:id" || key.ends_with(b":id") {
-                            chart_r_id = Some(
-                                std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
-                                    .to_owned(),
-                            );
-                            break;
-                        }
+                    if let Some(attr) = e.attributes().flatten().find(|a| {
+                        let key = a.key.as_ref();
+                        key == b"r:id" || key.ends_with(b":id")
+                    }) {
+                        chart_r_id = Some(
+                            std::str::from_utf8(&attr.value)
+                                .unwrap_or_default()
+                                .to_owned(),
+                        );
                     }
                 }
                 // <xdr:ext cx="..." cy="..."/> — oneCellAnchor dimensions.

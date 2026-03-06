@@ -149,12 +149,12 @@ impl WorkbookXml {
                 Ok(Event::Empty(ref e)) => {
                     match e.local_name().as_ref() {
                         b"workbookPr" => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"date1904" {
-                                    let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                    if val == "1" || val.eq_ignore_ascii_case("true") {
-                                        date_system = DateSystem::Date1904;
-                                    }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"date1904")
+                            {
+                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                if val == "1" || val.eq_ignore_ascii_case("true") {
+                                    date_system = DateSystem::Date1904;
                                 }
                             }
                         }
@@ -173,12 +173,12 @@ impl WorkbookXml {
                 Ok(Event::Start(ref e)) => {
                     match e.local_name().as_ref() {
                         b"workbookPr" => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"date1904" {
-                                    let val = std::str::from_utf8(&attr.value).unwrap_or_default();
-                                    if val == "1" || val.eq_ignore_ascii_case("true") {
-                                        date_system = DateSystem::Date1904;
-                                    }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"date1904")
+                            {
+                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                if val == "1" || val.eq_ignore_ascii_case("true") {
+                                    date_system = DateSystem::Date1904;
                                 }
                             }
                         }

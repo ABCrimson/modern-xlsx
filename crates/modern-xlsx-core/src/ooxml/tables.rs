@@ -256,14 +256,14 @@ impl TableDefinition {
                             );
                         }
                         b"autoFilter" => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"ref" {
-                                    auto_filter_ref = Some(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.as_ref() == b"ref")
+                            {
+                                auto_filter_ref = Some(
+                                    std::str::from_utf8(&attr.value)
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                );
                             }
                         }
                         b"tableColumn" => {
@@ -298,14 +298,14 @@ impl TableDefinition {
                             );
                         }
                         b"autoFilter" => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"ref" {
-                                    auto_filter_ref = Some(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.as_ref() == b"ref")
+                            {
+                                auto_filter_ref = Some(
+                                    std::str::from_utf8(&attr.value)
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                );
                             }
                         }
                         b"tableColumn" => {
