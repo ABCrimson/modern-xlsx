@@ -395,23 +395,23 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
     let mut sheets = parse_sheets(&ctx.entries, &ctx.sheet_targets, &ctx.sst)?;
 
     // Attach comments to their respective worksheets.
-    for (i, comments) in sheet_comments.into_iter().enumerate() {
-        if !comments.is_empty() && i < sheets.len() {
-            sheets[i].worksheet.comments = comments;
+    for (sheet, comments) in sheets.iter_mut().zip(sheet_comments) {
+        if !comments.is_empty() {
+            sheet.worksheet.comments = comments;
         }
     }
 
     // Attach tables to their respective worksheets.
-    for (i, tables) in sheet_tables.into_iter().enumerate() {
-        if !tables.is_empty() && i < sheets.len() {
-            sheets[i].worksheet.tables = tables;
+    for (sheet, tables) in sheets.iter_mut().zip(sheet_tables) {
+        if !tables.is_empty() {
+            sheet.worksheet.tables = tables;
         }
     }
 
     // Attach charts to their respective worksheets.
-    for (i, charts_vec) in sheet_charts.into_iter().enumerate() {
-        if !charts_vec.is_empty() && i < sheets.len() {
-            sheets[i].worksheet.charts = charts_vec;
+    for (sheet, charts_vec) in sheets.iter_mut().zip(sheet_charts) {
+        if !charts_vec.is_empty() {
+            sheet.worksheet.charts = charts_vec;
         }
     }
 

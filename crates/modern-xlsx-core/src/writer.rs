@@ -173,16 +173,6 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             Relationships::new()
         };
 
-        // Helper: compute next available rId.
-        let next_r_id = |rels: &Relationships| -> usize {
-            rels.relationships
-                .iter()
-                .filter_map(|r| r.id.strip_prefix("rId").and_then(|n| n.parse::<usize>().ok()))
-                .max()
-                .unwrap_or(0)
-                + 1
-        };
-
         // --- Tables ---
         let mut table_r_ids: Vec<String> = Vec::new();
         if has_tables {
@@ -203,7 +193,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                     data: table_xml,
                 });
 
-                let rid_num = next_r_id(&ws_rels);
+                let rid_num = ws_rels.next_r_id();
                 let rid = format!("rId{rid_num}");
                 ws_rels.add(
                     rid.clone(),
@@ -286,16 +276,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
                     // Compute the next available rId number from actual rels (resilient
                     // to future changes in chart rId numbering scheme).
-                    let mut next_rid = drawing_rels
-                        .relationships
-                        .iter()
-                        .filter_map(|r| {
-                            r.id.strip_prefix("rId")
-                                .and_then(|n| n.parse::<usize>().ok())
-                        })
-                        .max()
-                        .unwrap_or(0)
-                        + 1;
+                    let mut next_rid = drawing_rels.next_r_id();
 
                     // Build a rId remapping: old image rId -> new rId in merged drawing.
                     let mut rid_remap: Vec<(String, String)> = Vec::new();
@@ -367,7 +348,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 // Reuse the existing drawing rId from preserved entries.
                 drawing_r_id_str = Some(existing.id.clone());
             } else {
-                let rid_num = next_r_id(&ws_rels);
+                let rid_num = ws_rels.next_r_id();
                 let rid_str = format!("rId{rid_num}");
                 ws_rels.add(
                     rid_str.clone(),
@@ -408,7 +389,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
             // Only add the comments relationship if not already present.
             if ws_rels.find_by_type(REL_COMMENTS).next().is_none() {
-                let rid_num = next_r_id(&ws_rels);
+                let rid_num = ws_rels.next_r_id();
                 ws_rels.add(
                     format!("rId{rid_num}"),
                     REL_COMMENTS,

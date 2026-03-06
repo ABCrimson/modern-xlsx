@@ -82,6 +82,16 @@ impl Relationships {
         self.relationships.iter().filter(move |r| r.rel_type == rel_type)
     }
 
+    /// Compute the next available rId number (one past the current maximum).
+    pub fn next_r_id(&self) -> usize {
+        self.relationships
+            .iter()
+            .filter_map(|r| r.id.strip_prefix("rId").and_then(|n| n.parse::<usize>().ok()))
+            .max()
+            .unwrap_or(0)
+            + 1
+    }
+
     /// Create the root `_rels/.rels` relationships for a basic workbook.
     ///
     /// Contains a single relationship pointing to `xl/workbook.xml`.
