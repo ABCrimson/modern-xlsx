@@ -36,6 +36,7 @@ import type {
   StylesData,
   TableDefinitionData,
   ThemeColorsData,
+  ThreadedCommentData,
   ValidationReport,
   ViewMode,
   WorkbookData,
@@ -108,6 +109,7 @@ export class Workbook {
     if (data?.calcChain) this.data.calcChain = data.calcChain;
     if (data?.workbookViews) this.data.workbookViews = data.workbookViews;
     if (data?.protection) this.data.protection = data.protection;
+    if (data?.persons) this.data.persons = data.persons;
     if (data?.preservedEntries) this.data.preservedEntries = data.preservedEntries;
   }
 
@@ -139,13 +141,13 @@ export class Workbook {
   /** Returns the worksheet with the given name, or `undefined` if not found. */
   getSheet(name: string): Worksheet | undefined {
     const sheet = this.data.sheets.find((s) => s.name === name);
-    return sheet ? new Worksheet(sheet, this.data.styles) : undefined;
+    return sheet ? new Worksheet(sheet, this.data.styles, this.data) : undefined;
   }
 
   /** Returns the worksheet at the given 0-based index, or `undefined` if out of range. */
   getSheetByIndex(index: number): Worksheet | undefined {
     const sheet = this.data.sheets[index];
-    return sheet ? new Worksheet(sheet, this.data.styles) : undefined;
+    return sheet ? new Worksheet(sheet, this.data.styles, this.data) : undefined;
   }
 
   /**
@@ -170,7 +172,7 @@ export class Workbook {
       },
     };
     this.data.sheets.push(sheetData);
-    return new Worksheet(sheetData, this.data.styles);
+    return new Worksheet(sheetData, this.data.styles, this.data);
   }
 
   /**
@@ -219,7 +221,7 @@ export class Workbook {
     clone.name = newName;
     const idx = insertIndex ?? this.data.sheets.length;
     this.data.sheets.splice(idx, 0, clone);
-    return new Worksheet(clone, this.data.styles);
+    return new Worksheet(clone, this.data.styles, this.data);
   }
 
   /**
@@ -597,11 +599,13 @@ export class Workbook {
 export class Worksheet {
   private readonly data: SheetData;
   /** @internal */ readonly styles: StylesData | undefined;
+  /** @internal */ private readonly workbookData: WorkbookData | undefined;
 
   /** Wraps an existing sheet data object. Typically obtained via `Workbook.getSheet()` or `Workbook.addSheet()`. */
-  constructor(data: SheetData, styles?: StylesData) {
+  constructor(data: SheetData, styles?: StylesData, workbookData?: WorkbookData) {
     this.data = data;
     this.styles = styles;
+    this.workbookData = workbookData;
   }
 
   /** Returns the sheet tab name. */
@@ -924,6 +928,94 @@ export class Worksheet {
     if (idx === -1) return false;
     this.data.worksheet.comments.splice(idx, 1);
     return true;
+  }
+
+  // --- Threaded Comments ---
+
+  /** Returns all threaded comments in this sheet. */
+  get threadedComments(): readonly ThreadedCommentData[] {
+    return this.data.worksheet.threadedComments ?? [];
+  }
+
+  /**
+   * Adds a threaded comment to the given cell reference.
+   * Creates a person entry in the workbook if the author does not exist yet.
+   * @returns The unique ID of the created comment.
+   */
+  addThreadedComment(cell: string, text: string, author: string): string {
+    const wb = this.workbookData;
+    if (!wb) {
+      throw new Error(
+        'Worksheet must be created via Workbook.addSheet() or Workbook.getSheet() to use threaded comments',
+      );
+    }
+    // Find or create person.
+    if (!wb.persons) {
+      wb.persons = [];
+    }
+    let person = wb.persons.find((p) => p.displayName === author);
+    if (!person) {
+      person = { id: crypto.randomUUID(), displayName: author };
+      wb.persons.push(person);
+    }
+    // Create comment.
+    const comment: ThreadedCommentData = {
+      id: crypto.randomUUID(),
+      refCell: cell,
+      personId: person.id,
+      text,
+      timestamp: new Date().toISOString(),
+    };
+    if (!this.data.worksheet.threadedComments) {
+      this.data.worksheet.threadedComments = [];
+    }
+    this.data.worksheet.threadedComments.push(comment);
+    return comment.id;
+  }
+
+  /**
+   * Replies to an existing threaded comment.
+   * Creates a person entry in the workbook if the author does not exist yet.
+   * @param commentId - The ID of the parent comment to reply to.
+   * @param text - The reply text.
+   * @param author - The display name of the reply author.
+   * @returns The unique ID of the reply comment.
+   * @throws If the parent comment is not found.
+   */
+  replyToComment(commentId: string, text: string, author: string): string {
+    const parent = this.data.worksheet.threadedComments?.find((c) => c.id === commentId);
+    if (!parent) {
+      throw new Error(`Comment ${commentId} not found`);
+    }
+    const wb = this.workbookData;
+    if (!wb) {
+      throw new Error(
+        'Worksheet must be created via Workbook.addSheet() or Workbook.getSheet() to use threaded comments',
+      );
+    }
+    // Find or create person.
+    if (!wb.persons) {
+      wb.persons = [];
+    }
+    let person = wb.persons.find((p) => p.displayName === author);
+    if (!person) {
+      person = { id: crypto.randomUUID(), displayName: author };
+      wb.persons.push(person);
+    }
+    // Create reply comment.
+    const reply: ThreadedCommentData = {
+      id: crypto.randomUUID(),
+      refCell: parent.refCell,
+      personId: person.id,
+      text,
+      timestamp: new Date().toISOString(),
+      parentId: commentId,
+    };
+    if (!this.data.worksheet.threadedComments) {
+      this.data.worksheet.threadedComments = [];
+    }
+    this.data.worksheet.threadedComments.push(reply);
+    return reply.id;
   }
 
   // --- Page margins ---

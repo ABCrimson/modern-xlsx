@@ -14,13 +14,15 @@ use crate::ooxml::{
     comments,
     content_types::{
         ContentTypes, CT_CHART, CT_COMMENTS, CT_CUSTOM_XML_PROPS, CT_DRAWING, CT_EXTERNAL_LINK,
-        CT_PIVOT_CACHE_DEF, CT_PIVOT_CACHE_REC, CT_PIVOT_TABLE, CT_TABLE, CT_XML,
+        CT_PERSONS, CT_PIVOT_CACHE_DEF, CT_PIVOT_CACHE_REC, CT_PIVOT_TABLE, CT_TABLE,
+        CT_THREADED_COMMENTS, CT_XML,
     },
     relationships::{
-        Relationships, REL_CHART, REL_COMMENTS, REL_DRAWING, REL_PIVOT_CACHE_DEF,
-        REL_PIVOT_CACHE_REC, REL_PIVOT_TABLE, REL_TABLE,
+        Relationships, REL_CHART, REL_COMMENTS, REL_DRAWING, REL_PERSONS, REL_PIVOT_CACHE_DEF,
+        REL_PIVOT_CACHE_REC, REL_PIVOT_TABLE, REL_TABLE, REL_THREADED_COMMENTS,
     },
     shared_strings::SharedStringTableBuilder,
+    threaded_comments,
     workbook::{SheetInfo, SheetState, WorkbookXml},
     worksheet::CellType,
 };
@@ -164,7 +166,9 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         let has_tables = !sheet.worksheet.tables.is_empty();
         let has_charts = !sheet.worksheet.charts.is_empty();
         let has_pivot_tables = !sheet.worksheet.pivot_tables.is_empty();
-        let needs_rels = has_comments || has_tables || has_charts || has_pivot_tables;
+        let has_threaded_comments = !sheet.worksheet.threaded_comments.is_empty();
+        let needs_rels =
+            has_comments || has_tables || has_charts || has_pivot_tables || has_threaded_comments;
 
         // Build (or merge) the worksheet .rels when we need to add relationships.
         let rels_path = format!("xl/worksheets/_rels/sheet{sheet_num}.xml.rels");
@@ -403,6 +407,35 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             }
         }
 
+        // --- Threaded Comments ---
+        if has_threaded_comments {
+            debug!(
+                "writing {} threaded comments for sheet {}",
+                sheet.worksheet.threaded_comments.len(),
+                sheet_num
+            );
+            let tc_xml =
+                threaded_comments::write_threaded_comments(&sheet.worksheet.threaded_comments)?;
+            let tc_path = format!("xl/threadedComments/threadedComment{sheet_num}.xml");
+
+            content_types.add_override(format!("/{tc_path}"), CT_THREADED_COMMENTS);
+
+            entries.push(ZipEntry {
+                name: tc_path,
+                data: tc_xml,
+            });
+
+            // Only add the threaded comments relationship if not already present.
+            if ws_rels.find_by_type(REL_THREADED_COMMENTS).next().is_none() {
+                let rid_num = ws_rels.next_r_id();
+                ws_rels.add(
+                    format!("rId{rid_num}"),
+                    REL_THREADED_COMMENTS,
+                    format!("../threadedComments/threadedComment{sheet_num}.xml"),
+                );
+            }
+        }
+
         // --- Pivot Tables ---
         if has_pivot_tables {
             debug!(
@@ -510,6 +543,33 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                 }
                 entry.data = existing_wb_rels.to_xml()?;
             }
+        }
+    }
+
+    // 5c. Write workbook-level persons list (for threaded comments).
+    if !workbook.persons.is_empty() {
+        debug!("writing {} persons", workbook.persons.len());
+        let persons_xml = threaded_comments::write_persons(&workbook.persons)?;
+        let persons_path = "xl/persons/person.xml";
+
+        content_types.add_override(format!("/{persons_path}"), CT_PERSONS);
+
+        entries.push(ZipEntry {
+            name: persons_path.to_string(),
+            data: persons_xml,
+        });
+
+        // Add persons relationship to workbook .rels.
+        if let Some(entry) = entries.iter_mut().find(|e| e.name == "xl/_rels/workbook.xml.rels")
+        {
+            let mut existing_wb_rels = Relationships::parse(&entry.data)?;
+            let rid_num = existing_wb_rels.next_r_id();
+            existing_wb_rels.add(
+                format!("rId{rid_num}"),
+                REL_PERSONS,
+                "persons/person.xml",
+            );
+            entry.data = existing_wb_rels.to_xml()?;
         }
     }
 
@@ -672,6 +732,7 @@ mod tests {
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
                     pivot_tables: Vec::new(),
+                    threaded_comments: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -686,6 +747,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         }
     }
@@ -719,6 +781,7 @@ mod tests {
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
                     pivot_tables: Vec::new(),
+                    threaded_comments: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -733,6 +796,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -767,6 +831,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
         let result = write_xlsx(&wb);
@@ -803,6 +868,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -832,6 +898,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -847,6 +914,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1188,6 +1256,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1217,6 +1286,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1232,6 +1302,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1297,6 +1368,7 @@ mod tests {
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
             pivot_tables: Vec::new(),
+            threaded_comments: Vec::new(),
             preserved_extensions: Vec::new(),
         };
 
@@ -1365,6 +1437,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1394,6 +1467,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1409,6 +1483,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1734,6 +1809,7 @@ mod tests {
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
                     pivot_tables: Vec::new(),
+                    threaded_comments: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -1748,6 +1824,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1856,6 +1933,7 @@ mod tests {
                 sparkline_groups: Vec::new(),
                 charts: Vec::new(),
                 pivot_tables: Vec::new(),
+                threaded_comments: Vec::new(),
                 preserved_extensions: Vec::new(),
             },
         };
@@ -1876,6 +1954,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1944,6 +2023,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1973,6 +2053,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -2002,6 +2083,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -2017,6 +2099,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -2068,6 +2151,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -2097,6 +2181,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -2112,6 +2197,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -2245,6 +2331,7 @@ mod tests {
                     sparkline_groups: Vec::new(),
                     charts,
                     pivot_tables: Vec::new(),
+                    threaded_comments: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -2259,6 +2346,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         }
     }

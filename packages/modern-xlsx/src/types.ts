@@ -632,6 +632,21 @@ export interface CommentData {
   text: string;
 }
 
+export interface ThreadedCommentData {
+  id: string;
+  refCell: string;
+  personId: string;
+  text: string;
+  timestamp: string;
+  parentId?: string;
+}
+
+export interface PersonData {
+  id: string;
+  displayName: string;
+  providerId?: string;
+}
+
 export interface WorksheetData {
   dimension: string | null;
   rows: RowData[];
@@ -655,6 +670,7 @@ export interface WorksheetData {
   sparklineGroups?: SparklineGroupData[];
   charts?: WorksheetChartData[];
   pivotTables?: PivotTableData[];
+  threadedComments?: ThreadedCommentData[];
 }
 
 // ---------------------------------------------------------------------------
@@ -892,6 +908,8 @@ export interface WorkbookData {
   calcChain?: readonly CalcChainEntryData[];
   workbookViews?: WorkbookViewData[];
   protection?: WorkbookProtectionData | null;
+  /** Persons list for threaded comments (workbook-level). */
+  persons?: PersonData[];
   /** Opaque ZIP entries preserved through roundtrip (drawings, media, charts, etc.) */
   preservedEntries?: Record<string, number[]>;
 }

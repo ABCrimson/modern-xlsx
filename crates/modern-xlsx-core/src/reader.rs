@@ -19,12 +19,13 @@ use crate::ooxml::{
     pivot_table::{PivotCacheDefinitionData, PivotCacheRecordsData, PivotTableData},
     relationships::{
         Relationships, REL_COMMENTS, REL_DRAWING, REL_PIVOT_CACHE_DEF, REL_PIVOT_CACHE_REC,
-        REL_PIVOT_TABLE, REL_TABLE,
+        REL_PIVOT_TABLE, REL_TABLE, REL_THREADED_COMMENTS,
     },
     shared_strings::SharedStringTable,
     styles::Styles,
     tables::TableDefinition,
     theme,
+    threaded_comments::{self, PersonData, ThreadedCommentData},
     workbook::{SheetState, WorkbookXml},
     worksheet::WorksheetXml,
 };
@@ -424,6 +425,49 @@ fn resolve_pivot_caches(
     Ok((cache_defs, cache_recs))
 }
 
+/// Resolve threaded comments for each sheet from worksheet .rels files.
+fn resolve_threaded_comments(
+    ctx: &mut ReaderContext,
+) -> Result<Vec<Vec<ThreadedCommentData>>> {
+    let mut sheet_tc = vec![Vec::new(); ctx.sheet_targets.len()];
+
+    for (i, (_name, sheet_path, _state)) in ctx.sheet_targets.iter().enumerate() {
+        let rels_path = derive_rels_path(sheet_path);
+
+        if let Some(rels_data) = ctx.entries.get(&rels_path) {
+            let ws_rels = Relationships::parse(rels_data)?;
+
+            for rel in ws_rels.find_by_type(REL_THREADED_COMMENTS) {
+                let tc_path = resolve_rel_target(sheet_path, &rel.target);
+
+                if let Some(tc_data) = ctx.entries.get(&tc_path) {
+                    debug!("parsing threaded comments from: {}", tc_path);
+                    sheet_tc[i] = threaded_comments::parse_threaded_comments(tc_data)?;
+                    ctx.known_dynamic.insert(tc_path);
+                } else {
+                    warn!("threaded comments file not found: {}", tc_path);
+                }
+            }
+        }
+    }
+
+    Ok(sheet_tc)
+}
+
+/// Resolve persons list from the well-known path `xl/persons/person.xml`.
+fn resolve_persons(ctx: &mut ReaderContext) -> Result<Vec<PersonData>> {
+    let persons_path = "xl/persons/person.xml";
+
+    if let Some(persons_data) = ctx.entries.get(persons_path) {
+        debug!("parsing persons from: {}", persons_path);
+        let persons = threaded_comments::parse_persons(persons_data)?;
+        ctx.known_dynamic.insert(persons_path.to_string());
+        Ok(persons)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 /// Collect all ZIP entries that were not parsed into preserved_entries.
 ///
 /// Takes ownership of entries via `drain()` to avoid cloning large byte
@@ -480,6 +524,8 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
     let sheet_charts = resolve_charts(&mut ctx)?;
     let sheet_pivots = resolve_pivot_tables(&mut ctx)?;
     let (pivot_caches, pivot_cache_records) = resolve_pivot_caches(&mut ctx)?;
+    let sheet_threaded = resolve_threaded_comments(&mut ctx)?;
+    let persons = resolve_persons(&mut ctx)?;
 
     // Parse each worksheet XML.
     // When the "parallel" feature is enabled, sheets are parsed concurrently.
@@ -513,6 +559,13 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
         }
     }
 
+    // Attach threaded comments to their respective worksheets.
+    for (sheet, tc) in sheets.iter_mut().zip(sheet_threaded) {
+        if !tc.is_empty() {
+            sheet.worksheet.threaded_comments = tc;
+        }
+    }
+
     let preserved_entries = collect_preserved(&mut ctx);
 
     Ok(WorkbookData {
@@ -528,6 +581,7 @@ pub fn read_xlsx_with_options(data: &[u8], limits: &ZipSecurityLimits) -> Result
         protection: ctx.workbook_xml.protection,
         pivot_caches,
         pivot_cache_records,
+        persons,
         preserved_entries,
     })
 }
@@ -572,6 +626,8 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
     let sheet_charts = resolve_charts(&mut ctx)?;
     let sheet_pivots = resolve_pivot_tables(&mut ctx)?;
     let (pivot_caches, pivot_cache_records) = resolve_pivot_caches(&mut ctx)?;
+    let sheet_threaded = resolve_threaded_comments(&mut ctx)?;
+    let persons = resolve_persons(&mut ctx)?;
 
     // --- Build JSON output ---
     // Estimate ~80 bytes per cell × 10 cells/row × number of rows.
@@ -622,6 +678,17 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
             out.push_str(",\"pivotTables\":");
             out.push_str(
                 &serde_json::to_string(&sheet_pivots[i]).map_err(serde_err)?,
+            );
+            out.push('}');
+        }
+
+        // Inject threaded comments into the worksheet JSON (before the closing '}').
+        if !sheet_threaded[i].is_empty() {
+            debug_assert_eq!(out.as_bytes().last(), Some(&b'}'));
+            out.pop();
+            out.push_str(",\"threadedComments\":");
+            out.push_str(
+                &serde_json::to_string(&sheet_threaded[i]).map_err(serde_err)?,
             );
             out.push('}');
         }
@@ -692,6 +759,12 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
     if !pivot_cache_records.is_empty() {
         out.push_str(",\"pivotCacheRecords\":");
         out.push_str(&serde_json::to_string(&pivot_cache_records).map_err(serde_err)?);
+    }
+
+    // persons
+    if !persons.is_empty() {
+        out.push_str(",\"persons\":");
+        out.push_str(&serde_json::to_string(&persons).map_err(serde_err)?);
     }
 
     // preservedEntries
@@ -887,6 +960,7 @@ mod tests {
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
             pivot_tables: Vec::new(),
+            threaded_comments: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1007,6 +1081,7 @@ mod tests {
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
             pivot_tables: Vec::new(),
+            threaded_comments: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1102,6 +1177,7 @@ mod tests {
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
             pivot_tables: Vec::new(),
+            threaded_comments: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1273,6 +1349,7 @@ mod tests {
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
             pivot_tables: Vec::new(),
+            threaded_comments: Vec::new(),
             preserved_extensions: Vec::new(),
         };
         let ws_xml = ws.to_xml().unwrap();
@@ -1409,6 +1486,7 @@ mod tests {
                 sparkline_groups: Vec::new(),
                 charts: Vec::new(),
                 pivot_tables: Vec::new(),
+                threaded_comments: Vec::new(),
                 preserved_extensions: Vec::new(),
             };
             let ws_xml = ws.to_xml().unwrap();
@@ -1509,6 +1587,7 @@ mod tests {
                     sparkline_groups: Vec::new(),
                     charts: Vec::new(),
                     pivot_tables: Vec::new(),
+                    threaded_comments: Vec::new(),
                     preserved_extensions: Vec::new(),
                 },
             }],
@@ -1523,6 +1602,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 
@@ -1605,6 +1685,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1640,6 +1721,7 @@ mod tests {
                         sparkline_groups: Vec::new(),
                         charts: Vec::new(),
                         pivot_tables: Vec::new(),
+                        threaded_comments: Vec::new(),
                         preserved_extensions: Vec::new(),
                     },
                 },
@@ -1655,6 +1737,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: std::collections::BTreeMap::new(),
         };
 

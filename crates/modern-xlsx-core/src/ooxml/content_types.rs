@@ -36,6 +36,10 @@ pub(crate) const CT_PIVOT_CACHE_REC: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml";
 pub(crate) const CT_CUSTOM_XML_PROPS: &str =
     "application/vnd.openxmlformats-officedocument.customXmlProperties+xml";
+pub(crate) const CT_THREADED_COMMENTS: &str =
+    "application/vnd.ms-excel.threadedcomments+xml";
+pub(crate) const CT_PERSONS: &str =
+    "application/vnd.ms-excel.person+xml";
 
 const TYPES_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-types";
 

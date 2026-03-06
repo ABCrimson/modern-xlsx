@@ -86,6 +86,7 @@ fn main() {
         sparkline_groups: vec![],
         charts: vec![],
         pivot_tables: vec![],
+        threaded_comments: vec![],
         preserved_extensions: vec![],
     };
     let wb = WorkbookData {
@@ -105,6 +106,7 @@ fn main() {
         protection: None,
         pivot_caches: Vec::new(),
         pivot_cache_records: Vec::new(),
+        persons: Vec::new(),
         preserved_entries: Default::default(),
     };
 

@@ -10,6 +10,7 @@ pub mod shared_strings;
 pub mod styles;
 pub mod tables;
 pub mod theme;
+pub mod threaded_comments;
 pub mod workbook;
 pub mod worksheet;
 

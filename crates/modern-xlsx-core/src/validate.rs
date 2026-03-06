@@ -1146,6 +1146,7 @@ mod tests {
             sparkline_groups: Vec::new(),
             charts: Vec::new(),
             pivot_tables: Vec::new(),
+            threaded_comments: Vec::new(),
             preserved_extensions: Vec::new(),
         }
     }
@@ -1168,6 +1169,7 @@ mod tests {
             protection: None,
             pivot_caches: Vec::new(),
             pivot_cache_records: Vec::new(),
+            persons: Vec::new(),
             preserved_entries: Default::default(),
         }
     }

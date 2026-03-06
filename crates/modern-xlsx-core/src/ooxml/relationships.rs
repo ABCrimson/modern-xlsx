@@ -29,6 +29,10 @@ pub(crate) const REL_PIVOT_CACHE_DEF: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition";
 pub(crate) const REL_PIVOT_CACHE_REC: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheRecords";
+pub(crate) const REL_THREADED_COMMENTS: &str =
+    "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment";
+pub(crate) const REL_PERSONS: &str =
+    "http://schemas.microsoft.com/office/2017/10/relationships/person";
 
 const RELS_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
 

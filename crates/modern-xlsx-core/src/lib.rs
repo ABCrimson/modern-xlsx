@@ -74,6 +74,9 @@ pub struct WorkbookData {
     /// Pivot cache records from xl/pivotCache/.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pivot_cache_records: Vec<crate::ooxml::pivot_table::PivotCacheRecordsData>,
+    /// Persons list for threaded comments (xl/persons/person.xml).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub persons: Vec<crate::ooxml::threaded_comments::PersonData>,
     /// Opaque ZIP entries not parsed by the reader (drawings, media, charts, etc.)
     /// Preserved through roundtrip without modification.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
