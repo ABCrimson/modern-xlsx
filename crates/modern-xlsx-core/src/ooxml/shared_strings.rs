@@ -103,35 +103,33 @@ impl SharedStringTable {
                             in_t = true;
                         }
                         b"rFont" if in_rpr => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"val" {
-                                    run_font_name = Some(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"val")
+                            {
+                                run_font_name = Some(
+                                    std::str::from_utf8(&attr.value)
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                );
                             }
                         }
                         b"sz" if in_rpr => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"val"
-                                    && let Ok(s) =
-                                        std::str::from_utf8(&attr.value)
-                                    {
-                                        run_font_size = s.parse::<f64>().ok();
-                                    }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"val")
+                                && let Ok(s) = std::str::from_utf8(&attr.value)
+                            {
+                                run_font_size = s.parse::<f64>().ok();
                             }
                         }
                         b"color" if in_rpr => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"rgb" {
-                                    run_color = Some(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                            {
+                                run_color = Some(
+                                    std::str::from_utf8(&attr.value)
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                );
                             }
                         }
                         _ => {}
@@ -147,35 +145,33 @@ impl SharedStringTable {
                             run_italic = Some(true);
                         }
                         b"rFont" if in_rpr => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"val" {
-                                    run_font_name = Some(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"val")
+                            {
+                                run_font_name = Some(
+                                    std::str::from_utf8(&attr.value)
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                );
                             }
                         }
                         b"sz" if in_rpr => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"val"
-                                    && let Ok(s) =
-                                        std::str::from_utf8(&attr.value)
-                                    {
-                                        run_font_size = s.parse::<f64>().ok();
-                                    }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"val")
+                                && let Ok(s) = std::str::from_utf8(&attr.value)
+                            {
+                                run_font_size = s.parse::<f64>().ok();
                             }
                         }
                         b"color" if in_rpr => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == b"rgb" {
-                                    run_color = Some(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
-                                    );
-                                }
+                            if let Some(attr) = e.attributes().flatten()
+                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                            {
+                                run_color = Some(
+                                    std::str::from_utf8(&attr.value)
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                );
                             }
                         }
                         _ => {}
