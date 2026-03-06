@@ -11,7 +11,7 @@ describe('version', () => {
   });
 
   it('VERSION constant is a semver string', () => {
-    expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(VERSION).toMatch(/^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$/);
   });
 });
 
