@@ -4,6 +4,7 @@ pub mod charts;
 pub mod comments;
 pub mod content_types;
 pub mod doc_props;
+pub mod pivot_table;
 pub mod relationships;
 pub mod shared_strings;
 pub mod styles;

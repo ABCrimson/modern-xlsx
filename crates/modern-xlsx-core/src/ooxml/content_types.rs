@@ -28,6 +28,12 @@ pub(crate) const CT_DRAWING: &str =
     "application/vnd.openxmlformats-officedocument.drawing+xml";
 pub(crate) const CT_EXTERNAL_LINK: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml";
+pub(crate) const CT_PIVOT_TABLE: &str =
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml";
+pub(crate) const CT_PIVOT_CACHE_DEF: &str =
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml";
+pub(crate) const CT_PIVOT_CACHE_REC: &str =
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml";
 pub(crate) const CT_CUSTOM_XML_PROPS: &str =
     "application/vnd.openxmlformats-officedocument.customXmlProperties+xml";
 

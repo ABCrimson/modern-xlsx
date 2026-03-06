@@ -23,6 +23,12 @@ pub(crate) const REL_CHART: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart";
 pub(crate) const REL_DRAWING: &str =
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";
+pub(crate) const REL_PIVOT_TABLE: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable";
+pub(crate) const REL_PIVOT_CACHE_DEF: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition";
+pub(crate) const REL_PIVOT_CACHE_REC: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheRecords";
 
 const RELS_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
 
