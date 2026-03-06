@@ -24,6 +24,7 @@ import type {
   PageMarginsData,
   PageSetupData,
   PaneSelectionData,
+  PivotTableData,
   RepairResult,
   RowData,
   SheetData,
@@ -1034,6 +1035,11 @@ export class Worksheet {
   /** Returns all charts on this sheet. */
   get charts(): readonly WorksheetChartData[] {
     return this.data.worksheet.charts ?? [];
+  }
+
+  /** Returns all pivot tables on this sheet. */
+  get pivotTables(): readonly PivotTableData[] {
+    return this.data.worksheet.pivotTables ?? [];
   }
 
   /**

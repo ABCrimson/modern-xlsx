@@ -555,6 +555,74 @@ export interface WorksheetChartData {
 }
 
 // ---------------------------------------------------------------------------
+// Pivot Tables
+// ---------------------------------------------------------------------------
+
+export type PivotAxis = 'axisRow' | 'axisCol' | 'axisPage' | 'axisValues';
+export type SubtotalFunction =
+  | 'sum'
+  | 'count'
+  | 'average'
+  | 'max'
+  | 'min'
+  | 'product'
+  | 'countNums'
+  | 'stdDev'
+  | 'stdDevP'
+  | 'var'
+  | 'varP';
+
+export interface PivotLocation {
+  ref: string;
+  firstHeaderRow?: number;
+  firstDataRow?: number;
+  firstDataCol?: number;
+}
+
+export interface PivotItem {
+  t?: string;
+  x?: number;
+}
+
+export interface PivotFieldData {
+  axis?: PivotAxis;
+  name?: string;
+  items: PivotItem[];
+  subtotals: SubtotalFunction[];
+  compact: boolean;
+  outline: boolean;
+}
+
+export interface PivotDataFieldData {
+  name?: string;
+  fld: number;
+  subtotal: SubtotalFunction;
+  numFmtId?: number;
+}
+
+export interface PivotPageFieldData {
+  fld: number;
+  item?: number;
+  name?: string;
+}
+
+export interface PivotFieldRef {
+  x: number;
+}
+
+export interface PivotTableData {
+  name: string;
+  dataCaption?: string;
+  location: PivotLocation;
+  pivotFields: PivotFieldData[];
+  rowFields: PivotFieldRef[];
+  colFields: PivotFieldRef[];
+  dataFields: PivotDataFieldData[];
+  pageFields: PivotPageFieldData[];
+  cacheId: number;
+}
+
+// ---------------------------------------------------------------------------
 // WorksheetData
 // ---------------------------------------------------------------------------
 
@@ -586,6 +654,7 @@ export interface WorksheetData {
   outlineProperties?: OutlinePropertiesData | null;
   sparklineGroups?: SparklineGroupData[];
   charts?: WorksheetChartData[];
+  pivotTables?: PivotTableData[];
 }
 
 // ---------------------------------------------------------------------------
