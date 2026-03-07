@@ -4,9 +4,9 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.0.0-rc.1] - 2026-03-06
+## [1.0.0] - 2026-03-06
 
-Release candidate 1 — API frozen, production-ready feature set.
+First stable release — production-ready, API frozen.
 
 ### Added
 - **PivotTableBuilder:** Fluent builder API for pivot tables (follows ChartBuilder pattern)

@@ -759,7 +759,7 @@ All functions camelCase, all types PascalCase -- correct.
 
 - **`readBuffer` is async but the WASM call is synchronous**: The function is `async` and returns `Promise<Workbook>`, but the actual WASM read is synchronous (`wasmRead` is not async). The async is only needed for the password path (also synchronous). This appears to be future-proofing or API consistency.
 - **`writeBlob` is synchronous but `toBuffer` is async**: `writeBlob(wb)` is sync, but `Workbook.toBuffer()` is async. This is inconsistent. Both underlying WASM calls are synchronous.
-- **`VERSION` constant**: `'0.8.6' as const` -- UPPER_SNAKE_CASE, correct.
+- **`VERSION` constant**: `'1.0.0' as const` -- UPPER_SNAKE_CASE, correct.
 - **No `writeBuffer` top-level function**: There is `readBuffer` but the write equivalent is `Workbook.toBuffer()` (instance method) or `writeBlob()` (browser-only). Consider adding a top-level `writeBuffer(wb)` for symmetry with `readBuffer`.
 - **No `writeFile` top-level function**: There is `readFile` but the write equivalent is `Workbook.toFile()`. Consider adding `writeFile(wb, path, options?)` for symmetry.
 

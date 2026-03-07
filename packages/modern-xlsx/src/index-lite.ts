@@ -308,4 +308,4 @@ export async function readFile(path: string, options?: ReadOptions): Promise<_Wo
   return readBuffer(new Uint8Array(buffer), options);
 }
 
-export const VERSION = '0.8.6' as const;
+export const VERSION = '1.0.0' as const;

@@ -69,7 +69,7 @@ console.log(existing.getSheet('Sheet1')?.cell('A1').value);
 
 ## Performance
 
-Benchmarks on Node.js (single thread, v0.9.0):
+Benchmarks on Node.js (single thread, v1.0.0):
 
 | Operation | modern-xlsx | SheetJS CE | Factor |
 |-----------|------------:|-----------:|-------:|
