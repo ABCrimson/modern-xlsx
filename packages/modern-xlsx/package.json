@@ -78,7 +78,7 @@
     "@vitest/coverage-v8": "4.1.0-beta.6",
     "playwright": "1.59.0-alpha-2026-03-06",
     "tsdown": "0.21.0",
-    "typescript": "6.0.0-dev.20260306",
+    "typescript": "6.0.0-dev.20260315",
     "vitest": "4.1.0-beta.6",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
