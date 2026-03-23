@@ -58,7 +58,7 @@ jobs:
         run: cargo audit
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -128,7 +128,7 @@ jobs:
         shell: bash
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -189,7 +189,7 @@ jobs:
         run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -229,7 +229,7 @@ jobs:
         run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
