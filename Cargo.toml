@@ -52,7 +52,7 @@ sha2 = "0.10"
 sha1 = "0.10"
 zeroize = { version = "1.8", features = ["derive"] }
 aes = "0.8"
-cbc = { version = "0.1", features = ["alloc"] }
+cbc = { version = "0.2", features = ["alloc"] }
 hmac = "0.12"
 constant_time_eq = "0.4"
 getrandom = { version = "0.3", features = ["wasm_js"] }
