@@ -9,19 +9,19 @@ members = [
 # Rust crate version — independent from the npm package version (0.5.0)
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.95.0"
+rust-version = "1.96.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ABCrimson/modern-xlsx"
 
 [workspace.dependencies]
 # XML parsing — SAX-style, zero-copy, serde support
-quick-xml = { version = "0.39.2", features = ["serialize"] }
+quick-xml = { version = "0.40.1", features = ["serialize"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 
 # ZIP archive — v8 with pure-Rust deflate (zopfli write + flate2/zlib-rs read)
-zip = { version = "8.1", default-features = false, features = ["deflate"] }
+zip = { version = "8.6", default-features = false, features = ["deflate"] }
 
 # Date/time without std::time
 chrono = { version = "0.4", default-features = false, features = ["serde"] }
@@ -42,20 +42,20 @@ itoa = "1.0"
 ryu = "1.0"
 
 # WASM bindings
-wasm-bindgen = "0.2.114"
+wasm-bindgen = "0.2.126"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "console", "Performance"] }
 
-# Cryptography — ECMA-376 Agile + Standard Encryption
-digest = { version = "0.10", features = ["alloc"] }
-sha2 = "0.10"
-sha1 = "0.10"
-zeroize = { version = "1.8", features = ["derive"] }
-aes = "0.8"
-cbc = { version = "0.1", features = ["alloc"] }
-hmac = "0.12"
-constant_time_eq = "0.4"
-getrandom = { version = "0.3", features = ["wasm_js"] }
+# Cryptography — ECMA-376 Agile + Standard Encryption (RustCrypto 0.11/0.13/0.9 generation)
+digest = { version = "0.11", features = ["alloc"] }
+sha2 = "0.11"
+sha1 = "0.11"
+zeroize = { version = "1.9", features = ["derive"] }
+aes = "0.9"
+cbc = { version = "0.2", features = ["alloc"] }
+hmac = "0.13"
+constant_time_eq = "0.5"
+getrandom = { version = "0.4", features = ["wasm_js"] }
 
 # Dev
 wasm-bindgen-test = "0.3"

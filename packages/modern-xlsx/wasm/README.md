@@ -78,14 +78,14 @@ Data crosses the WASM boundary as JSON strings for maximum throughput. The Rust 
 ## Development
 
 ```bash
-# Rust tests (357 tests)
+# Rust tests (424 tests)
 cargo test -p modern-xlsx-core
 
 # WASM build
 cd crates/modern-xlsx-wasm && wasm-pack build --target web --release \
   --out-dir ../../packages/modern-xlsx/wasm --no-opt
 
-# TypeScript build + tests (1210 tests)
+# TypeScript build + tests (1287 tests)
 pnpm -C packages/modern-xlsx build
 pnpm -C packages/modern-xlsx test
 
@@ -94,7 +94,7 @@ cargo clippy -p modern-xlsx-core -- -D warnings
 pnpm -C packages/modern-xlsx lint
 ```
 
-**Toolchain:** Rust 1.95.0 (Edition 2024) / TypeScript 6.0 / pnpm 11 / Biome 2.4
+**Toolchain:** Rust 1.96+ / beta 1.97 (Edition 2024) / TypeScript 7 / pnpm 11.9 / Biome 2.5
 
 ## License
 

@@ -1,0 +1,5 @@
+[toolchain]
+# Bleeding-edge: track the Rust beta channel (matches CI dtolnay/rust-toolchain@beta).
+channel = "beta"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]

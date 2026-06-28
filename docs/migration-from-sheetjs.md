@@ -233,7 +233,7 @@ await initWasm();
 
 - SSF.load(fmt, id)
 + import { loadFormat } from 'modern-xlsx';
-+ loadFormat(id, fmt)
++ loadFormat(fmt, id)
 
 - SSF.load_table(table)
 + import { loadFormatTable } from 'modern-xlsx';
@@ -248,14 +248,28 @@ SheetJS Pro only. modern-xlsx includes full table CRUD for free:
 
 ```typescript
 ws.addTable({
-  name: 'SalesData',
+  id: 1,
+  displayName: 'SalesData',
   ref: 'A1:C10',
-  columns: [{ name: 'Product' }, { name: 'Revenue' }, { name: 'Units' }],
-  style: { name: 'TableStyleMedium9', showRowStripes: true },
+  headerRowCount: 1,
+  totalsRowCount: 0,
+  totalsRowShown: false,
+  columns: [
+    { id: 1, name: 'Product' },
+    { id: 2, name: 'Revenue' },
+    { id: 3, name: 'Units' },
+  ],
+  styleInfo: {
+    name: 'TableStyleMedium9',
+    showFirstColumn: false,
+    showLastColumn: false,
+    showRowStripes: true,
+    showColumnStripes: false,
+  },
 });
 
 ws.tables;                    // all tables
-ws.getTable('SalesData');     // find by name
+ws.getTable('SalesData');     // find by display name
 ws.removeTable('SalesData');  // remove
 ```
 
@@ -280,9 +294,9 @@ ws.groupRows(2, 10);
 ws.collapseRows(2, 10);
 ws.groupColumns(1, 3);
 
-// Print titles & areas
-wb.setPrintTitles('Sheet1', { rows: { start: 1, end: 1 } });
-wb.setPrintArea('Sheet1', 'A1:G50');
+// Print titles & areas (0-based sheet index; value is a defined-name reference)
+wb.setPrintTitles(0, 'Sheet1!$1:$1');
+wb.setPrintArea(0, 'Sheet1!$A$1:$G$50');
 ```
 
 ---
@@ -315,7 +329,7 @@ ws.cell('A1').styleIndex = boldRed;
 | Module format | CJS + ESM | ESM only |
 | Styles | Pro only | Included |
 | Buffer type | Node Buffer | `Uint8Array` |
-| Date handling | JS `Date` | Temporal API |
+| Date handling | JS `Date` | JS `Date` (Temporal-aware) |
 | Initialization | Sync | Async (`initWasm()`) |
 | Cell access | `ws['A1']` | `ws.cell('A1')` |
 | Dependencies | 0 | 0 (WASM bundled) |

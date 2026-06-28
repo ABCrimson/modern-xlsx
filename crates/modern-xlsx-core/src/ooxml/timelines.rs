@@ -1,7 +1,7 @@
 use core::hint::cold_path;
 
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
-use quick_xml::{Reader, Writer};
+use quick_xml::{Reader, Writer, XmlVersion};
 use serde::{Deserialize, Serialize};
 
 use crate::{ModernXlsxError, Result};
@@ -109,26 +109,26 @@ pub fn parse_timelines(data: &[u8]) -> Result<Vec<TimelineData>> {
                         match attr.key.local_name().as_ref() {
                             b"name" => {
                                 name = attr
-                                    .unescape_value()
+                                    .normalized_value(XmlVersion::Implicit1_0)
                                     .unwrap_or_default()
                                     .into_owned();
                             }
                             b"cache" => {
                                 cache_name = attr
-                                    .unescape_value()
+                                    .normalized_value(XmlVersion::Implicit1_0)
                                     .unwrap_or_default()
                                     .into_owned();
                             }
                             b"caption" => {
                                 caption = Some(
-                                    attr.unescape_value()
+                                    attr.normalized_value(XmlVersion::Implicit1_0)
                                         .unwrap_or_default()
                                         .into_owned(),
                                 );
                             }
                             b"sourceName" => {
                                 source_name = Some(
-                                    attr.unescape_value()
+                                    attr.normalized_value(XmlVersion::Implicit1_0)
                                         .unwrap_or_default()
                                         .into_owned(),
                                 );
@@ -198,13 +198,13 @@ impl TimelineCacheData {
                                 match attr.key.local_name().as_ref() {
                                     b"name" => {
                                         name = attr
-                                            .unescape_value()
+                                            .normalized_value(XmlVersion::Implicit1_0)
                                             .unwrap_or_default()
                                             .into_owned();
                                     }
                                     b"sourceName" => {
                                         source_name = Some(
-                                            attr.unescape_value()
+                                            attr.normalized_value(XmlVersion::Implicit1_0)
                                                 .unwrap_or_default()
                                                 .into_owned(),
                                         );

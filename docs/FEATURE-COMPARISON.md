@@ -137,7 +137,7 @@
 | Boolean values | :white_check_mark: | :white_check_mark: | |
 | Error values | :white_check_mark: type `'error'` | :white_check_mark: type `'e'` | |
 | Date values (native) | :construction: via serial + format | :white_check_mark: type `'d'` | SheetJS has native date type |
-| Stub/empty cells | :x: | :white_check_mark: type `'z'` | SheetJS can represent empty cells |
+| Stub/empty cells | :white_check_mark: type `'stub'` | :white_check_mark: type `'z'` | Both can represent empty cells |
 | Inline strings | :white_check_mark: type `'inlineStr'` | :x: | Stored directly in cell XML |
 | Formula strings | :white_check_mark: type `'formulaStr'` | :x: | Formula returning string |
 | Cell type field | :star: `.type` (getter) | :white_check_mark: `.t` | modern-xlsx: semantic types |
@@ -159,7 +159,7 @@
 | Shared formulas | :white_check_mark: `formulaType: 'shared'` + `sharedIndex` | :x: | |
 | Dynamic array formulas | :x: | :white_check_mark: `.D = true` | SPILL formulas |
 | Formula reference | :white_check_mark: `.formulaRef` | :white_check_mark: `.F` | Range for array formulas |
-| Sheet to formulae | :x: | :white_check_mark: `utils.sheet_to_formulae()` | Extract all formulas as strings |
+| Sheet to formulae | :white_check_mark: `sheetToFormulae()` | :white_check_mark: `utils.sheet_to_formulae()` | Extract all formulas as strings |
 | Calc chain | :star: `.calcChain` | :construction: parsed but not exposed | modern-xlsx: typed `CalcChainEntryData[]` |
 
 ---
@@ -216,7 +216,7 @@
 | Freeze rows | :white_check_mark: `.frozenPane = { rows: 1, cols: 0 }` | :white_check_mark: `ws['!freeze']` | |
 | Freeze columns | :white_check_mark: `.frozenPane = { rows: 0, cols: 1 }` | :white_check_mark: `ws['!freeze']` | |
 | Freeze both | :white_check_mark: | :white_check_mark: | |
-| Split panes | :x: | :x: | Neither supports split panes |
+| Split panes | :white_check_mark: `.splitPane` | :x: | modern-xlsx: typed `SplitPaneData` |
 
 ---
 
@@ -286,7 +286,7 @@
 | Get all comments | :white_check_mark: `.comments` | :construction: cell `.c` array | |
 | Comment author | :white_check_mark: | :construction: `.c[].a` | |
 | Comment text | :white_check_mark: | :construction: `.c[].t` | |
-| Threaded comments | :x: | :x: | Neither supports |
+| Threaded comments | :star: `.addThreadedComment()` | :x: | modern-xlsx: typed `ThreadedCommentData` + `replyToComment()` |
 
 ---
 
@@ -312,9 +312,9 @@
 | Scale | :white_check_mark: `pageSetup.scale` | :x: | |
 | Page margins | :white_check_mark: `pageMargins` | :white_check_mark: `ws['!margins']` | |
 | Header/footer margins | :white_check_mark: `.header` / `.footer` | :white_check_mark: | |
-| Print area | :x: | :x: | Neither directly supports |
-| Page breaks | :x: | :x: | |
-| Print titles (repeat rows) | :x: | :x: | |
+| Print area | :white_check_mark: `setPrintArea()` | :x: | modern-xlsx: per-sheet print area |
+| Page breaks | :white_check_mark: `.pageBreaks` | :x: | modern-xlsx: typed `PageBreaksData` |
+| Print titles (repeat rows) | :white_check_mark: `setPrintTitles()` | :x: | modern-xlsx: repeat rows/columns |
 
 ---
 
@@ -334,9 +334,9 @@
 | Protect delete rows | :star: `.deleteRows` | :construction: | |
 | Protect sort | :star: `.sort` | :construction: | |
 | Protect auto filter | :star: `.autoFilter` | :construction: | |
-| Select locked cells | :star: | :construction: | |
-| Select unlocked cells | :star: | :construction: | |
-| Password protection | :x: | :construction: | |
+| Select locked cells | :x: | :construction: | |
+| Select unlocked cells | :x: | :construction: | |
+| Password protection | :white_check_mark: `.password` | :construction: | modern-xlsx: `SheetProtectionData.password` |
 
 ---
 
@@ -352,10 +352,10 @@
 | Keywords | :white_check_mark: `.keywords` | :white_check_mark: `.Props.Keywords` | |
 | Category | :white_check_mark: `.category` | :white_check_mark: `.Props.Category` | |
 | Last modified by | :white_check_mark: `.lastModifiedBy` | :white_check_mark: `.Props.LastAuthor` | |
-| Application name | :x: | :white_check_mark: `.Props.Application` | |
-| App version | :x: | :white_check_mark: `.Props.AppVersion` | |
-| Company | :x: | :white_check_mark: `.Props.Company` | |
-| Manager | :x: | :white_check_mark: `.Props.Manager` | |
+| Application name | :white_check_mark: `.application` | :white_check_mark: `.Props.Application` | |
+| App version | :white_check_mark: `.appVersion` | :white_check_mark: `.Props.AppVersion` | |
+| Company | :white_check_mark: `.company` | :white_check_mark: `.Props.Company` | |
+| Manager | :white_check_mark: `.manager` | :white_check_mark: `.Props.Manager` | |
 
 ---
 
@@ -369,9 +369,9 @@
 | Encode cell ref | :white_check_mark: `encodeCellRef(2,1)` → `'B3'` | :white_check_mark: `encode_cell({r:2,c:1})` → `'B3'` | |
 | Decode range | :white_check_mark: `decodeRange('A1:C3')` | :white_check_mark: `decode_range('A1:C3')` | |
 | Encode range | :white_check_mark: `encodeRange(...)` | :white_check_mark: `encode_range(...)` | |
-| Encode row | :x: | :white_check_mark: `encode_row(0)` → `'1'` | |
-| Decode row | :x: | :white_check_mark: `decode_row('1')` → `0` | |
-| Split cell ref | :x: | :white_check_mark: `split_cell('$A$1')` | Separates col/row parts |
+| Encode row | :white_check_mark: `encodeRow(0)` → `'1'` | :white_check_mark: `encode_row(0)` → `'1'` | |
+| Decode row | :white_check_mark: `decodeRow('1')` → `0` | :white_check_mark: `decode_row('1')` → `0` | |
+| Split cell ref | :white_check_mark: `splitCellRef('$A$1')` | :white_check_mark: `split_cell('$A$1')` | Separates col/row parts |
 
 ---
 
@@ -420,8 +420,8 @@
 | Sheet → JSON | :white_check_mark: `sheetToJson(ws)` | :white_check_mark: `sheet_to_json(ws)` | |
 | Sheet → CSV | :white_check_mark: `sheetToCsv(ws)` | :white_check_mark: `sheet_to_csv(ws)` | |
 | Sheet → HTML | :white_check_mark: `sheetToHtml(ws)` | :white_check_mark: `sheet_to_html(ws)` | |
-| Sheet → TXT | :x: | :white_check_mark: `sheet_to_txt(ws)` | Tab-separated |
-| Sheet → formulae | :x: | :white_check_mark: `sheet_to_formulae(ws)` | Formula strings |
+| Sheet → TXT | :white_check_mark: `sheetToTxt(ws)` | :white_check_mark: `sheet_to_txt(ws)` | Tab-separated |
+| Sheet → formulae | :white_check_mark: `sheetToFormulae(ws)` | :white_check_mark: `sheet_to_formulae(ws)` | Formula strings |
 | Sheet → row objects | :x: | :white_check_mark: `sheet_to_row_object_array(ws)` | Alias for sheet_to_json |
 | Add AoA to existing sheet | :white_check_mark: `sheetAddAoa(ws, data)` | :white_check_mark: `sheet_add_aoa(ws, data)` | |
 | Add JSON to existing sheet | :white_check_mark: `sheetAddJson(ws, data)` | :white_check_mark: `sheet_add_json(ws, data)` | |
@@ -475,11 +475,11 @@
 | Add image (JPEG) | :star: | :lock: | |
 | Add image (GIF) | :star: | :lock: | |
 | Image anchor (from/to cell) | :star: `ImageAnchor` | :lock: | |
-| Charts (read) | :construction: preserved blob | :lock: | Passthrough roundtrip |
-| Charts (create) | :x: | :lock: | |
+| Charts (read) | :star: `.charts` → `WorksheetChartData[]` | :lock: | modern-xlsx: structured chart parsing |
+| Charts (create) | :star: `ChartBuilder` (10 types) | :lock: | bar, column, line, pie, doughnut, scatter, area, radar, bubble, stock |
 | Drawings (preserved roundtrip) | :white_check_mark: `preservedEntries` | :lock: | |
-| Tables (read) | :x: | :lock: | |
-| Tables (create) | :x: | :lock: | |
+| Tables (read) | :star: `.tables` → `TableDefinitionData[]` | :lock: | modern-xlsx: structured table parsing |
+| Tables (create) | :star: `.addTable()` | :lock: | Excel tables (ListObjects) |
 
 ---
 
@@ -563,11 +563,11 @@
 | XML parsing | :star: SAX (quick-xml) | SAX (custom JS) | |
 | ZIP handling | :star: Native Rust (zip crate) | JSZip / CFB | |
 | Output file size | :star: ~8x smaller | Baseline | WASM-native compression |
-| Read speed (10K rows) | :star: ~4.6x faster | Baseline | Benchmarked |
-| Write speed (10K rows) | :star: ~1.3x faster | Baseline | Cell-by-cell API |
-| aoaToSheet speed (50K rows) | :star: ~2x faster | Baseline | Batch API |
-| sheetToJson speed (10K rows) | :star: ~2x faster | Baseline | |
-| sheetToCsv speed (10K rows) | :star: ~2.4x faster | Baseline | |
+| Read speed (10K rows) | :star: ~3.4x faster | Baseline | Benchmarked (100K rows: ~4.2x) |
+| Write speed (10K rows) | :white_check_mark: ~parity | Baseline | Cell-by-cell API (much smaller output) |
+| aoaToSheet speed (50K rows) | :star: ~1.7x faster | Baseline | Batch API |
+| sheetToJson speed (10K rows) | :white_check_mark: ~parity | Baseline | |
+| sheetToCsv speed (10K rows) | :white_check_mark: ~parity | Baseline | |
 | Tree-shakeable | :white_check_mark: ESM | :construction: CJS + ESM | |
 | Zero runtime deps | :star: | :x: | SheetJS bundles CFB, SSF |
 | TypeScript types | :star: Full generics + interfaces | :construction: `@types/xlsx` | |
@@ -613,23 +613,23 @@
 | **Validation & repair** | Full support | None | modern-xlsx |
 | **Encryption (password)** | Read + write (free) | None | modern-xlsx |
 | **Web Worker support** | Built-in API | None | modern-xlsx |
-| **Performance (read)** | ~4.6x faster | Baseline | modern-xlsx |
-| **Performance (write)** | ~1.3x faster | Baseline | modern-xlsx |
+| **Performance (read)** | ~3.4x faster | Baseline | modern-xlsx |
+| **Performance (write)** | ~parity | Baseline | Tie |
 | **Output file size** | ~8x smaller | Baseline | modern-xlsx |
 | **Type safety** | 109+ types | Basic typings | modern-xlsx |
 | **Streaming export** | None | 4 stream formats | SheetJS |
 | **DOM integration** | None | table_to_book, etc. | SheetJS |
 | **Sync API** | None | Full sync support | SheetJS |
 | **Legacy format support** | None | XLS, BIFF, WK, etc. | SheetJS |
-| **Cell reference utils** | 6 functions | 9 functions | SheetJS |
+| **Cell reference utils** | 9 functions | 9 functions | Tie |
 | **Date utilities** | 5 functions | 3 functions | modern-xlsx |
 | **Named ranges** | Full CRUD API | Read-only | modern-xlsx |
-| **Sheet protection** | 14 granular fields | Basic | modern-xlsx |
+| **Sheet protection** | 12 granular fields + password | Basic | modern-xlsx |
 | **Theme colors** | Full parsing | None | modern-xlsx |
 | **Calc chain** | Typed access | Parsed but hidden | modern-xlsx |
 
 ### Overall
 
-- **modern-xlsx wins on:** Performance, type safety, styling (free), data validation, conditional formatting, images, barcodes, table layout, rich text API, validation/repair, encryption, Web Workers, output size, API ergonomics
+- **modern-xlsx wins on:** Read performance, output file size, type safety, styling (free), data validation, conditional formatting, images, charts, barcodes, table layout, rich text API, validation/repair, encryption, Web Workers, API ergonomics
 - **SheetJS wins on:** Multi-format support (20+ read, 23 write), streaming exports, DOM integration, sync API, legacy format compatibility, broader ecosystem maturity
-- **Tie on:** Core XLSX read/write, cell operations, formulas, merge cells, frozen panes, auto filter, hyperlinks, comments, page setup, document properties, number formatting, sheet conversion utilities
+- **Tie on:** Core XLSX read/write, write performance, CSV/JSON export speed, cell operations, formulas, merge cells, frozen panes, auto filter, hyperlinks, comments, document properties, number formatting, sheet conversion utilities, cell reference utilities

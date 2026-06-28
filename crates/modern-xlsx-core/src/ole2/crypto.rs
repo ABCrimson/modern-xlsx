@@ -9,8 +9,8 @@
 use core::hint::cold_path;
 
 use aes::{Aes128, Aes256};
-use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::{NoPadding, Pkcs7}};
-use hmac::{Hmac, Mac};
+use cbc::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit, block_padding::{NoPadding, Pkcs7}};
+use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 use digest::DynDigest;
 use sha2::{Digest, Sha256, Sha512, digest::FixedOutputReset};
@@ -115,7 +115,7 @@ fn derive_key_impl<D: Digest + Default + FixedOutputReset>(
     // Step 1: Encode password as UTF-16LE
     let pw_bytes: Vec<u8> = password
         .encode_utf16()
-        .flat_map(|c| c.to_le_bytes())
+        .flat_map(u16::to_le_bytes)
         .collect();
 
     // Step 2: H0 = Hash(salt + password)
@@ -153,31 +153,20 @@ fn derive_key_impl<D: Digest + Default + FixedOutputReset>(
 ///
 /// Automatically selects AES-128 or AES-256 based on key length.
 pub fn aes_cbc_decrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
-    let mut buf = data.to_vec();
     match key.len() {
         16 => {
             let decryptor = Aes128CbcDec::new_from_slices(key, iv)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
-            let plaintext = decryptor
-                .decrypt_padded_mut::<Pkcs7>(&mut buf)
-                .map_err(|_| {
-                    ModernXlsxError::PasswordProtected(
-                        "AES decryption failed (bad padding)".into(),
-                    )
-                })?;
-            Ok(plaintext.to_vec())
+            decryptor.decrypt_padded_vec::<Pkcs7>(data).map_err(|_| {
+                ModernXlsxError::PasswordProtected("AES decryption failed (bad padding)".into())
+            })
         }
         32 => {
             let decryptor = Aes256CbcDec::new_from_slices(key, iv)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
-            let plaintext = decryptor
-                .decrypt_padded_mut::<Pkcs7>(&mut buf)
-                .map_err(|_| {
-                    ModernXlsxError::PasswordProtected(
-                        "AES decryption failed (bad padding)".into(),
-                    )
-                })?;
-            Ok(plaintext.to_vec())
+            decryptor.decrypt_padded_vec::<Pkcs7>(data).map_err(|_| {
+                ModernXlsxError::PasswordProtected("AES decryption failed (bad padding)".into())
+            })
         }
         n => {
             cold_path();
@@ -192,27 +181,20 @@ pub fn aes_cbc_decrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
 ///
 /// Automatically selects AES-128 or AES-256 based on key length.
 pub fn aes_cbc_decrypt_no_pad(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
-    let mut buf = data.to_vec();
     match key.len() {
         16 => {
             let decryptor = Aes128CbcDec::new_from_slices(key, iv)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
             decryptor
-                .decrypt_padded_mut::<NoPadding>(&mut buf)
-                .map_err(|_| {
-                    ModernXlsxError::PasswordProtected("AES decryption failed".into())
-                })?;
-            Ok(buf)
+                .decrypt_padded_vec::<NoPadding>(data)
+                .map_err(|_| ModernXlsxError::PasswordProtected("AES decryption failed".into()))
         }
         32 => {
             let decryptor = Aes256CbcDec::new_from_slices(key, iv)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
             decryptor
-                .decrypt_padded_mut::<NoPadding>(&mut buf)
-                .map_err(|_| {
-                    ModernXlsxError::PasswordProtected("AES decryption failed".into())
-                })?;
-            Ok(buf)
+                .decrypt_padded_vec::<NoPadding>(data)
+                .map_err(|_| ModernXlsxError::PasswordProtected("AES decryption failed".into()))
         }
         n => {
             cold_path();
@@ -235,12 +217,12 @@ pub fn aes_cbc_encrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>> {
         16 => {
             let encryptor = Aes128CbcEnc::new_from_slices(key, iv)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
-            Ok(encryptor.encrypt_padded_vec_mut::<Pkcs7>(data))
+            Ok(encryptor.encrypt_padded_vec::<Pkcs7>(data))
         }
         32 => {
             let encryptor = Aes256CbcEnc::new_from_slices(key, iv)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
-            Ok(encryptor.encrypt_padded_vec_mut::<Pkcs7>(data))
+            Ok(encryptor.encrypt_padded_vec::<Pkcs7>(data))
         }
         n => {
             cold_path();
@@ -259,12 +241,12 @@ pub fn aes_cbc_encrypt_no_pad(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<
         16 => {
             let encryptor = Aes128CbcEnc::new_from_slices(key, iv)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
-            Ok(encryptor.encrypt_padded_vec_mut::<NoPadding>(data))
+            Ok(encryptor.encrypt_padded_vec::<NoPadding>(data))
         }
         32 => {
             let encryptor = Aes256CbcEnc::new_from_slices(key, iv)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES init error: {e}")))?;
-            Ok(encryptor.encrypt_padded_vec_mut::<NoPadding>(data))
+            Ok(encryptor.encrypt_padded_vec::<NoPadding>(data))
         }
         n => {
             cold_path();
@@ -426,10 +408,12 @@ pub fn verify_password_agile(
     )?);
 
     // 8. Decrypt the actual data encryption key
-    let data_key = aes_cbc_decrypt(&enc_key_key, &info.pw_salt, &info.pw_encrypted_key_value)?;
+    let mut data_key =
+        aes_cbc_decrypt(&enc_key_key, &info.pw_salt, &info.pw_encrypted_key_value)?;
 
     let key_len = (info.pw_key_bits / 8) as usize;
-    Ok(data_key[..key_len.min(data_key.len())].to_vec())
+    data_key.truncate(key_len.min(data_key.len()));
+    Ok(data_key)
 }
 
 // ---------------------------------------------------------------------------
@@ -758,7 +742,7 @@ pub fn encrypt_file(zip_bytes: &[u8], password: &str) -> Result<Vec<u8>> {
 /// Implemented using raw `BlockDecrypt` from the `aes` crate (block-by-block).
 /// Automatically selects AES-128 or AES-256 based on key length.
 fn aes_ecb_decrypt_no_pad(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
-    use aes::cipher::{BlockDecrypt, KeyInit, generic_array::GenericArray};
+    use aes::cipher::BlockCipherDecrypt;
 
     if !data.len().is_multiple_of(16) {
         cold_path();
@@ -768,20 +752,21 @@ fn aes_ecb_decrypt_no_pad(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     }
 
     let mut buf = data.to_vec();
+    let (blocks, _) = buf.as_chunks_mut::<16>();
 
     match key.len() {
         16 => {
             let cipher = Aes128::new_from_slice(key)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES-ECB init: {e}")))?;
-            for block in buf.chunks_exact_mut(16) {
-                cipher.decrypt_block(GenericArray::from_mut_slice(block));
+            for block in blocks.iter_mut() {
+                cipher.decrypt_block(block.into());
             }
         }
         32 => {
             let cipher = Aes256::new_from_slice(key)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES-ECB init: {e}")))?;
-            for block in buf.chunks_exact_mut(16) {
-                cipher.decrypt_block(GenericArray::from_mut_slice(block));
+            for block in blocks.iter_mut() {
+                cipher.decrypt_block(block.into());
             }
         }
         n => {
@@ -800,7 +785,7 @@ fn aes_ecb_decrypt_no_pad(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
 /// Block-by-block encryption using raw `BlockEncrypt`.
 #[cfg(test)]
 fn aes_ecb_encrypt_no_pad(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
-    use aes::cipher::{BlockEncrypt, KeyInit, generic_array::GenericArray};
+    use aes::cipher::BlockCipherEncrypt;
 
     if !data.len().is_multiple_of(16) {
         cold_path();
@@ -810,20 +795,21 @@ fn aes_ecb_encrypt_no_pad(key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
     }
 
     let mut buf = data.to_vec();
+    let (blocks, _) = buf.as_chunks_mut::<16>();
 
     match key.len() {
         16 => {
             let cipher = Aes128::new_from_slice(key)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES-ECB init: {e}")))?;
-            for block in buf.chunks_exact_mut(16) {
-                cipher.encrypt_block(GenericArray::from_mut_slice(block));
+            for block in blocks.iter_mut() {
+                cipher.encrypt_block(block.into());
             }
         }
         32 => {
             let cipher = Aes256::new_from_slice(key)
                 .map_err(|e| ModernXlsxError::PasswordProtected(format!("AES-ECB init: {e}")))?;
-            for block in buf.chunks_exact_mut(16) {
-                cipher.encrypt_block(GenericArray::from_mut_slice(block));
+            for block in blocks.iter_mut() {
+                cipher.encrypt_block(block.into());
             }
         }
         n => {
@@ -1038,7 +1024,7 @@ mod tests {
     #[test]
     fn test_aes_cbc_decrypt_known_vector() {
         // AES-256-CBC encrypt-then-decrypt roundtrip
-        use cbc::cipher::{BlockEncryptMut, block_padding::Pkcs7 as Pkcs7Pad};
+        use cbc::cipher::{BlockModeEncrypt, block_padding::Pkcs7 as Pkcs7Pad};
         type Aes256CbcEnc = cbc::Encryptor<Aes256>;
 
         let key = [0x60u8; 32];
@@ -1046,7 +1032,7 @@ mod tests {
 
         let plaintext = b"Hello AES-256-CBC Test!";
         let encryptor = Aes256CbcEnc::new_from_slices(&key, &iv).unwrap();
-        let ciphertext = encryptor.encrypt_padded_vec_mut::<Pkcs7Pad>(plaintext);
+        let ciphertext = encryptor.encrypt_padded_vec::<Pkcs7Pad>(plaintext);
 
         let decrypted = aes_cbc_decrypt(&key, &iv, &ciphertext).unwrap();
         assert_eq!(decrypted, plaintext);
@@ -1054,7 +1040,7 @@ mod tests {
 
     #[test]
     fn test_aes_cbc_decrypt_no_pad_roundtrip() {
-        use cbc::cipher::{BlockEncryptMut, block_padding::NoPadding as NoPad};
+        use cbc::cipher::{BlockModeEncrypt, block_padding::NoPadding as NoPad};
         type Aes256CbcEnc = cbc::Encryptor<Aes256>;
 
         let key = [0x42u8; 32];
@@ -1063,7 +1049,7 @@ mod tests {
         // Must be exact multiple of block size (16)
         let plaintext = [0xAA; 32]; // 2 blocks
         let encryptor = Aes256CbcEnc::new_from_slices(&key, &iv).unwrap();
-        let ciphertext = encryptor.encrypt_padded_vec_mut::<NoPad>(&plaintext);
+        let ciphertext = encryptor.encrypt_padded_vec::<NoPad>(&plaintext);
 
         let decrypted = aes_cbc_decrypt_no_pad(&key, &iv, &ciphertext).unwrap();
         assert_eq!(decrypted, plaintext);
@@ -1072,7 +1058,7 @@ mod tests {
     #[test]
     fn test_decrypt_single_segment() {
         // Create a fake encrypted package: 8-byte size + 1 segment of encrypted data
-        use cbc::cipher::{BlockEncryptMut, block_padding::NoPadding as NoPad};
+        use cbc::cipher::{BlockModeEncrypt, block_padding::NoPadding as NoPad};
 
         let key = [0x33u8; 32];
         let salt = [0x11u8; 16];
@@ -1090,7 +1076,7 @@ mod tests {
         let iv: Vec<u8> = hash[..16].to_vec();
 
         let encryptor = cbc::Encryptor::<Aes256>::new_from_slices(&key, &iv).unwrap();
-        let ciphertext = encryptor.encrypt_padded_vec_mut::<NoPad>(&padded);
+        let ciphertext = encryptor.encrypt_padded_vec::<NoPad>(&padded);
 
         // Build encrypted package: size(8) + ciphertext
         let mut package = Vec::new();
@@ -1129,7 +1115,7 @@ mod tests {
     #[test]
     fn test_decrypt_multi_segment() {
         // 3 segments = 12288 bytes encrypted + last partial
-        use cbc::cipher::{BlockEncryptMut, block_padding::NoPadding as NoPad};
+        use cbc::cipher::{BlockModeEncrypt, block_padding::NoPadding as NoPad};
 
         let key = [0x44u8; 32];
         let salt = [0x22u8; 16];
@@ -1155,7 +1141,7 @@ mod tests {
             let iv: Vec<u8> = hash[..16].to_vec();
 
             let encryptor = cbc::Encryptor::<Aes256>::new_from_slices(&key, &iv).unwrap();
-            let ct = encryptor.encrypt_padded_vec_mut::<NoPad>(chunk);
+            let ct = encryptor.encrypt_padded_vec::<NoPad>(chunk);
             package.extend_from_slice(&ct);
         }
 
@@ -1328,7 +1314,7 @@ mod tests {
     #[test]
     fn test_standard_decrypt_package() {
         // Encrypt-then-decrypt roundtrip for Standard single-stream AES-CBC
-        use cbc::cipher::{BlockEncryptMut, block_padding::NoPadding as NoPad};
+        use cbc::cipher::{BlockModeEncrypt, block_padding::NoPadding as NoPad};
 
         let key = [0x77u8; 16]; // AES-128
         let salt = [0x33u8; 16]; // Used as IV
@@ -1340,7 +1326,7 @@ mod tests {
         padded.resize(padded.len() + pad_len, 0);
 
         let encryptor = cbc::Encryptor::<Aes128>::new_from_slices(&key, &salt).unwrap();
-        let ciphertext = encryptor.encrypt_padded_vec_mut::<NoPad>(&padded);
+        let ciphertext = encryptor.encrypt_padded_vec::<NoPad>(&padded);
 
         // Build package: 8-byte size + ciphertext
         let mut package = Vec::new();

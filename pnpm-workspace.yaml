@@ -1,9 +1,12 @@
 packages:
   - 'packages/*'
-  - 'benchmarks'
 
 onlyBuiltDependencies:
   - esbuild
 
 allowBuilds:
   esbuild: true
+
+minimumReleaseAgeExclude:
+  - playwright-core@1.62.0-alpha-2026-06-27
+  - playwright@1.62.0-alpha-2026-06-27

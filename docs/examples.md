@@ -267,17 +267,17 @@ data.sharedStrings.richRuns.push(runs);
 ### JSON to Sheet
 
 ```typescript
-import { jsonToSheet, Workbook } from 'modern-xlsx';
+import { jsonToSheet } from 'modern-xlsx';
 
 const data = [
   { name: 'Alice', age: 30, city: 'NYC' },
   { name: 'Bob', age: 25, city: 'LA' },
 ];
 
-const wb = new Workbook();
-const ws = wb.addSheet('People');
-const rows = jsonToSheet(data);
-// rows is RowData[] that you can assign to sheet data
+// jsonToSheet returns a standalone Worksheet (first row = header keys)
+const ws = jsonToSheet(data);
+console.log(ws.cell('A1').value); // 'name'
+console.log(ws.cell('A2').value); // 'Alice'
 ```
 
 ### Sheet to CSV
@@ -340,8 +340,18 @@ ws.pageMargins = {
 ```typescript
 ws.sheetProtection = {
   sheet: true,
-  selectLockedCells: false,
-  selectUnlockedCells: false,
+  password: 'secret',
+  objects: false,
+  scenarios: false,
+  formatCells: false,
+  formatColumns: false,
+  formatRows: false,
+  insertColumns: false,
+  insertRows: false,
+  deleteColumns: false,
+  deleteRows: false,
+  sort: false,
+  autoFilter: false,
 };
 ```
 
@@ -369,10 +379,10 @@ encodeCellRef(2, 1); // 'B3'
 import { dateToSerial, serialToDate, isDateFormatCode } from 'modern-xlsx';
 
 // Convert date to Excel serial number (Temporal-like input)
-dateToSerial({ year: 2026, month: 3, day: 1 }); // 46113
+dateToSerial({ year: 2026, month: 3, day: 1 }); // 46082
 
 // Convert serial back to a JS Date (UTC)
-const d = serialToDate(46113);
+const d = serialToDate(46082);
 d.getUTCFullYear(); // 2026
 d.getUTCMonth();    // 2 (March, 0-based)
 d.getUTCDate();     // 1

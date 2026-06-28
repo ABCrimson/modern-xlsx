@@ -8,6 +8,6 @@
     "start": "node index.mjs"
   },
   "dependencies": {
-    "modern-xlsx": "^0.9.1"
+    "modern-xlsx": "^1.1.0"
   }
 }

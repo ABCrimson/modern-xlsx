@@ -1,7 +1,7 @@
 use core::hint::cold_path;
 
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
-use quick_xml::{Reader, Writer};
+use quick_xml::{Reader, Writer, XmlVersion};
 use serde::{Deserialize, Serialize};
 
 use crate::{ModernXlsxError, Result};
@@ -199,19 +199,19 @@ pub fn parse_persons(data: &[u8]) -> Result<Vec<PersonData>> {
                         match attr.key.local_name().as_ref() {
                             b"id" => {
                                 id = attr
-                                    .unescape_value()
+                                    .normalized_value(XmlVersion::Implicit1_0)
                                     .unwrap_or_default()
                                     .into_owned();
                             }
                             b"displayName" => {
                                 display_name = attr
-                                    .unescape_value()
+                                    .normalized_value(XmlVersion::Implicit1_0)
                                     .unwrap_or_default()
                                     .into_owned();
                             }
                             b"providerId" => {
                                 provider_id = Some(
-                                    attr.unescape_value()
+                                    attr.normalized_value(XmlVersion::Implicit1_0)
                                         .unwrap_or_default()
                                         .into_owned(),
                                 );

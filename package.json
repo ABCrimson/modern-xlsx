@@ -4,10 +4,10 @@
   "engines": {
     "node": ">=24.0.0"
   },
-  "packageManager": "pnpm@11.0.0-alpha.12",
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
-    "build:wasm": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm",
-    "build:wasm:lite": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm-lite --no-default-features",
+    "build:wasm": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt",
+    "build:wasm:lite": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm-lite --no-opt -- --no-default-features",
     "build:ts": "pnpm -C packages/modern-xlsx build",
     "build": "pnpm build:wasm && pnpm build:ts",
     "test:rust": "cargo test --workspace",

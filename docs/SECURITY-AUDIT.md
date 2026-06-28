@@ -145,7 +145,7 @@ All random material is generated via `secure_random()`, which is correct.
 
 **File:** `crates/modern-xlsx-core/src/ole2/crypto.rs`
 
-The `constant_time_eq` crate (v0.3) is used for all security-critical comparisons:
+The `constant_time_eq` crate (v0.5) is used for all security-critical comparisons:
 
 1. **Password verification (Agile)** -- line 411: `constant_time_eq(&computed[..hash_len], &verifier_hash[..hash_len])`
 2. **HMAC verification** -- line 532: `constant_time_eq(&computed[..hash_len], &expected_hmac[..hash_len])`
@@ -166,7 +166,7 @@ The `SensitiveKey` struct provides RAII-based zeroization:
 pub(crate) struct SensitiveKey(pub(super) Vec<u8>);
 ```
 
-- Derives both `Zeroize` and `ZeroizeOnDrop` from the `zeroize` crate (v1.8)
+- Derives both `Zeroize` and `ZeroizeOnDrop` from the `zeroize` crate (v1.9)
 - The inner `Vec<u8>` is zeroized on drop regardless of control flow (early returns via `?`, panics, normal scope exit)
 - `Deref` to `[u8]` allows transparent read access without copying
 
@@ -351,15 +351,15 @@ if info.key_salt.is_empty() || info.pw_salt.is_empty() { return Err(...); }
 
 | Crate | Version | Purpose | Assessment |
 |---|---|---|---|
-| `aes` | 0.8 | AES-128/256 block cipher | Well-audited RustCrypto crate |
-| `cbc` | 0.1 | CBC mode wrapper | Well-audited RustCrypto crate |
-| `sha2` | 0.10 | SHA-256/512 | Well-audited RustCrypto crate |
-| `sha1` | 0.10 | SHA-1 (Standard Encryption) | Well-audited RustCrypto crate |
-| `hmac` | 0.12 | HMAC construction | Well-audited RustCrypto crate |
-| `digest` | 0.10 | Trait abstraction for hashes | Well-audited RustCrypto crate |
-| `zeroize` | 1.8 | Secret memory zeroization | Well-audited, derive macros |
-| `constant_time_eq` | 0.3 | Constant-time byte comparison | Simple, well-reviewed |
-| `getrandom` | 0.3 | CSPRNG (OS + WASM) | Well-audited, standard choice |
+| `aes` | 0.9 | AES-128/256 block cipher | Well-audited RustCrypto crate |
+| `cbc` | 0.2 | CBC mode wrapper | Well-audited RustCrypto crate |
+| `sha2` | 0.11 | SHA-256/512 | Well-audited RustCrypto crate |
+| `sha1` | 0.11 | SHA-1 (Standard Encryption) | Well-audited RustCrypto crate |
+| `hmac` | 0.13 | HMAC construction | Well-audited RustCrypto crate |
+| `digest` | 0.11 | Trait abstraction for hashes | Well-audited RustCrypto crate |
+| `zeroize` | 1.9 | Secret memory zeroization | Well-audited, derive macros |
+| `constant_time_eq` | 0.5 | Constant-time byte comparison | Simple, well-reviewed |
+| `getrandom` | 0.4 | CSPRNG (OS + WASM) | Well-audited, standard choice |
 
 All dependencies are from the RustCrypto ecosystem, which has undergone formal audits and is widely used in production Rust projects.
 
