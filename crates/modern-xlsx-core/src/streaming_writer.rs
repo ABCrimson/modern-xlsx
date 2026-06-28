@@ -471,7 +471,10 @@ fn xml_escape(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
-            _ => out.push(ch),
+            // Characters illegal in XML 1.0 (control chars other than tab/LF/CR)
+            // are dropped so we never emit a corrupt document.
+            c if (c as u32) < 0x20 && c != '\t' && c != '\n' && c != '\r' => {}
+            c => out.push(c),
         }
     }
     out
@@ -911,9 +914,19 @@ mod prop_tests {
     use proptest::prelude::*;
 
     proptest! {
-        /// xml_escape then unescape (via quick-xml) returns the original string.
+        /// xml_escape never emits a character that is illegal in XML 1.0.
         #[test]
-        fn xml_escape_roundtrip(s in ".*") {
+        fn xml_escape_never_emits_illegal_chars(s in ".*") {
+            let escaped = xml_escape(&s);
+            prop_assert!(
+                !escaped.chars().any(|c| (c as u32) < 0x20 && c != '\t' && c != '\n' && c != '\r'),
+                "escaped output contained an illegal XML 1.0 control char"
+            );
+        }
+
+        /// For input free of illegal control chars, escape -> unescape round-trips.
+        #[test]
+        fn xml_escape_roundtrip(s in "[^\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]*") {
             let escaped = xml_escape(&s);
             let unescaped = quick_xml::escape::unescape(&escaped).unwrap();
             prop_assert_eq!(unescaped.as_ref(), s.as_str());
