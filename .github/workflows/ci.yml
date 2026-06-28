@@ -92,6 +92,9 @@ jobs:
     runs-on: ubuntu-latest
     # Non-deterministic nightly smoke — surfaces real panics as a signal, never blocks CI.
     continue-on-error: true
+    # Override rust-toolchain.toml (channel=beta) — cargo-fuzz needs nightly's -Z sanitizer flags.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust nightly

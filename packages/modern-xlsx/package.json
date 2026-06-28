@@ -62,7 +62,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "build": "tsdown && node -e \"const f=require('fs');f.copyFileSync('wasm/modern_xlsx_wasm_bg.wasm','dist/modern-xlsx.wasm');f.renameSync('dist/modern-xlsx.min.iife.js','dist/modern-xlsx.min.js');f.renameSync('dist/modern-xlsx.min.iife.js.map','dist/modern-xlsx.min.js.map')\"",
+    "build": "tsdown && node scripts/finalize-dist.mjs",
     "test": "vitest run",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:watch": "vitest",
