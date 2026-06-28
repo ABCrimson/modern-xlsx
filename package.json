@@ -8,6 +8,7 @@
   "scripts": {
     "build:wasm": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt",
     "build:wasm:lite": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm-lite --no-opt -- --no-default-features",
+    "build:wasm:debug": "cd crates/modern-xlsx-wasm && wasm-pack build --dev --target web --out-dir ../../packages/modern-xlsx/wasm",
     "build:ts": "pnpm -C packages/modern-xlsx build",
     "build": "pnpm build:wasm && pnpm build:ts",
     "test:rust": "cargo test --workspace",

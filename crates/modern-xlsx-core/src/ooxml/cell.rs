@@ -262,3 +262,26 @@ mod tests {
         assert_eq!(err.code(), "INVALID_CELL_REF");
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Column index -> letters -> index round-trips across the full Excel column range.
+        #[test]
+        fn col_letters_roundtrip(col in 0u32..=16_383) {
+            let letters = col_to_letters(col);
+            prop_assert_eq!(letters_to_col(&letters).unwrap(), col);
+        }
+
+        /// A1 cell reference parse -> to_a1 round-trips for any valid (col, row).
+        #[test]
+        fn cell_ref_roundtrip(col in 0u32..=16_383, row in 0u32..=1_048_575) {
+            let a1 = format!("{}{}", col_to_letters(col), row + 1);
+            let parsed = CellRef::parse(&a1).unwrap();
+            prop_assert_eq!(parsed.to_a1(), a1);
+        }
+    }
+}

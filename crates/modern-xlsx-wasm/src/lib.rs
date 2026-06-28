@@ -15,6 +15,17 @@ fn to_js_err(e: modern_xlsx_core::ModernXlsxError) -> JsError {
     JsError::new(&e.to_coded_string())
 }
 
+/// Install a readable panic hook on module load — debug builds only.
+///
+/// In `--dev` WASM builds (`debug_assertions` on) Rust panics are routed to
+/// `console.error` with the panic message + a JS stack trace, making failures
+/// debuggable. Compiled out entirely in `--release` (zero size/runtime cost).
+#[cfg(all(target_arch = "wasm32", debug_assertions))]
+#[wasm_bindgen(start)]
+pub fn __install_debug_panic_hook() {
+    console_error_panic_hook::set_once();
+}
+
 /// Read an XLSX file and return parsed workbook data as a JSON string.
 ///
 /// Accepts a `Uint8Array` containing the raw `.xlsx` bytes.

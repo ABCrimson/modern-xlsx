@@ -904,3 +904,19 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// xml_escape then unescape (via quick-xml) returns the original string.
+        #[test]
+        fn xml_escape_roundtrip(s in ".*") {
+            let escaped = xml_escape(&s);
+            let unescaped = quick_xml::escape::unescape(&escaped).unwrap();
+            prop_assert_eq!(unescaped.as_ref(), s.as_str());
+        }
+    }
+}

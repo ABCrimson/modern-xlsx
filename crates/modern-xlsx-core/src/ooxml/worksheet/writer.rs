@@ -1172,3 +1172,25 @@ pub(super) fn format_f64(val: f64) -> String {
         ryu::Buffer::new().format(val).to_owned()
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// format_f64 round-trips through string parsing across the practical value range.
+        #[test]
+        fn format_f64_roundtrip(v in -1.0e15f64..1.0e15) {
+            let parsed: f64 = format_f64(v).parse().unwrap();
+            prop_assert_eq!(parsed, v);
+        }
+
+        /// format_f64 never emits non-finite tokens for finite input.
+        #[test]
+        fn format_f64_finite(v in proptest::num::f64::NORMAL) {
+            let s = format_f64(v);
+            prop_assert!(!s.contains("inf") && !s.contains("NaN"));
+        }
+    }
+}

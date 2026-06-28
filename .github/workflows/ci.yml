@@ -72,6 +72,74 @@ jobs:
       - name: npm audit
         run: cd packages/modern-xlsx && npm audit --omit=dev || true
 
+  deny:
+    name: cargo-deny (licenses/advisories/bans)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@beta
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+      - name: cargo deny check
+        run: cargo deny check
+
+  fuzz:
+    name: Fuzz smoke (reader)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz read_xlsx (30s smoke)
+        run: cargo fuzz run read_xlsx -- -max_total_time=30 -rss_limit_mb=4096
+      - name: Fuzz read_xlsx_json (30s smoke)
+        run: cargo fuzz run read_xlsx_json -- -max_total_time=30 -rss_limit_mb=4096
+
+  smoke:
+    name: Package smoke test (tarball + ./lite)
+    needs: rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@beta
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build WASM (full + lite)
+        run: |
+          wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt
+          wasm-pack build crates/modern-xlsx-wasm --target web --release --no-opt --out-dir ../../packages/modern-xlsx/wasm-lite -- --no-default-features
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "26"
+          cache: "pnpm"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build package
+        run: pnpm -C packages/modern-xlsx build
+      - name: Pack tarball
+        run: cd packages/modern-xlsx && pnpm pack --pack-destination "${RUNNER_TEMP}"
+      - name: Install tarball in a clean project and import both entry points
+        run: |
+          mkdir -p "${RUNNER_TEMP}/smoke" && cd "${RUNNER_TEMP}/smoke"
+          npm init -y >/dev/null
+          npm install "${RUNNER_TEMP}"/modern-xlsx-*.tgz
+          node --input-type=module -e "
+            import { Workbook, VERSION } from 'modern-xlsx';
+            import { Workbook as LiteWorkbook } from 'modern-xlsx/lite';
+            if (typeof Workbook !== 'function') throw new Error('main export broken');
+            if (typeof LiteWorkbook !== 'function') throw new Error('./lite export broken');
+            console.log('smoke ok — modern-xlsx', VERSION, '+ /lite import works');
+          "
+
   typescript:
     name: TypeScript (Node ${{ matrix.node-version }}, ${{ matrix.os }})
     needs: rust
@@ -208,7 +276,7 @@ jobs:
 
   publish:
     name: Publish to npm
-    needs: [rust, typescript, browser]
+    needs: [rust, typescript, browser, deny, smoke]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -245,6 +313,16 @@ jobs:
 
       - name: Build
         run: pnpm -C packages/modern-xlsx build
+
+      - name: Generate SBOM (CycloneDX)
+        run: cd packages/modern-xlsx && npx -y @cyclonedx/cyclonedx-npm@latest --omit dev --output-file "${RUNNER_TEMP}/sbom.cdx.json"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/sbom.cdx.json
+          if-no-files-found: warn
 
       - name: Publish
         run: |

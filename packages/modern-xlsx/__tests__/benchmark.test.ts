@@ -9,6 +9,16 @@ import {
   Workbook,
 } from '../src/index.js';
 
+// Regression baselines: modern-xlsx's structural advantages (WASM read + compact output)
+// must not regress below these conservative ratios vs SheetJS. Observed on Node 26:
+// read 10K ~3.4x, read 100K ~4.2x, aoaToSheet 50K ~1.7x. Gates are set well below the
+// observed values so they catch real regressions without flaking on loaded CI runners.
+const BASELINE = {
+  read10kRatio: 2.0,
+  read100kRatio: 2.5,
+  aoa50kRatio: 1.2,
+} as const;
+
 function generateLargeData(rows: number, cols: number): unknown[][] {
   const data: unknown[][] = [];
   const header: string[] = [];
@@ -112,6 +122,8 @@ describe('Performance benchmarks', () => {
     expect(wb2.sheetCount).toBe(1);
     expect(xlsxWb2.SheetNames).toHaveLength(1);
     expect(modernTime).toBeLessThan(2000);
+    // Regression gate: WASM read must stay faster than SheetJS by the baseline ratio.
+    expect(xlsxReadTime / modernTime).toBeGreaterThan(BASELINE.read10kRatio);
   });
 
   it('write 100K rows x 10 cols via aoaToSheet (batch API)', async () => {
@@ -164,6 +176,8 @@ describe('Performance benchmarks', () => {
     // significantly larger than a modern-xlsx-generated file (~5MB). Reading
     // time is proportional to file size. We use a generous threshold here.
     expect(modernTime).toBeLessThan(120_000);
+    // Regression gate: large-file read advantage must hold.
+    expect(xlsxReadTime / modernTime).toBeGreaterThan(BASELINE.read100kRatio);
   }, 120_000);
 
   it('aoaToSheet performance with 50K rows', () => {
@@ -185,6 +199,8 @@ describe('Performance benchmarks', () => {
     console.log(`  Ratio:       ${(xlsxTime / modernTime).toFixed(2)}x`);
 
     expect(ws.rows.length).toBeGreaterThan(0);
+    // Regression gate: batch sheet build must stay ahead of SheetJS aoa_to_sheet.
+    expect(xlsxTime / modernTime).toBeGreaterThan(BASELINE.aoa50kRatio);
   }, 30_000);
 
   it('sheetToCsv performance with 10K rows', () => {

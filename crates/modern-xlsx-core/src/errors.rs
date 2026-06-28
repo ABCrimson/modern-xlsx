@@ -95,6 +95,61 @@ impl ModernXlsxError {
     pub fn to_coded_string(&self) -> String {
         format!("[{}] {}", self.code(), self)
     }
+
+    /// Actionable, human-facing guidance for resolving this error.
+    ///
+    /// Unlike [`Self::code`] (stable, machine-readable), this guidance text may be
+    /// refined across versions. Pairs with [`Self::docs_url`] for a deep link.
+    #[inline]
+    pub fn help(&self) -> &'static str {
+        match self {
+            Self::ZipRead(_) => {
+                "The bytes are not a valid ZIP/XLSX archive or are truncated. Verify you passed a complete .xlsx file."
+            }
+            Self::ZipWrite(_) | Self::ZipEntry(_) | Self::ZipFinalize(_) | Self::XmlWrite(_) => {
+                "Failed while assembling the workbook — this usually indicates an internal bug; please report it with a reproducer."
+            }
+            Self::XmlParse(_) => {
+                "An OOXML part could not be parsed. The file may be malformed or use a feature modern-xlsx does not yet read."
+            }
+            Self::InvalidCellRef(_) => {
+                "Use A1-style references (e.g. \"B2\"): columns A-XFD, rows 1-1048576."
+            }
+            Self::InvalidCellValue(_) => "The value is out of range or does not match its cell type.",
+            Self::InvalidStyle(_) => {
+                "Build styles via Workbook.createStyle()/StyleBuilder and apply the returned index."
+            }
+            Self::InvalidDate(_) => "Excel date serials must be valid; convert dates with dateToSerial().",
+            Self::InvalidFormat(_) => {
+                "The number-format code is invalid; see the Styling guide for supported tokens."
+            }
+            Self::MissingPart(_) => {
+                "The workbook is missing a required OOXML part and is likely corrupted or not a real .xlsx."
+            }
+            Self::Security(_) => {
+                "A security limit (e.g. zip-bomb / entry-count) was exceeded. If the file is trusted, raise the limits via ZipSecurityLimits."
+            }
+            Self::PasswordProtected(_) => {
+                "The file is encrypted - read it with the password-enabled API (e.g. readWithPassword)."
+            }
+            Self::LegacyFormat(_) => {
+                "Legacy .xls (BIFF/OLE2) files are not supported; convert to .xlsx first."
+            }
+            Self::UnrecognizedFormat(_) => "The bytes are not a recognized XLSX/OOXML file.",
+            Self::Io(_) => {
+                "An underlying I/O operation failed; check the path/permissions or the provided reader."
+            }
+        }
+    }
+
+    /// Stable documentation deep-link for this error code (wiki error reference).
+    #[inline]
+    pub fn docs_url(&self) -> String {
+        format!(
+            "https://github.com/ABCrimson/modern-xlsx/wiki/FAQ#{}",
+            self.code().to_lowercase()
+        )
+    }
 }
 
 impl From<serde_json::Error> for ModernXlsxError {
@@ -161,6 +216,34 @@ mod tests {
             ModernXlsxError::UnrecognizedFormat("x".into()).code(),
             "UNRECOGNIZED_FORMAT"
         );
+    }
+
+    #[test]
+    fn test_every_error_has_help_and_docs_url() {
+        let samples = [
+            ModernXlsxError::ZipRead("x".into()),
+            ModernXlsxError::ZipWrite("x".into()),
+            ModernXlsxError::XmlParse("x".into()),
+            ModernXlsxError::InvalidCellRef("x".into()),
+            ModernXlsxError::InvalidCellValue("x".into()),
+            ModernXlsxError::InvalidStyle("x".into()),
+            ModernXlsxError::InvalidDate("x".into()),
+            ModernXlsxError::InvalidFormat("x".into()),
+            ModernXlsxError::MissingPart("x".into()),
+            ModernXlsxError::Security("x".into()),
+            ModernXlsxError::PasswordProtected("x".into()),
+            ModernXlsxError::LegacyFormat("x".into()),
+            ModernXlsxError::UnrecognizedFormat("x".into()),
+        ];
+        for err in &samples {
+            assert!(!err.help().is_empty(), "{} has empty help", err.code());
+            let url = err.docs_url();
+            assert!(url.starts_with("https://"), "docs_url not a URL: {url}");
+            assert!(
+                url.ends_with(&err.code().to_lowercase()),
+                "docs_url anchor mismatch: {url}"
+            );
+        }
     }
 
     #[test]

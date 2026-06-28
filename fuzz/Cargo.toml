@@ -1,0 +1,38 @@
+# cargo-fuzz harness for the reader. Run locally with:
+#   cargo +nightly fuzz run read_xlsx
+# CI runs a short smoke pass. This is a separate workspace (empty [workspace] below)
+# so it does not affect the main `cargo build --workspace`.
+[package]
+name = "modern-xlsx-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.modern-xlsx-core]
+path = "../crates/modern-xlsx-core"
+
+[[bin]]
+name = "read_xlsx"
+path = "fuzz_targets/read_xlsx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "read_xlsx_json"
+path = "fuzz_targets/read_xlsx_json.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1
+
+# Exclude from the parent workspace.
+[workspace]

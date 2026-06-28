@@ -2,6 +2,12 @@
 target/
 Cargo.lock
 
+# cargo-fuzz (keep Cargo.toml + fuzz_targets/, ignore generated artifacts)
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/Cargo.lock
+
 # Node
 node_modules/
 dist/
@@ -29,6 +35,9 @@ Thumbs.db
 
 # Test output
 packages/modern-xlsx/test-output/
+
+# Generated API reference (TypeDoc — built at docs-deploy time, not committed)
+docs/site/api/
 
 # Lock files (pnpm uses pnpm-lock.yaml)
 package-lock.json

@@ -54,3 +54,4 @@ parallel = ["rayon"]
 [dev-dependencies]
 serde_json.workspace = true
 pretty_assertions.workspace = true
+proptest.workspace = true

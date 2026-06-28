@@ -1,0 +1,13 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts"],
+  "tsconfig": "tsconfig.json",
+  "out": "../../docs/site/api",
+  "name": "modern-xlsx API Reference",
+  "includeVersion": true,
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "readme": "none",
+  "skipErrorChecking": true,
+  "githubPages": false
+}
