@@ -21,7 +21,7 @@ docs/plans/                  # Design and implementation plans
 ## Build Commands
 
 ```bash
-# Rust tests (424 tests)
+# Rust tests (436 tests)
 cargo test -p modern-xlsx-core
 
 # WASM build (from repo root)
@@ -30,7 +30,7 @@ cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir .
 # TypeScript build
 pnpm -C packages/modern-xlsx build
 
-# TypeScript tests (1287 tests)
+# TypeScript tests (1290 tests)
 pnpm -C packages/modern-xlsx test
 
 # Lint & format
