@@ -1,6 +1,7 @@
 # Rust
 target/
-Cargo.lock
+# Cargo.lock is committed for reproducible CI (the npm package ships a WASM binary
+# built from these exact crate versions). Run `cargo update` to refresh deliberately.
 
 # cargo-fuzz (keep Cargo.toml + fuzz_targets/, ignore generated artifacts)
 fuzz/target/

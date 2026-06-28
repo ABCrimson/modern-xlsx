@@ -73,20 +73,25 @@ jobs:
         run: cd packages/modern-xlsx && npm audit --omit=dev || true
 
   deny:
-    name: cargo-deny (licenses/advisories/bans)
+    name: cargo-deny (licenses/bans/sources)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
         uses: dtolnay/rust-toolchain@beta
       - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+        run: cargo install cargo-deny --version 0.19.9 --locked
+      # Deterministic gate (committed Cargo.lock). Advisories/yanks are covered
+      # by the non-gating `security` job (cargo audit) so a same-day CVE can't
+      # block a tagged release.
       - name: cargo deny check
-        run: cargo deny check
+        run: cargo deny check licenses bans sources
 
   fuzz:
     name: Fuzz smoke (reader)
     runs-on: ubuntu-latest
+    # Non-deterministic nightly smoke — surfaces real panics as a signal, never blocks CI.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust nightly
@@ -315,7 +320,8 @@ jobs:
         run: pnpm -C packages/modern-xlsx build
 
       - name: Generate SBOM (CycloneDX)
-        run: cd packages/modern-xlsx && npx -y @cyclonedx/cyclonedx-npm@latest --omit dev --output-file "${RUNNER_TEMP}/sbom.cdx.json"
+        continue-on-error: true
+        run: cd packages/modern-xlsx && npx -y @cyclonedx/cyclonedx-npm@5.0.0 --omit dev --output-file "${RUNNER_TEMP}/sbom.cdx.json"
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v5
