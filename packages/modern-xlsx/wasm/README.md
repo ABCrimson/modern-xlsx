@@ -34,15 +34,18 @@ await wb.toFile('output.xlsx');
 
 ## Performance
 
-100,000-row workbook, Node.js, single thread:
+Node.js 26, single thread, vs SheetJS (`xlsx` 0.20.3) — indicative, hardware-dependent:
 
 | Operation | modern-xlsx | SheetJS CE | |
 |-----------|------------:|-----------:|---:|
-| **Read** | 1,155 ms | 4,927 ms | **4.3x faster** |
-| **Write** | 5,048 ms | 5,048 ms | 1.0x |
-| sheetToJson (10K) | 54 ms | 103 ms | **1.9x faster** |
+| **Read** (100K rows) | 494 ms | 2,072 ms | **4.2x faster** |
+| **Read** (10K rows) | 52 ms | 177 ms | **3.4x faster** |
+| **Write** (10K rows) | 180 ms | 159 ms | ~parity |
+| **Output size** (100K rows) | ~5 MB | ~40 MB | **~8x smaller** |
 
-> ~29 KB JS + ~1.6 MB WASM. Zero runtime dependencies.
+The biggest wins are read speed (3-4x) and file size (~8x smaller); write throughput and CSV/JSON export are roughly at parity.
+
+> ~25 KB JS (gzip) + ~1.9 MB WASM. Zero runtime dependencies.
 
 ## Install
 

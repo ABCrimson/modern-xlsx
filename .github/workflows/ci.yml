@@ -281,7 +281,10 @@ jobs:
 
   publish:
     name: Publish to npm
-    needs: [rust, typescript, browser, deny, smoke]
+    # `security` (cargo audit) gates advisories on the publish path; `deny` gates
+    # licenses/bans/sources deterministically. With Cargo.lock committed, an audit
+    # failure means a real new CVE against a locked dep — correctly blocking release.
+    needs: [rust, typescript, browser, deny, smoke, security]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
