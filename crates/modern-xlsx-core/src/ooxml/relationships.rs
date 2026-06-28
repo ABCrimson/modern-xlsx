@@ -160,7 +160,7 @@ impl Relationships {
 
         loop {
             match reader.read_event_into(&mut buf) {
-                Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e)) => {
+                Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
                     if e.local_name().as_ref() == b"Relationship" {
                         let (mut id, mut rel_type, mut target): (String, Cow<'static, str>, Cow<'static, str>) =
                             (String::new(), Cow::Owned(String::new()), Cow::Owned(String::new()));

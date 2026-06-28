@@ -106,7 +106,7 @@ impl ContentTypes {
 
         loop {
             match reader.read_event_into(&mut buf) {
-                Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e)) => {
+                Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
                     match e.local_name().as_ref() {
                         b"Default" => {
                             let (mut ext, mut ctype) = (String::new(), String::new());

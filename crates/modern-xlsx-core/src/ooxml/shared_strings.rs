@@ -296,7 +296,7 @@ impl SharedStringTable {
 
     /// Look up a string by its zero-based index.
     pub fn get(&self, index: usize) -> Option<&str> {
-        self.strings.get(index).map(|s| s.as_str())
+        self.strings.get(index).map(std::string::String::as_str)
     }
 
     /// Serialize the shared string table to XML bytes.

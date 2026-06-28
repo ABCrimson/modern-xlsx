@@ -189,7 +189,7 @@ pub fn parse_persons(data: &[u8]) -> Result<Vec<PersonData>> {
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e)) => {
+            Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
                 if e.local_name().as_ref() == b"person" {
                     let mut id = String::new();
                     let mut display_name = String::new();

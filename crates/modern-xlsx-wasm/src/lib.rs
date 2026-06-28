@@ -221,6 +221,6 @@ mod tests {
     #[wasm_bindgen_test]
     fn test_version() {
         assert!(!version().is_empty());
-        assert!(version().split('.').count() == 3);
+        assert_eq!(version().split('.').count(), 3);
     }
 }

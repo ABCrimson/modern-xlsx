@@ -69,7 +69,7 @@ impl EncryptionInfo {
 
         match (version_major, version_minor) {
             (4, 4) => Self::parse_agile(&stream[8..]),
-            (2, 2) | (3, 2) | (4, 2) => Self::parse_standard(&stream[8..]),
+            (2..=4, 2) => Self::parse_standard(&stream[8..]),
             _ => {
                 cold_path();
                 Err(ModernXlsxError::PasswordProtected(format!(
@@ -107,7 +107,7 @@ impl EncryptionInfo {
 
         loop {
             match reader.read_event_into(&mut buf) {
-                Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e)) => {
+                Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
                     let local = e.local_name();
                     let tag = std::str::from_utf8(local.as_ref()).unwrap_or_default();
                     match tag {

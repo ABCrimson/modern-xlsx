@@ -43,7 +43,7 @@ pub fn parse(data: &[u8]) -> Result<Vec<CalcChainEntry>> {
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e))
+            Ok(Event::Empty(ref e) | Event::Start(ref e))
                 if e.local_name().as_ref() == b"c" =>
             {
                 let mut cell_ref = String::new();

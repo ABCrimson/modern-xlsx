@@ -272,11 +272,11 @@ fn resolve_comments(
                 let comments_path = resolve_rel_target(sheet_path, &rel.target);
 
                 if let Some(comments_data) = ctx.entries.get(&comments_path) {
-                    debug!("parsing comments from: {}", comments_path);
+                    debug!("parsing comments from: {comments_path}");
                     sheet_comments[i] = comments::parse_comments(comments_data)?;
                     ctx.known_dynamic.insert(comments_path);
                 } else {
-                    warn!("comments file not found: {}", comments_path);
+                    warn!("comments file not found: {comments_path}");
                 }
             }
         }
@@ -301,11 +301,11 @@ fn resolve_tables(
                 let table_path = resolve_rel_target(sheet_path, &rel.target);
 
                 if let Some(table_data) = ctx.entries.get(&table_path) {
-                    debug!("parsing table from: {}", table_path);
+                    debug!("parsing table from: {table_path}");
                     sheet_tables[i].push(TableDefinition::parse(table_data)?);
                     ctx.known_dynamic.insert(table_path);
                 } else {
-                    warn!("table file not found: {}", table_path);
+                    warn!("table file not found: {table_path}");
                 }
             }
         }
@@ -334,7 +334,7 @@ fn resolve_charts(
                 let drawing_path = resolve_rel_target(sheet_path, &rel.target);
 
                 if let Some(drawing_data) = ctx.entries.get(&drawing_path) {
-                    debug!("parsing drawing from: {}", drawing_path);
+                    debug!("parsing drawing from: {drawing_path}");
                     let anchors = charts::parse_drawing_anchors(drawing_data)?;
 
                     // Resolve each chart rId via drawing .rels.
@@ -354,7 +354,7 @@ fn resolve_charts(
                                 resolve_rel_target(&drawing_path, &chart_rel.target);
 
                             if let Some(chart_data) = ctx.entries.get(&chart_path) {
-                                debug!("parsing chart from: {}", chart_path);
+                                debug!("parsing chart from: {chart_path}");
                                 let chart = charts::ChartData::parse(chart_data)?;
                                 sheet_charts[i].push(charts::WorksheetChart {
                                     chart,
@@ -362,7 +362,7 @@ fn resolve_charts(
                                 });
                                 ctx.known_dynamic.insert(chart_path);
                             } else {
-                                warn!("chart file not found: {}", chart_path);
+                                warn!("chart file not found: {chart_path}");
                             }
                         }
                     }
@@ -370,7 +370,7 @@ fn resolve_charts(
                     ctx.known_dynamic.insert(drawing_path);
                     ctx.known_dynamic.insert(drawing_rels_path);
                 } else {
-                    warn!("drawing file not found: {}", drawing_path);
+                    warn!("drawing file not found: {drawing_path}");
                 }
             }
         }
@@ -395,11 +395,11 @@ fn resolve_pivot_tables(
                 let pivot_path = resolve_rel_target(sheet_path, &rel.target);
 
                 if let Some(pivot_data) = ctx.entries.get(&pivot_path) {
-                    debug!("parsing pivot table from: {}", pivot_path);
+                    debug!("parsing pivot table from: {pivot_path}");
                     sheet_pivots[i].push(PivotTableData::parse(pivot_data)?);
                     ctx.known_dynamic.insert(pivot_path);
                 } else {
-                    warn!("pivot table file not found: {}", pivot_path);
+                    warn!("pivot table file not found: {pivot_path}");
                 }
             }
         }
@@ -430,7 +430,7 @@ fn resolve_pivot_caches(
 
     for cache_path in cache_targets {
         if let Some(cache_data) = ctx.entries.get(&cache_path) {
-            debug!("parsing pivot cache definition from: {}", cache_path);
+            debug!("parsing pivot cache definition from: {cache_path}");
             cache_defs.push(PivotCacheDefinitionData::parse(cache_data)?);
             ctx.known_dynamic.insert(cache_path.clone());
 
@@ -443,18 +443,18 @@ fn resolve_pivot_caches(
                     let records_path = resolve_rel_target(&cache_path, &rel.target);
 
                     if let Some(rec_data) = ctx.entries.get(&records_path) {
-                        debug!("parsing pivot cache records from: {}", records_path);
+                        debug!("parsing pivot cache records from: {records_path}");
                         cache_recs.push(PivotCacheRecordsData::parse(rec_data)?);
                         ctx.known_dynamic.insert(records_path);
                     } else {
-                        warn!("pivot cache records file not found: {}", records_path);
+                        warn!("pivot cache records file not found: {records_path}");
                     }
                 }
 
                 ctx.known_dynamic.insert(cache_rels_path);
             }
         } else {
-            warn!("pivot cache definition file not found: {}", cache_path);
+            warn!("pivot cache definition file not found: {cache_path}");
         }
     }
 
@@ -477,11 +477,11 @@ fn resolve_threaded_comments(
                 let tc_path = resolve_rel_target(sheet_path, &rel.target);
 
                 if let Some(tc_data) = ctx.entries.get(&tc_path) {
-                    debug!("parsing threaded comments from: {}", tc_path);
+                    debug!("parsing threaded comments from: {tc_path}");
                     sheet_tc[i] = threaded_comments::parse_threaded_comments(tc_data)?;
                     ctx.known_dynamic.insert(tc_path);
                 } else {
-                    warn!("threaded comments file not found: {}", tc_path);
+                    warn!("threaded comments file not found: {tc_path}");
                 }
             }
         }
@@ -495,7 +495,7 @@ fn resolve_persons(ctx: &mut ReaderContext) -> Result<Vec<PersonData>> {
     let persons_path = "xl/persons/person.xml";
 
     if let Some(persons_data) = ctx.entries.get(persons_path) {
-        debug!("parsing persons from: {}", persons_path);
+        debug!("parsing persons from: {persons_path}");
         let persons = threaded_comments::parse_persons(persons_data)?;
         ctx.known_dynamic.insert(persons_path.to_string());
         Ok(persons)
@@ -518,11 +518,11 @@ fn resolve_slicers(ctx: &mut ReaderContext) -> Result<Vec<Vec<SlicerData>>> {
                 let slicer_path = resolve_rel_target(sheet_path, &rel.target);
 
                 if let Some(slicer_data) = ctx.entries.get(&slicer_path) {
-                    debug!("parsing slicers from: {}", slicer_path);
+                    debug!("parsing slicers from: {slicer_path}");
                     sheet_slicers[i] = slicers::parse_slicers(slicer_data)?;
                     ctx.known_dynamic.insert(slicer_path);
                 } else {
-                    warn!("slicer file not found: {}", slicer_path);
+                    warn!("slicer file not found: {slicer_path}");
                 }
             }
         }
@@ -549,11 +549,11 @@ fn resolve_slicer_caches(ctx: &mut ReaderContext) -> Result<Vec<SlicerCacheData>
 
     for cache_path in cache_targets {
         if let Some(cache_data) = ctx.entries.get(&cache_path) {
-            debug!("parsing slicer cache from: {}", cache_path);
+            debug!("parsing slicer cache from: {cache_path}");
             caches.push(SlicerCacheData::parse(cache_data)?);
             ctx.known_dynamic.insert(cache_path);
         } else {
-            warn!("slicer cache file not found: {}", cache_path);
+            warn!("slicer cache file not found: {cache_path}");
         }
     }
 
@@ -574,11 +574,11 @@ fn resolve_timelines(ctx: &mut ReaderContext) -> Result<Vec<Vec<TimelineData>>> 
                 let tl_path = resolve_rel_target(sheet_path, &rel.target);
 
                 if let Some(tl_data) = ctx.entries.get(&tl_path) {
-                    debug!("parsing timelines from: {}", tl_path);
+                    debug!("parsing timelines from: {tl_path}");
                     sheet_timelines[i] = timelines::parse_timelines(tl_data)?;
                     ctx.known_dynamic.insert(tl_path);
                 } else {
-                    warn!("timeline file not found: {}", tl_path);
+                    warn!("timeline file not found: {tl_path}");
                 }
             }
         }
@@ -605,11 +605,11 @@ fn resolve_timeline_caches(ctx: &mut ReaderContext) -> Result<Vec<TimelineCacheD
 
     for cache_path in cache_targets {
         if let Some(cache_data) = ctx.entries.get(&cache_path) {
-            debug!("parsing timeline cache from: {}", cache_path);
+            debug!("parsing timeline cache from: {cache_path}");
             caches.push(TimelineCacheData::parse(cache_data)?);
             ctx.known_dynamic.insert(cache_path);
         } else {
-            warn!("timeline cache file not found: {}", cache_path);
+            warn!("timeline cache file not found: {cache_path}");
         }
     }
 
@@ -624,7 +624,7 @@ fn collect_preserved(ctx: &mut ReaderContext) -> BTreeMap<String, Vec<u8>> {
     let mut preserved = BTreeMap::new();
     for (path, data) in ctx.entries.drain() {
         if !KNOWN_STATIC_PATHS.contains(&path.as_str()) && !ctx.known_dynamic.contains(&path) {
-            debug!("preserving unknown ZIP entry: {}", path);
+            debug!("preserving unknown ZIP entry: {path}");
             preserved.insert(path, data);
         }
     }
@@ -888,7 +888,7 @@ fn build_json_from_context(mut ctx: ReaderContext, data_len: usize) -> Result<St
         let ws_data = ctx.entries.get(path).ok_or_else(|| {
             cold_path();
             ModernXlsxError::MissingPart(format!(
-                "ZIP entry '{}' not found for sheet '{}' — check xl/_rels/workbook.xml.rels targets", path, name
+                "ZIP entry '{path}' not found for sheet '{name}' — check xl/_rels/workbook.xml.rels targets"
             ))
         })?;
         WorksheetXml::parse_to_json(ws_data, Some(&ctx.sst), &sheet_comments[i], &sheet_tables[i], &mut out)?;
@@ -1093,11 +1093,11 @@ fn parse_sheets(
     sheet_targets
         .iter()
         .map(|(name, path, state)| {
-            debug!("parsing worksheet: {}", name);
+            debug!("parsing worksheet: {name}");
             let sheet_data = entries.get(path).ok_or_else(|| {
                 cold_path();
                 ModernXlsxError::MissingPart(format!(
-                    "ZIP entry '{}' not found for sheet '{}' — check xl/_rels/workbook.xml.rels targets", path, name
+                    "ZIP entry '{path}' not found for sheet '{name}' — check xl/_rels/workbook.xml.rels targets"
                 ))
             })?;
             let worksheet = WorksheetXml::parse_with_sst(sheet_data, Some(sst))?;
@@ -1704,9 +1704,9 @@ mod tests {
 
         let sheets_info: Vec<SheetInfo> = (1..=sheet_count)
             .map(|i| SheetInfo {
-                name: format!("Sheet{}", i),
+                name: format!("Sheet{i}"),
                 sheet_id: i as u32,
-                r_id: format!("rId{}", i),
+                r_id: format!("rId{i}"),
                 state: SheetState::Visible,
             })
             .collect();
@@ -1781,7 +1781,7 @@ mod tests {
             };
             let ws_xml = ws.to_xml().unwrap();
             entries.push(ZipEntry {
-                name: format!("xl/worksheets/sheet{}.xml", i),
+                name: format!("xl/worksheets/sheet{i}.xml"),
                 data: ws_xml,
             });
         }

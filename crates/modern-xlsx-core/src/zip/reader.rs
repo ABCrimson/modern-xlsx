@@ -117,7 +117,7 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
         }
 
         if buf.is_empty() {
-            warn!("skipping empty ZIP entry: {}", name);
+            warn!("skipping empty ZIP entry: {name}");
             continue;
         }
 

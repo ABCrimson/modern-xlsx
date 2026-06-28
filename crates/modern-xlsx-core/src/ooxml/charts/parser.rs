@@ -5,7 +5,7 @@ use core::hint::cold_path;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
-use super::types::*;
+use super::types::{TickLabelPosition, TickMark, AxisPosition, ChartTitle, ChartAxis, DataLabels, LegendPosition, ChartLegend, TrendlineType, Trendline, ErrorBarType, ErrorBarDirection, ErrorBars, View3D, ChartData, ChartType, ChartSeries, ChartGrouping, ScatterStyle, RadarStyle, ManualLayout, MarkerStyle, ChartAnchor};
 use crate::ooxml::push_entity;
 use crate::{ModernXlsxError, Result};
 
@@ -435,15 +435,9 @@ impl ChartData {
                         // Chart type elements inside plotArea.
                         // When a second chart-type element appears, it's the
                         // secondary chart in a combo-chart layout.
-                        (ParseCtx::PlotArea, b"barChart")
-                        | (ParseCtx::PlotArea, b"lineChart")
-                        | (ParseCtx::PlotArea, b"pieChart")
-                        | (ParseCtx::PlotArea, b"doughnutChart")
-                        | (ParseCtx::PlotArea, b"scatterChart")
-                        | (ParseCtx::PlotArea, b"areaChart")
-                        | (ParseCtx::PlotArea, b"radarChart")
-                        | (ParseCtx::PlotArea, b"bubbleChart")
-                        | (ParseCtx::PlotArea, b"stockChart") => {
+                        (ParseCtx::PlotArea,
+b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
+| b"areaChart" | b"radarChart" | b"bubbleChart" | b"stockChart") => {
                             let ct = match local {
                                 b"barChart" => ChartType::Column, // barDir refines
                                 b"lineChart" => ChartType::Line,
@@ -570,7 +564,7 @@ impl ChartData {
                             ctx_stack.push(ParseCtx::SerSpPrLnFill);
                         }
                         // Series text formula capture.
-                        (ParseCtx::SerTx, b"f") | (ParseCtx::SerTx, b"strRef") => {
+                        (ParseCtx::SerTx, b"f" | b"strRef") => {
                             if local == b"f" {
                                 capturing_text = true;
                                 text_target = TextTarget::SerName;
@@ -1089,7 +1083,7 @@ impl ChartData {
                             cur_view_3d.r_ang_ax = Some(val == "1" || val == "true");
                         }
                         // Data table (showKeys within dTable).
-                        (ParseCtx::PlotArea, b"dTable") | (_, b"dTable") => {
+                        (ParseCtx::PlotArea | _, b"dTable") => {
                             // Self-closing <c:dTable/> or containing <c:showKeys/>.
                             show_data_table = true;
                         }

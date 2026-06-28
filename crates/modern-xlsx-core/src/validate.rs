@@ -436,21 +436,18 @@ fn validate_merge_cells(report: &mut ValidationReport, wb: &WorkbookData) {
                 continue;
             };
 
-            let (start, end) = match (CellRef::parse(start_str), CellRef::parse(end_str)) {
-                (Ok(s), Ok(e)) => (s, e),
-                _ => {
-                    report.push(ValidationIssue {
-                        severity: Severity::Error,
-                        category: IssueCategory::MergeCell,
-                        message: format!(
-                            "Cannot parse merge range endpoints in '{merge_ref}'"
-                        ),
-                        location: loc,
-                        suggestion: "Fix cell references".into(),
-                        auto_fixable: false,
-                    });
-                    continue;
-                }
+            let (start, end) = if let (Ok(s), Ok(e)) = (CellRef::parse(start_str), CellRef::parse(end_str)) { (s, e) } else {
+                report.push(ValidationIssue {
+                    severity: Severity::Error,
+                    category: IssueCategory::MergeCell,
+                    message: format!(
+                        "Cannot parse merge range endpoints in '{merge_ref}'"
+                    ),
+                    location: loc,
+                    suggestion: "Fix cell references".into(),
+                    auto_fixable: false,
+                });
+                continue;
             };
 
             // Check for overlapping merge regions.

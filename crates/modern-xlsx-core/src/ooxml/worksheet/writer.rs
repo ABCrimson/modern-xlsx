@@ -421,8 +421,7 @@ impl WorksheetXml {
                                 if let Some(sst_builder) = sst {
                                     let idx = sst_builder.get_index(value).ok_or_else(|| {
                                         ModernXlsxError::InvalidCellValue(format!(
-                                            "SharedString cell has unmapped value: {}",
-                                            value
+                                            "SharedString cell has unmapped value: {value}"
                                         ))
                                     })?;
                                     writer

@@ -10,6 +10,9 @@ description = "Rust core for reading and writing OOXML/XLSX files — ZIP, SAX X
 keywords = ["xlsx", "excel", "ooxml", "spreadsheet", "xml"]
 categories = ["encoding", "parser-implementations"]
 
+[lints]
+workspace = true
+
 [dependencies]
 quick-xml.workspace = true
 serde.workspace = true

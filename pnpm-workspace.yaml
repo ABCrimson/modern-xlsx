@@ -7,6 +7,9 @@ onlyBuiltDependencies:
 allowBuilds:
   esbuild: true
 
+# Supply-chain gate: newly published packages must be at least 1 day old before install
+# (mitigates compromised just-published versions). Exclusions below are deliberate bleeding-edge pins.
+minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - playwright-core@1.62.0-alpha-2026-06-27
   - playwright@1.62.0-alpha-2026-06-27

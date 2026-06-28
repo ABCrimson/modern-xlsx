@@ -337,7 +337,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
                     // Remap rId references in the image anchor XML fragments and
                     // insert them before </xdr:wsDr> in the chart drawing XML.
-                    let anchor_capacity: usize = image_anchors.iter().map(|a| a.len()).sum();
+                    let anchor_capacity: usize = image_anchors.iter().map(std::string::String::len).sum();
                     let mut remapped_anchors = String::with_capacity(anchor_capacity);
                     for anchor_xml in &image_anchors {
                         let mut remapped = anchor_xml.clone();
@@ -754,7 +754,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
             // Already written with comments/table relationships merged in.
             continue;
         }
-        trace!("writing preserved ZIP entry: {}", path);
+        trace!("writing preserved ZIP entry: {path}");
         entries.push(ZipEntry {
             name: path.clone(),
             data: data.clone(),
@@ -1589,7 +1589,7 @@ mod tests {
         let xml_str = std::str::from_utf8(&xml_bytes).unwrap();
 
         // The SharedString cell's <v> should contain the SST index "7", not "Alpha".
-        assert!(xml_str.contains("<v>7</v>"), "SST cell should have index 7, got: {}", xml_str);
+        assert!(xml_str.contains("<v>7</v>"), "SST cell should have index 7, got: {xml_str}");
         // The Number cell should be unchanged.
         assert!(xml_str.contains("<v>99</v>"), "Number cell should remain 99");
     }

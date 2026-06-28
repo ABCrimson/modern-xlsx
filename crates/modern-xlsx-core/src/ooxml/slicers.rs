@@ -104,7 +104,7 @@ pub fn parse_slicers(data: &[u8]) -> Result<Vec<SlicerData>> {
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e)) => {
+            Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
                 if e.local_name().as_ref() == b"slicer" {
                     let mut name = String::new();
                     let mut caption: Option<String> = None;
@@ -208,7 +208,7 @@ impl SlicerCacheData {
 
         loop {
             match reader.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+                Ok(Event::Start(ref e) | Event::Empty(ref e)) => {
                     let local = e.local_name();
                     match local.as_ref() {
                         b"slicerCacheDefinition" => {

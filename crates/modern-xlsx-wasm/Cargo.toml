@@ -17,6 +17,9 @@ crate-type = ["cdylib", "rlib"]
 default = ["encryption"]
 encryption = ["modern-xlsx-core/encryption"]
 
+[lints]
+workspace = true
+
 [dependencies]
 modern-xlsx-core = { path = "../modern-xlsx-core", default-features = false }
 wasm-bindgen.workspace = true

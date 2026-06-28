@@ -3,7 +3,7 @@
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::Writer;
 
-use super::types::*;
+use super::types::{ChartAnchor, ChartData, ChartType, ChartSeries, MarkerStyle, ChartTitle, DataLabels, ChartAxis, ChartLegend, Trendline, ErrorBars, View3D};
 use super::WorksheetChart;
 use crate::{ModernXlsxError, Result};
 
@@ -968,8 +968,7 @@ impl ChartData {
         let default_pos = if tag == "c:catAx" { "b" } else { "l" };
         let pos = axis
             .position
-            .map(|p| p.xml_val())
-            .unwrap_or(default_pos);
+            .map_or(default_pos, super::types::AxisPosition::xml_val);
         let mut ax_pos = BytesStart::new("c:axPos");
         ax_pos.push_attribute(("val", pos));
         writer

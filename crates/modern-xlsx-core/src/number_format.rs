@@ -97,7 +97,7 @@ fn clean_format_string(format: &str) -> Vec<u8> {
         .iter()
         .any(|&b| matches!(b, b'[' | b'"' | b'\\' | b'_' | b'*'))
     {
-        return bytes.iter().map(|b| b.to_ascii_lowercase()).collect();
+        return bytes.iter().map(u8::to_ascii_lowercase).collect();
     }
 
     let mut result = Vec::with_capacity(len);
