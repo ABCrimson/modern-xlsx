@@ -4,6 +4,45 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-06-28
+
+Read-fidelity verification and XML-robustness release. Most advanced OOXML features were already implemented on the 1.1 line; this release proves them with an end-to-end round-trip suite and hardens every writer against malformed input. No breaking API changes.
+
+### Added
+- **Read-fidelity test suite** (`__tests__/read-fidelity.test.ts`): build → write → read → assert that hyperlinks, merged cells, auto-filter, tab color, comments, defined names, sheet visibility, and row/column outline grouping each survive a full round-trip through the WASM pipeline.
+- `sanitize_xml_text` / `is_illegal_xml_char` helpers in the OOXML core.
+
+### Fixed
+- **Writers never emit a corrupt XML document.** Both the streaming writer and the default (`toBuffer()`) writer now drop characters illegal in XML 1.0 — the C0 control characters other than tab/LF/CR, plus the U+FFFE/U+FFFF noncharacters — from all user-supplied text: cell values, inline and shared strings, rich-text runs, formulas, comments, comment authors, defined names, chart titles and series names, table formulas, document properties, header/footer text, and sparkline references. Previously only the streaming writer stripped control characters, and it missed U+FFFE/U+FFFF.
+
+### Known limitations (deferred to later 1.2.x)
+- External and email hyperlinks round-trip through the library's own `location` representation rather than the OOXML-standard external-relationship form (`r:id` → `sheetN.xml.rels` with `TargetMode="External"`); internal links are fully standard. Also deferred: `sortState`, strict-OOXML value decoding, legacy VML comments, spilled-range tracking, and defined-names-in-formulas.
+
+### Stats
+- Rust: 435 tests, clippy clean. TypeScript: 1,290 tests across 59 files, typecheck clean.
+
+## [1.1.1] - 2026-06-28
+
+Hardening, reproducibility, and a critical packaging fix on the 1.1.0 feature set — no public API change.
+
+### Fixed
+- **CRITICAL packaging fix:** the npm tarball now ships the `wasm/` and `wasm-lite/` glue and binaries. 1.0.0 and 1.1.0 were published without them — `npm pack` excludes nested directories that contain their own `package.json`, so importing the package failed with `ERR_MODULE_NOT_FOUND`. A `finalize-dist` build step strips the stray wasm-pack metadata so the artifacts are included.
+
+### Added
+- Property-based tests (proptest), a cargo-fuzz reader harness, and a CI smoke test that installs the packed tarball and imports both entry points.
+- `ModernXlsxError.help()` and `docs_url()` for actionable diagnostics.
+- Auto-generated TypeDoc API reference, a CycloneDX SBOM on release, and readable WASM panic traces in debug builds.
+
+### Changed
+- Curated `clippy::pedantic` across the workspace; a `cargo-deny` (licenses/bans/sources) gate; committed `Cargo.lock` for reproducible builds; and a pnpm `minimumReleaseAge` supply-chain gate.
+
+## [1.1.0] - 2026-06-28
+
+Bleeding-edge modernization release — full toolchain and dependency upgrades on the stable, API-frozen 1.0 feature set, with the same production-ready public API.
+
+### Changed
+- Upgraded the entire stack to current bleeding-edge versions (Rust beta / edition 2024, wasm-bindgen, quick-xml, zip, RustCrypto, and friends; TypeScript, Vitest, tsdown, Biome, pnpm) and refreshed all GitHub Actions and runtime targets (Node, Deno, Bun, Cloudflare Workers).
+
 ## [1.0.0] - 2026-03-06
 
 First stable release — production-ready, API frozen.

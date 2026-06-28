@@ -172,7 +172,9 @@ impl TableDefinition {
                     .write_event(Event::Start(BytesStart::new("calculatedColumnFormula")))
                     .map_err(map_err)?;
                 writer
-                    .write_event(Event::Text(BytesText::new(formula)))
+                    .write_event(Event::Text(BytesText::new(
+                        crate::ooxml::sanitize_xml_text(formula).as_ref(),
+                    )))
                     .map_err(map_err)?;
                 writer
                     .write_event(Event::End(BytesEnd::new("calculatedColumnFormula")))

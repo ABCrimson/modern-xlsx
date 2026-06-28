@@ -228,7 +228,9 @@ impl DocProperties {
                         .write_event(Event::Start(BytesStart::new(tag)))
                         .map_err(map_err)?;
                     writer
-                        .write_event(Event::Text(BytesText::new(v)))
+                        .write_event(Event::Text(BytesText::new(
+                            crate::ooxml::sanitize_xml_text(v).as_ref(),
+                        )))
                         .map_err(map_err)?;
                     writer
                         .write_event(Event::End(BytesEnd::new(tag)))
@@ -253,7 +255,9 @@ impl DocProperties {
             elem.push_attribute(("xsi:type", "dcterms:W3CDTF"));
             writer.write_event(Event::Start(elem)).map_err(map_err)?;
             writer
-                .write_event(Event::Text(BytesText::new(v)))
+                .write_event(Event::Text(BytesText::new(
+                    crate::ooxml::sanitize_xml_text(v).as_ref(),
+                )))
                 .map_err(map_err)?;
             writer
                 .write_event(Event::End(BytesEnd::new("dcterms:created")))
@@ -265,7 +269,9 @@ impl DocProperties {
             elem.push_attribute(("xsi:type", "dcterms:W3CDTF"));
             writer.write_event(Event::Start(elem)).map_err(map_err)?;
             writer
-                .write_event(Event::Text(BytesText::new(v)))
+                .write_event(Event::Text(BytesText::new(
+                    crate::ooxml::sanitize_xml_text(v).as_ref(),
+                )))
                 .map_err(map_err)?;
             writer
                 .write_event(Event::End(BytesEnd::new("dcterms:modified")))
@@ -305,7 +311,9 @@ impl DocProperties {
                         .write_event(Event::Start(BytesStart::new(tag)))
                         .map_err(map_err)?;
                     writer
-                        .write_event(Event::Text(BytesText::new(v)))
+                        .write_event(Event::Text(BytesText::new(
+                            crate::ooxml::sanitize_xml_text(v).as_ref(),
+                        )))
                         .map_err(map_err)?;
                     writer
                         .write_event(Event::End(BytesEnd::new(tag)))
@@ -483,6 +491,33 @@ mod tests {
         assert_eq!(parsed.category, props.category);
         assert_eq!(parsed.content_status, props.content_status);
         assert_eq!(parsed.revision, props.revision);
+    }
+
+    #[test]
+    fn core_xml_sanitizes_illegal_chars_in_dates_and_text() {
+        // `created`/`modified` are free-form `Option<String>` with no W3CDTF
+        // validation, so an illegal char in them (or in any text property) must
+        // be stripped — otherwise the serialized core.xml part is corrupt.
+        let props = DocProperties {
+            title: Some("Re\u{0001}port".to_string()),
+            created: Some("2024-01-01T00:00:00Z\u{FFFE}".to_string()),
+            modified: Some("2024-06-01\u{0008}T12:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        let xml = props.to_core_xml().unwrap();
+        // No XML-1.0-illegal character may survive into the serialized part.
+        let text = std::str::from_utf8(&xml).unwrap();
+        assert!(
+            !text.chars().any(crate::ooxml::is_illegal_xml_char),
+            "serialized core.xml retained an XML-1.0-illegal character"
+        );
+
+        // The document still parses, with the illegal chars removed.
+        let parsed = parse_core(&xml).unwrap();
+        assert_eq!(parsed.title.as_deref(), Some("Report"));
+        assert_eq!(parsed.created.as_deref(), Some("2024-01-01T00:00:00Z"));
+        assert_eq!(parsed.modified.as_deref(), Some("2024-06-01T12:00:00Z"));
     }
 
     #[test]

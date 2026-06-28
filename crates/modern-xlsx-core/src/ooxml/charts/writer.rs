@@ -534,7 +534,9 @@ impl ChartData {
                 .write_event(Event::Start(BytesStart::new("c:f")))
                 .map_err(map_err)?;
             writer
-                .write_event(Event::Text(BytesText::new(name)))
+                .write_event(Event::Text(BytesText::new(
+                    crate::ooxml::sanitize_xml_text(name).as_ref(),
+                )))
                 .map_err(map_err)?;
             writer
                 .write_event(Event::End(BytesEnd::new("c:f")))
@@ -715,7 +717,9 @@ impl ChartData {
             .write_event(Event::Start(BytesStart::new("c:f")))
             .map_err(map_err)?;
         writer
-            .write_event(Event::Text(BytesText::new(formula)))
+            .write_event(Event::Text(BytesText::new(
+                crate::ooxml::sanitize_xml_text(formula).as_ref(),
+            )))
             .map_err(map_err)?;
         writer
             .write_event(Event::End(BytesEnd::new("c:f")))
@@ -824,7 +828,9 @@ impl ChartData {
             .write_event(Event::Start(BytesStart::new("a:t")))
             .map_err(map_err)?;
         writer
-            .write_event(Event::Text(BytesText::new(&title.text)))
+            .write_event(Event::Text(BytesText::new(
+                crate::ooxml::sanitize_xml_text(&title.text).as_ref(),
+            )))
             .map_err(map_err)?;
         writer
             .write_event(Event::End(BytesEnd::new("a:t")))

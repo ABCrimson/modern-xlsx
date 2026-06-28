@@ -438,7 +438,7 @@ impl SharedStringTable {
                         .map_err(map_write_err)?;
                     writer
                         .write_event(Event::Text(BytesText::new(
-                            &run.text,
+                            crate::ooxml::sanitize_xml_text(&run.text).as_ref(),
                         )))
                         .map_err(map_write_err)?;
                     writer
@@ -462,7 +462,9 @@ impl SharedStringTable {
                     .write_event(Event::Start(t_elem))
                     .map_err(map_write_err)?;
                 writer
-                    .write_event(Event::Text(BytesText::new(s)))
+                    .write_event(Event::Text(BytesText::new(
+                        crate::ooxml::sanitize_xml_text(s).as_ref(),
+                    )))
                     .map_err(map_write_err)?;
                 writer
                     .write_event(Event::End(BytesEnd::new("t")))
@@ -699,7 +701,9 @@ impl SharedStringTableBuilder {
                         .write_event(Event::Start(t_elem))
                         .map_err(map_write_err)?;
                     writer
-                        .write_event(Event::Text(BytesText::new(&run.text)))
+                        .write_event(Event::Text(BytesText::new(
+                            crate::ooxml::sanitize_xml_text(&run.text).as_ref(),
+                        )))
                         .map_err(map_write_err)?;
                     writer
                         .write_event(Event::End(BytesEnd::new("t")))
@@ -722,7 +726,9 @@ impl SharedStringTableBuilder {
                     .write_event(Event::Start(t_elem))
                     .map_err(map_write_err)?;
                 writer
-                    .write_event(Event::Text(BytesText::new(s)))
+                    .write_event(Event::Text(BytesText::new(
+                        crate::ooxml::sanitize_xml_text(s).as_ref(),
+                    )))
                     .map_err(map_write_err)?;
                 writer
                     .write_event(Event::End(BytesEnd::new("t")))

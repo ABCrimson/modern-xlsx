@@ -283,7 +283,9 @@ pub fn write_threaded_comments(comments: &[ThreadedCommentData]) -> Result<Vec<u
             .write_event(Event::Start(BytesStart::new("text")))
             .map_err(map_err)?;
         writer
-            .write_event(Event::Text(BytesText::new(&comment.text)))
+            .write_event(Event::Text(BytesText::new(
+                crate::ooxml::sanitize_xml_text(&comment.text).as_ref(),
+            )))
             .map_err(map_err)?;
         writer
             .write_event(Event::End(BytesEnd::new("text")))

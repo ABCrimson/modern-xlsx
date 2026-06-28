@@ -471,9 +471,10 @@ fn xml_escape(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
-            // Characters illegal in XML 1.0 (control chars other than tab/LF/CR)
-            // are dropped so we never emit a corrupt document.
-            c if (c as u32) < 0x20 && c != '\t' && c != '\n' && c != '\r' => {}
+            // Characters illegal in XML 1.0 (C0 control chars other than
+            // tab/LF/CR, plus the U+FFFE/U+FFFF noncharacters) are dropped so we
+            // never emit a corrupt document.
+            c if crate::ooxml::is_illegal_xml_char(c) => {}
             c => out.push(c),
         }
     }
@@ -913,23 +914,42 @@ mod prop_tests {
     use super::*;
     use proptest::prelude::*;
 
+    /// Strings guaranteed free of characters illegal in XML 1.0, so that
+    /// `xml_escape` performs a pure entity-escape (drops nothing) and therefore
+    /// round-trips through `unescape`.
+    fn xml_legal_string() -> impl Strategy<Value = String> {
+        ".*".prop_filter("input must contain no XML-illegal chars", |s| {
+            !s.chars().any(crate::ooxml::is_illegal_xml_char)
+        })
+    }
+
     proptest! {
-        /// xml_escape never emits a character that is illegal in XML 1.0.
+        /// `xml_escape` never emits any character illegal in XML 1.0 — the C0
+        /// control chars (except tab/LF/CR) and the U+FFFE/U+FFFF noncharacters.
         #[test]
-        fn xml_escape_never_emits_illegal_chars(s in ".*") {
+        fn xml_escape_never_emits_xml_illegal_chars(s in ".*") {
             let escaped = xml_escape(&s);
             prop_assert!(
-                !escaped.chars().any(|c| (c as u32) < 0x20 && c != '\t' && c != '\n' && c != '\r'),
-                "escaped output contained an illegal XML 1.0 control char"
+                !escaped.chars().any(crate::ooxml::is_illegal_xml_char),
+                "escaped output retained an XML-1.0-illegal character"
             );
         }
 
-        /// For input free of illegal control chars, escape -> unescape round-trips.
+        /// For input already free of illegal chars, escape -> unescape round-trips.
         #[test]
-        fn xml_escape_roundtrip(s in "[^\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]*") {
+        fn xml_escape_roundtrip(s in xml_legal_string()) {
             let escaped = xml_escape(&s);
             let unescaped = quick_xml::escape::unescape(&escaped).unwrap();
             prop_assert_eq!(unescaped.as_ref(), s.as_str());
         }
+    }
+
+    /// The U+FFFE and U+FFFF noncharacters are explicitly dropped — they are
+    /// legal Unicode scalars (so a parser would accept the bytes) yet illegal in
+    /// an XML 1.0 document, and the `.*` strategy above is vanishingly unlikely
+    /// to generate them.
+    #[test]
+    fn xml_escape_drops_noncharacters() {
+        assert_eq!(xml_escape("a\u{FFFE}b\u{FFFF}c"), "abc");
     }
 }

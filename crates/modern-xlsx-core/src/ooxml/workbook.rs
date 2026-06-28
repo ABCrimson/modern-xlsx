@@ -401,7 +401,9 @@ impl WorkbookXml {
                     .write_event(Event::Start(elem))
                     .map_err(map_err)?;
                 writer
-                    .write_event(Event::Text(BytesText::new(&dn.value)))
+                    .write_event(Event::Text(BytesText::new(
+                        crate::ooxml::sanitize_xml_text(&dn.value).as_ref(),
+                    )))
                     .map_err(map_err)?;
                 writer
                     .write_event(Event::End(BytesEnd::new("definedName")))

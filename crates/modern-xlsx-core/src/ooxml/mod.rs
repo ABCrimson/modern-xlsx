@@ -58,6 +58,27 @@ pub(crate) fn push_entity(buf: &mut String, name: &[u8]) {
     }
 }
 
+/// Returns `true` if `c` is forbidden in an XML 1.0 document: the C0 control
+/// characters other than tab/LF/CR, plus the permanently-unassigned U+FFFE and
+/// U+FFFF noncharacters. Emitting any of these produces a document that strict
+/// parsers (including Excel) reject as corrupt.
+#[inline]
+pub(crate) fn is_illegal_xml_char(c: char) -> bool {
+    let u = c as u32;
+    (u < 0x20 && c != '\t' && c != '\n' && c != '\r') || u == 0xFFFE || u == 0xFFFF
+}
+
+/// Drop characters illegal in XML 1.0 from user-supplied text so the writer can
+/// never emit a corrupt document. Returns the input borrowed (zero allocation)
+/// when it is already clean, which is the overwhelmingly common case.
+pub(crate) fn sanitize_xml_text(s: &str) -> std::borrow::Cow<'_, str> {
+    if s.chars().any(is_illegal_xml_char) {
+        std::borrow::Cow::Owned(s.chars().filter(|c| !is_illegal_xml_char(*c)).collect())
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    }
+}
+
 /// Serde helper: skip serializing if the value is `false`.
 #[inline]
 pub(crate) fn is_false(v: &bool) -> bool {
@@ -74,4 +95,37 @@ pub(crate) fn is_true(v: &bool) -> bool {
 #[inline]
 pub(crate) fn default_true() -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_xml_text_borrows_when_clean() {
+        // Clean text (including the legal control chars tab/LF/CR) is returned
+        // borrowed — no allocation.
+        let s = "hello\tworld\r\nok ✓ 日本語";
+        assert!(matches!(sanitize_xml_text(s), std::borrow::Cow::Borrowed(_)));
+        assert_eq!(sanitize_xml_text(s), s);
+    }
+
+    #[test]
+    fn sanitize_xml_text_drops_illegal_chars() {
+        // C0 control chars (other than tab/LF/CR) and the U+FFFE/U+FFFF
+        // noncharacters are removed; legal whitespace is preserved.
+        let dirty = "a\u{0001}b\u{0008}c\u{000B}d\u{001F}e\u{FFFE}f\u{FFFF}g\th\ni";
+        assert_eq!(sanitize_xml_text(dirty), "abcdefg\th\ni");
+    }
+
+    #[test]
+    fn is_illegal_xml_char_classification() {
+        for c in ['\u{0000}', '\u{0001}', '\u{0008}', '\u{000B}', '\u{001F}', '\u{FFFE}', '\u{FFFF}']
+        {
+            assert!(is_illegal_xml_char(c), "{c:?} should be illegal");
+        }
+        for c in ['\t', '\n', '\r', ' ', 'a', '✓', '\u{FFFD}'] {
+            assert!(!is_illegal_xml_char(c), "{c:?} should be legal");
+        }
+    }
 }
