@@ -348,7 +348,9 @@ impl WorksheetXml {
                                 .write_event(Event::Start(f_elem))
                                 .map_err(map_err)?;
                             writer
-                                .write_event(Event::Text(BytesText::new(formula)))
+                                .write_event(Event::Text(BytesText::new(
+                                    crate::ooxml::sanitize_xml_text(formula).as_ref(),
+                                )))
                                 .map_err(map_err)?;
                             writer
                                 .write_event(Event::End(BytesEnd::new("f")))
@@ -399,7 +401,10 @@ impl WorksheetXml {
                             writer
                                 .write_event(Event::Text(BytesText::new(
                                     // inline_string presence guaranteed by has_inline guard above
-                                    cell.inline_string.as_deref().unwrap_or_default(),
+                                    crate::ooxml::sanitize_xml_text(
+                                        cell.inline_string.as_deref().unwrap_or_default(),
+                                    )
+                                    .as_ref(),
                                 )))
                                 .map_err(map_err)?;
                             writer
@@ -429,12 +434,16 @@ impl WorksheetXml {
                                         .map_err(map_err)?;
                                 } else {
                                     writer
-                                        .write_event(Event::Text(BytesText::new(value)))
+                                        .write_event(Event::Text(BytesText::new(
+                                            crate::ooxml::sanitize_xml_text(value).as_ref(),
+                                        )))
                                         .map_err(map_err)?;
                                 }
                             } else {
                                 writer
-                                    .write_event(Event::Text(BytesText::new(value)))
+                                    .write_event(Event::Text(BytesText::new(
+                                        crate::ooxml::sanitize_xml_text(value).as_ref(),
+                                    )))
                                     .map_err(map_err)?;
                             }
                             writer
@@ -651,7 +660,9 @@ impl WorksheetXml {
                             .write_event(Event::Start(BytesStart::new("formula")))
                             .map_err(map_err)?;
                         writer
-                            .write_event(Event::Text(BytesText::new(formula)))
+                            .write_event(Event::Text(BytesText::new(
+                                crate::ooxml::sanitize_xml_text(formula).as_ref(),
+                            )))
                             .map_err(map_err)?;
                         writer
                             .write_event(Event::End(BytesEnd::new("formula")))
@@ -725,6 +736,23 @@ impl WorksheetXml {
         }
 
         // <hyperlinks> — only if non-empty.
+        //
+        // SCOPE / KNOWN LIMITATION: every hyperlink is emitted with an inline
+        // `location` attribute. That is the OOXML-standard form for *internal*
+        // links (a `Sheet!Cell` or defined-name target within the workbook).
+        // *External* targets (http/https/mailto/file) are, per ECMA-376, supposed
+        // to live in a worksheet relationship part — `<hyperlink ref r:id=...>`
+        // pointing at `xl/worksheets/_rels/sheetN.xml.rels` with
+        // `TargetMode="External"`. We do not yet emit that relationship form, so:
+        //   * external links written here are not recognized as clickable
+        //     external links by Excel, and
+        //   * external links in files authored by Excel (which carry only `r:id`,
+        //     no `location`) are dropped on read.
+        // External targets still round-trip losslessly through this library's own
+        // writer/reader via `location`. Proper external-relationship support is
+        // tracked as a dedicated follow-up (it requires threading a relationship
+        // id allocator through worksheet serialization plus reader `.rels`
+        // resolution) and is intentionally deferred from this release.
         if !self.hyperlinks.is_empty() {
             writer
                 .write_event(Event::Start(BytesStart::new("hyperlinks")))
@@ -850,7 +878,11 @@ impl WorksheetXml {
             ] {
                 if let Some(text) = val {
                     writer.write_event(Event::Start(BytesStart::new(tag))).map_err(map_err)?;
-                    writer.write_event(Event::Text(BytesText::new(text))).map_err(map_err)?;
+                    writer
+                        .write_event(Event::Text(BytesText::new(
+                            crate::ooxml::sanitize_xml_text(text).as_ref(),
+                        )))
+                        .map_err(map_err)?;
                     writer.write_event(Event::End(BytesEnd::new(tag))).map_err(map_err)?;
                 }
             }
@@ -1041,7 +1073,9 @@ impl WorksheetXml {
                             .write_event(Event::Start(BytesStart::new("xm:f")))
                             .map_err(map_err)?;
                         writer
-                            .write_event(Event::Text(BytesText::new(&sparkline.formula)))
+                            .write_event(Event::Text(BytesText::new(
+                                crate::ooxml::sanitize_xml_text(&sparkline.formula).as_ref(),
+                            )))
                             .map_err(map_err)?;
                         writer
                             .write_event(Event::End(BytesEnd::new("xm:f")))
@@ -1051,7 +1085,9 @@ impl WorksheetXml {
                             .write_event(Event::Start(BytesStart::new("xm:sqref")))
                             .map_err(map_err)?;
                         writer
-                            .write_event(Event::Text(BytesText::new(&sparkline.sqref)))
+                            .write_event(Event::Text(BytesText::new(
+                                crate::ooxml::sanitize_xml_text(&sparkline.sqref).as_ref(),
+                            )))
                             .map_err(map_err)?;
                         writer
                             .write_event(Event::End(BytesEnd::new("xm:sqref")))

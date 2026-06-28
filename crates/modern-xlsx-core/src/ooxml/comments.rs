@@ -206,7 +206,9 @@ pub fn write_comments(comments: &[Comment]) -> Result<Vec<u8>> {
             .write_event(Event::Start(BytesStart::new("author")))
             .map_err(map_err)?;
         writer
-            .write_event(Event::Text(BytesText::new(author)))
+            .write_event(Event::Text(BytesText::new(
+                crate::ooxml::sanitize_xml_text(author).as_ref(),
+            )))
             .map_err(map_err)?;
         writer
             .write_event(Event::End(BytesEnd::new("author")))
@@ -241,7 +243,9 @@ pub fn write_comments(comments: &[Comment]) -> Result<Vec<u8>> {
             .write_event(Event::Start(BytesStart::new("t")))
             .map_err(map_err)?;
         writer
-            .write_event(Event::Text(BytesText::new(&comment.text)))
+            .write_event(Event::Text(BytesText::new(
+                crate::ooxml::sanitize_xml_text(&comment.text).as_ref(),
+            )))
             .map_err(map_err)?;
         writer
             .write_event(Event::End(BytesEnd::new("t")))
