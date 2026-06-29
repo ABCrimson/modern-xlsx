@@ -84,9 +84,15 @@ impl Ole2Header {
     }
 
     /// Returns the byte offset for a given sector ID.
+    ///
+    /// `sid` comes from the (attacker-controlled) FAT/DIFAT, so the multiply is
+    /// saturating: on a 32-bit target (wasm) with overflow checks enabled (e.g.
+    /// the debug build) an unbounded `sid` would otherwise panic. Saturating to
+    /// `usize::MAX` is harmless because every caller clamps the result with
+    /// `.min(data.len())` and an `offset < end` guard before slicing.
     #[inline]
     fn sector_offset(&self, sid: u32) -> usize {
-        512 + (sid as usize) * self.sector_size
+        512usize.saturating_add((sid as usize).saturating_mul(self.sector_size))
     }
 }
 
@@ -160,10 +166,14 @@ fn read_directory(data: &[u8], header: &Ole2Header, fat: &[u32]) -> Vec<DirEntry
             continue;
         } // empty entry
 
-        // Read name: UTF-16LE, length in bytes at offset 64-65
-        let name_len = u16::from_le_bytes([chunk[64], chunk[65]]) as usize;
-        let name_bytes = name_len.saturating_sub(2); // subtract null terminator
-        let name: String = (0..name_bytes / 2)
+        // Read name: UTF-16LE in the first 64 bytes of the entry; length in
+        // bytes at offset 64-65. Per MS-CFB §2.6.1 the name field is at most 64
+        // bytes (32 UTF-16 code units) including the terminating NUL, so a
+        // malformed length must be clamped — otherwise the loop below would index
+        // past the 64-byte name field (and the 128-byte entry) and panic.
+        let name_len = (u16::from_le_bytes([chunk[64], chunk[65]]) as usize).min(64);
+        let name_units = name_len.saturating_sub(2) / 2; // drop the UTF-16 NUL terminator
+        let name: String = (0..name_units)
             .map(|i| u16::from_le_bytes([chunk[i * 2], chunk[i * 2 + 1]]))
             .map(|c| char::from_u32(u32::from(c)).unwrap_or('\u{FFFD}'))
             .collect();
