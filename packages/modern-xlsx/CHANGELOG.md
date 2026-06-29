@@ -14,6 +14,11 @@ Read-fidelity verification and XML-robustness release. Most advanced OOXML featu
 
 ### Fixed
 - **Writers never emit a corrupt XML document.** Both the streaming writer and the default (`toBuffer()`) writer now drop characters illegal in XML 1.0 — the C0 control characters other than tab/LF/CR, plus the U+FFFE/U+FFFF noncharacters — from all user-supplied text: cell values, inline and shared strings, rich-text runs, formulas, comments, comment authors, defined names, chart titles and series names, table formulas, document properties, header/footer text, and sparkline references. Previously only the streaming writer stripped control characters, and it missed U+FFFE/U+FFFF.
+- **The reader never panics on malformed input.** Fixed four fuzzer/audit-found panic vectors so reading a corrupt or hostile file always returns a recoverable error instead of crashing (or trapping the WASM module):
+  - OLE2/CFB directory entries with an out-of-range name length (index out of bounds) — name length now clamped to the spec maximum.
+  - A forged ZIP uncompressed-size field driving an unbounded `Vec::with_capacity` (would trap the 32-bit WASM module before any size guard) — the allocation hint is now clamped to the decompression budget.
+  - Out-of-range `keyBits`/`blockSize`/`hashSize` fields in encrypted (Agile) files slicing hash digests past their end — now checked.
+  - Sector-offset arithmetic overflow on the 32-bit debug build — now saturating.
 
 ### Known limitations (deferred to later 1.2.x)
 - External and email hyperlinks round-trip through the library's own `location` representation rather than the OOXML-standard external-relationship form (`r:id` → `sheetN.xml.rels` with `TargetMode="External"`); internal links are fully standard. Also deferred: `sortState`, strict-OOXML value decoding, legacy VML comments, spilled-range tracking, and defined-names-in-formulas.

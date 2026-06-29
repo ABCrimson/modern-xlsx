@@ -21,7 +21,7 @@ docs/plans/                  # Design and implementation plans
 ## Build Commands
 
 ```bash
-# Rust tests (436 tests)
+# Rust tests (441 tests)
 cargo test -p modern-xlsx-core
 
 # WASM build (from repo root)

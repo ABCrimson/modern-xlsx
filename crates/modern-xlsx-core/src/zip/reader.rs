@@ -81,8 +81,18 @@ pub fn read_zip_entries(data: &[u8], limits: &ZipSecurityLimits) -> Result<HashM
         let compressed_size = file.compressed_size();
         let declared_size = file.size();
 
-        // Read the decompressed data (pre-allocate using declared size).
-        let mut buf = Vec::with_capacity(declared_size as usize);
+        // Read the decompressed data, pre-allocating using the declared size.
+        // The declared size comes straight from the (attacker-controllable) ZIP
+        // central directory and can be up to u64::MAX (e.g. a forged ZIP64
+        // extra field), so it must NOT be passed unclamped to `with_capacity`:
+        // on the 32-bit wasm target that would trap the module (and on 64-bit it
+        // can abort with a capacity overflow) before the size guards below ever
+        // run. `with_capacity` is only an optimization here — `read_to_end`
+        // grows the buffer as needed — so clamping to the trusted decompression
+        // budget is fully correctness-preserving; the ratio/total guards below
+        // still reject genuinely oversized payloads after a bounded read.
+        let capacity_hint = declared_size.min(limits.max_decompressed_size) as usize;
+        let mut buf = Vec::with_capacity(capacity_hint);
         file.read_to_end(&mut buf)
             .map_err(|e| ModernXlsxError::ZipRead(format!("Failed to decompress ZIP entry '{name}': {e}")))?;
 
@@ -215,5 +225,36 @@ mod tests {
             msg.contains("../evil.txt"),
             "expected entry name in error, got: {msg}"
         );
+    }
+
+    /// Regression (audit): a forged central-directory uncompressed-size must not
+    /// drive an unbounded `Vec::with_capacity` (which would trap the wasm module
+    /// or abort on overflow) before the size guards run. We patch a valid ZIP's
+    /// central-directory uncompressed-size field to ~4 GiB; the reader must still
+    /// complete quickly without panicking/aborting because the capacity hint is
+    /// clamped to the decompression budget while the actual (tiny) data is read.
+    #[test]
+    fn forged_uncompressed_size_does_not_trigger_huge_allocation() {
+        let mut zip_bytes = build_zip(&[("a.txt", b"hi")]);
+
+        // Locate the central-directory file header (signature PK\x01\x02) and
+        // overwrite its uncompressed-size field (offset +24, u32 LE) with a huge
+        // sentinel. Leaving CRC/data intact keeps the entry otherwise readable.
+        let sig = [0x50u8, 0x4B, 0x01, 0x02];
+        let cd = zip_bytes
+            .windows(4)
+            .position(|w| w == sig)
+            .expect("central directory header present");
+        zip_bytes[cd + 24..cd + 28].copy_from_slice(&0xFFFF_FFFEu32.to_le_bytes());
+
+        // Must return (Ok or Err) without panicking or attempting a ~4 GiB
+        // reserve. Default limits cap the clamp well below the forged size.
+        let result = read_zip_entries(&zip_bytes, &ZipSecurityLimits::default());
+        if let Ok(entries) = result {
+            // If the entry still reads, its real content is intact and small.
+            if let Some(data) = entries.get("a.txt") {
+                assert_eq!(data.as_slice(), b"hi");
+            }
+        }
     }
 }

@@ -458,6 +458,26 @@ pub fn decrypt_package(
     Ok(result)
 }
 
+/// Borrow the first `n` bytes of `s`, or return a recoverable error if `s` is
+/// shorter than `n`.
+///
+/// The lengths passed here (`keyBits/8`, `blockSize`, `hashSize`) come straight
+/// from the attacker-controlled EncryptionInfo XML, while the buffers they slice
+/// are hash digests whose length depends on the (also attacker-named) hash
+/// algorithm. A plain `&s[..n]` would therefore panic on a malformed or hostile
+/// file (e.g. `keyBits=2048` slicing a 64-byte SHA-512 digest). This keeps the
+/// reader's "never panic on bad input" contract by turning that into an `Err`.
+/// For well-formed files `n <= s.len()` always holds, so behaviour is unchanged.
+fn checked_prefix<'a>(s: &'a [u8], n: usize, field: &str) -> Result<&'a [u8]> {
+    s.get(..n).ok_or_else(|| {
+        cold_path();
+        ModernXlsxError::PasswordProtected(format!(
+            "invalid {field} in EncryptionInfo: need {n} bytes but derivation is {}",
+            s.len()
+        ))
+    })
+}
+
 /// Derives the IV for a given segment index.
 fn derive_segment_iv(
     salt: &[u8],
@@ -467,7 +487,7 @@ fn derive_segment_iv(
 ) -> Result<Vec<u8>> {
     let hash =
         hash_bytes_with_prefix(salt, &segment_index.to_le_bytes(), hash_alg)?;
-    Ok(hash[..block_size].to_vec())
+    Ok(checked_prefix(&hash, block_size, "blockSize")?.to_vec())
 }
 
 // ---------------------------------------------------------------------------
@@ -487,7 +507,7 @@ pub fn verify_hmac(
         hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_KEY, &info.key_hash_alg)?,
     );
     let hmac_key = SensitiveKey::new(aes_cbc_decrypt(
-        &hmac_key_derivation[..key_len],
+        checked_prefix(&hmac_key_derivation, key_len, "keyBits")?,
         &info.key_salt,
         &info.encrypted_hmac_key,
     )?);
@@ -497,14 +517,18 @@ pub fn verify_hmac(
         hash_bytes_with_prefix(data_key, &BLOCK_KEY_HMAC_VALUE, &info.key_hash_alg)?,
     );
     let expected_hmac = SensitiveKey::new(aes_cbc_decrypt(
-        &hmac_value_derivation[..key_len],
+        checked_prefix(&hmac_value_derivation, key_len, "keyBits")?,
         &info.key_salt,
         &info.encrypted_hmac_value,
     )?);
 
     // 3. Compute HMAC of encrypted package (entire encrypted stream including size prefix)
     let hash_len = info.key_hash_size as usize;
-    let computed = compute_hmac(&info.key_hash_alg, &hmac_key[..hash_len], encrypted_package)?;
+    let computed = compute_hmac(
+        &info.key_hash_alg,
+        checked_prefix(&hmac_key, hash_len, "hashSize")?,
+        encrypted_package,
+    )?;
 
     // 4. Constant-time compare
     if computed.len() < hash_len || expected_hmac.len() < hash_len {
@@ -932,6 +956,70 @@ pub fn decrypt_standard_package(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Builds an `AgileEncryptionInfo` with SHA-512 (64-byte digest) defaults and
+    /// otherwise-empty fields, for panic-safety regression tests.
+    fn agile_info_sha512() -> AgileEncryptionInfo {
+        AgileEncryptionInfo {
+            key_salt: vec![0u8; 16],
+            key_block_size: 16,
+            key_bits: 256,
+            key_hash_size: 64,
+            key_cipher: "AES".into(),
+            key_chaining: "ChainingModeCBC".into(),
+            key_hash_alg: "SHA512".into(),
+            encrypted_hmac_key: vec![0u8; 64],
+            encrypted_hmac_value: vec![0u8; 64],
+            pw_spin_count: 1,
+            pw_salt: vec![0u8; 16],
+            pw_block_size: 16,
+            pw_key_bits: 256,
+            pw_hash_size: 64,
+            pw_cipher: "AES".into(),
+            pw_chaining: "ChainingModeCBC".into(),
+            pw_hash_alg: "SHA512".into(),
+            pw_encrypted_key_value: vec![0u8; 32],
+            pw_encrypted_verifier_hash_input: vec![0u8; 16],
+            pw_encrypted_verifier_hash_value: vec![0u8; 64],
+        }
+    }
+
+    /// Regression (fuzz/audit): an out-of-range `keyBits` made `verify_hmac`
+    /// slice `&derivation[..keyBits/8]` past the end of a 64-byte SHA-512 digest
+    /// and panic. With checked prefixes it must return `Err`, never panic.
+    #[test]
+    fn verify_hmac_rejects_out_of_range_key_bits_without_panicking() {
+        let mut info = agile_info_sha512();
+        info.key_bits = 2048; // 2048/8 = 256 > 64-byte digest
+        let data_key = vec![0u8; 32];
+        let package = vec![0u8; 64];
+        let result = verify_hmac(&data_key, &info, &package);
+        assert!(result.is_err(), "out-of-range keyBits must error, not panic");
+    }
+
+    /// Companion: an out-of-range `hashSize` previously sliced the decrypted
+    /// HMAC key past its end. Must error, not panic.
+    #[test]
+    fn verify_hmac_rejects_out_of_range_hash_size_without_panicking() {
+        let mut info = agile_info_sha512();
+        info.key_hash_size = 9999;
+        let data_key = vec![0u8; 32];
+        let package = vec![0u8; 64];
+        let result = verify_hmac(&data_key, &info, &package);
+        assert!(result.is_err(), "out-of-range hashSize must error, not panic");
+    }
+
+    /// `derive_segment_iv` sliced a digest by an unvalidated `blockSize`; an
+    /// over-large block size must error rather than panic.
+    #[test]
+    fn derive_segment_iv_rejects_oversized_block_size_without_panicking() {
+        // SHA-512 digest is 64 bytes; ask for 256.
+        let result = derive_segment_iv(&[0u8; 16], 0, 256, "SHA512");
+        assert!(result.is_err(), "oversized blockSize must error, not panic");
+        // A valid block size still succeeds and yields exactly that many bytes.
+        let ok = derive_segment_iv(&[0u8; 16], 0, 16, "SHA512").unwrap();
+        assert_eq!(ok.len(), 16);
+    }
 
     #[test]
     fn test_derive_key_known_vector() {

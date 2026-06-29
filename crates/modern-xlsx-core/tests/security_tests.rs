@@ -362,3 +362,24 @@ fn test_empty_encrypted_package_no_panic() {
         "Header-only standard package should mention 'no encrypted data': {err_msg}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test 6: Malformed OLE2 directory must not panic (fuzzer regression)
+// ---------------------------------------------------------------------------
+
+/// Regression for a fuzzer-found panic (`index out of bounds: len 128, index
+/// 128`) in `ole2::detect::read_directory`: a directory entry whose name-length
+/// field (offset 64-65) exceeds the 64-byte name field caused the UTF-16 decode
+/// loop to index past the 128-byte entry. The reader must return Ok/Err, never
+/// panic, on arbitrary OLE2-shaped input.
+#[test]
+fn read_xlsx_does_not_panic_on_malformed_ole2_directory() {
+    let crash = include_bytes!("fixtures/fuzz_crash_ole2.bin");
+    let _ = modern_xlsx_core::reader::read_xlsx(crash);
+
+    // Also exercise the boundary directly: a minimal 512-byte buffer carrying the
+    // OLE2/CFB magic (D0 CF 11 E0 A1 B1 1A E1) must be handled without panicking.
+    let mut buf = vec![0u8; 512];
+    buf[..8].copy_from_slice(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
+    let _ = modern_xlsx_core::reader::read_xlsx(&buf);
+}

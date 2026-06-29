@@ -81,7 +81,7 @@ Data crosses the WASM boundary as JSON strings for maximum throughput. The Rust 
 ## Development
 
 ```bash
-# Rust tests (436 tests)
+# Rust tests (441 tests)
 cargo test -p modern-xlsx-core
 
 # WASM build
