@@ -73,7 +73,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.1",
-    "@types/node": "26.0.1",
+    "@types/node": "26.1.0",
     "@vitest/browser": "5.0.0-beta.5",
     "@vitest/browser-playwright": "5.0.0-beta.5",
     "@vitest/coverage-v8": "5.0.0-beta.5",
