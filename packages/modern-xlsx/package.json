@@ -75,7 +75,7 @@
     "@biomejs/biome": "2.5.1",
     "@types/node": "26.0.1",
     "@vitest/browser": "5.0.0-beta.5",
-    "@vitest/browser-playwright": "5.0.0-beta.5",
+    "@vitest/browser-playwright": "5.0.0-beta.6",
     "@vitest/coverage-v8": "5.0.0-beta.5",
     "playwright": "1.62.0-alpha-2026-06-27",
     "tsdown": "0.22.3",
