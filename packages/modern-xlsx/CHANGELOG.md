@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - 2026-08-27
+
+Docs-only release: corrected npm README. No code, API, or behavior changes — the published 1.2.0 tarball carried a README with stale and inaccurate examples, and this release exists solely to put the corrected one on npmjs.com.
+
+### Fixed
+- **Corrected npm README.** Documentation-only corrections now reachable from the package page: `addTable()` shown with its real `TableDefinitionData` shape (`id`/`displayName`/`headerRowCount`/`styleInfo`) instead of a signature the library never accepted; charts shown via the `ws.addChart(type, builder)` callback and `ws.addChartData()` rather than a non-existent `ws.addChart(chart)` overload; `setPrintTitles`/`setPrintArea` shown with their actual 0-based sheet index and range-reference arguments; benchmark table re-measured on Node 26 against SheetJS 0.20.3 with honest parity claims for cell-by-cell writes and CSV/JSON conversion; bundle-size and WASM figures updated to what the package actually ships; the stale "Rust 1.95" reference dropped; and the LICENSE badge repointed from the non-existent `main` branch to `master`.
+
 ## [1.2.0] - 2026-06-28
 
 Read-fidelity verification and XML-robustness release. Most advanced OOXML features were already implemented on the 1.1 line; this release proves them with an end-to-end round-trip suite and hardens every writer against malformed input. No breaking API changes.

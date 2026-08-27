@@ -381,4 +381,4 @@ export async function readFile(path: string, options?: ReadOptions): Promise<_Wo
 }
 
 /** The current library version string. */
-export const VERSION = '1.2.0' as const;
+export const VERSION = '1.2.1' as const;
