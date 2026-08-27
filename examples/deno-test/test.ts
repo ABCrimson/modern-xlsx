@@ -1,7 +1,7 @@
 // Deno compatibility test for modern-xlsx
 // Tests basic read/write operations
 
-import { Workbook } from 'npm:modern-xlsx@1.1.0';
+import { Workbook } from 'npm:modern-xlsx@1.2.0';
 
 // Test 1: Create and write
 const wb = new Workbook();

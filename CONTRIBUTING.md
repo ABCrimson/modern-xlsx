@@ -6,9 +6,9 @@ Thanks for your interest in contributing! This guide will help you get started.
 
 ### Prerequisites
 
-- **Rust** 1.95.0+ with `wasm32-unknown-unknown` target
-- **Node.js** 25+
-- **pnpm** 11+
+- **Rust** beta channel (MSRV 1.96; `rust-toolchain.toml` pins the beta channel automatically) with the `wasm32-unknown-unknown` target
+- **Node.js** 24+
+- **pnpm** 12+
 - **wasm-pack** (for building the WASM bridge)
 
 ```bash
@@ -38,10 +38,10 @@ pnpm -C packages/modern-xlsx build
 ### Test
 
 ```bash
-# Rust tests (389 tests)
+# Rust tests (441 tests)
 cargo test -p modern-xlsx-core
 
-# TypeScript tests (1,230 tests)
+# TypeScript tests (1,290 tests)
 pnpm -C packages/modern-xlsx test
 
 # Lint
@@ -64,7 +64,7 @@ packages/
 
 ## Making Changes
 
-1. **Fork** the repository and create a branch from `main`
+1. **Fork** the repository and create a branch from `master`
 2. **Write tests** for any new functionality
 3. **Run the full test suite** before submitting
 4. **Keep commits focused** — one logical change per commit

@@ -1,16 +1,27 @@
-<p align="center">
-  <h1 align="center">modern-xlsx</h1>
-  <p align="center">
-    High-performance XLSX read/write for JavaScript &amp; TypeScript, powered by Rust + WASM.
-  </p>
+<div align="center">
+
+# modern-xlsx
+
+**High-performance XLSX read/write for JavaScript &amp; TypeScript, powered by Rust + WASM.**
+
+<p>
+  <a href="https://www.npmjs.com/package/modern-xlsx"><img alt="npm" src="https://img.shields.io/npm/v/modern-xlsx?style=flat-square&color=cb0000&label=npm&logo=npm"></a>
+  <a href="https://github.com/ABCrimson/modern-xlsx/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/ABCrimson/modern-xlsx/ci.yml?style=flat-square&branch=master&label=CI&logo=githubactions&logoColor=white"></a>
+  <a href="https://github.com/ABCrimson/modern-xlsx/blob/master/packages/modern-xlsx/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square"></a>
+  <img alt="Types" src="https://img.shields.io/badge/types-included-blue?style=flat-square&logo=typescript&logoColor=white">
+  <img alt="Zero deps" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square">
 </p>
 
-<p align="center">
-  <a href="https://www.npmjs.com/package/modern-xlsx"><img alt="npm" src="https://img.shields.io/npm/v/modern-xlsx?color=cb0000&label=npm&logo=npm"></a>
-  <a href="https://github.com/ABCrimson/modern-xlsx/blob/main/packages/modern-xlsx/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <img alt="Types" src="https://img.shields.io/badge/types-included-blue?logo=typescript&logoColor=white">
-  <img alt="Zero deps" src="https://img.shields.io/badge/dependencies-0-brightgreen">
+<p>
+  <a href="./packages/modern-xlsx/README.md">API Docs</a> ·
+  <a href="https://github.com/ABCrimson/modern-xlsx/wiki">Wiki</a> ·
+  <a href="./docs/FEATURE-COMPARISON.md">Feature Comparison</a> ·
+  <a href="./docs/examples.md">Examples</a> ·
+  <a href="./packages/modern-xlsx/CHANGELOG.md">Changelog</a> ·
+  <a href="https://abcrimson.github.io/modern-xlsx/playground.html">Playground</a>
 </p>
+
+</div>
 
 ---
 
@@ -45,7 +56,7 @@ Node.js 26, single thread, vs SheetJS (`xlsx` 0.20.3) — indicative, hardware-d
 
 The biggest wins are read speed (3-4x) and file size (~8x smaller); write throughput and CSV/JSON export are roughly at parity.
 
-> ~25 KB JS (gzip) + ~1.9 MB WASM. Zero runtime dependencies.
+> Browser bundle ~78 KB minified (~24 KB gzip) + ~1.9 MB WASM (~630 KB gzip). Zero runtime dependencies.
 
 ## Install
 
@@ -53,7 +64,8 @@ The biggest wins are read speed (3-4x) and file size (~8x smaller); write throug
 npm install modern-xlsx
 ```
 
-> Full API documentation: **[packages/modern-xlsx/README.md](./packages/modern-xlsx/README.md)**
+> [!NOTE]
+> Full API documentation lives in **[packages/modern-xlsx/README.md](./packages/modern-xlsx/README.md)** (the npm package README) and the **[project wiki](https://github.com/ABCrimson/modern-xlsx/wiki)**.
 
 ## Repository Structure
 
@@ -68,12 +80,16 @@ packages/
 
 ### Architecture
 
-```
-  TypeScript API    Workbook / Worksheet / Cell
-                              │ JSON
-  WASM boundary     wasm-bindgen bridge
-                              │
-  Rust core         OOXML parser & writer (quick-xml + zip)
+```mermaid
+flowchart TD
+    TS["<b>TypeScript API</b><br/>Workbook · Worksheet · Cell<br/>StyleBuilder · ChartBuilder · utilities"]
+    WASM["<b>WASM boundary</b><br/>wasm-bindgen bridge"]
+    RUST["<b>Rust core</b><br/>OOXML parser &amp; writer<br/>(quick-xml SAX + zip)"]
+
+    TS -- "JSON string" --> WASM
+    WASM --> RUST
+    RUST --> WASM
+    WASM -- "JSON.parse" --> TS
 ```
 
 Data crosses the WASM boundary as JSON strings for maximum throughput. The Rust core handles ZIP compression, SAX-style XML parsing, shared string table construction, and style resolution.
@@ -97,7 +113,7 @@ cargo clippy -p modern-xlsx-core -- -D warnings
 pnpm -C packages/modern-xlsx lint
 ```
 
-**Toolchain:** Rust 1.96+ / beta 1.97 (Edition 2024) / TypeScript 7 / pnpm 11.9 / Biome 2.5
+**Toolchain:** Rust 1.96 MSRV / beta channel toolchain, currently 1.99 (Edition 2024) / TypeScript 7.0 / Vitest 5 / pnpm 12 / Biome 2.5
 
 ## License
 

@@ -445,6 +445,7 @@
 | Stream to HTML | :x: | :white_check_mark: `stream.to_html()` | |
 | Stream to XLML | :x: | :white_check_mark: `stream.to_xlml()` | |
 | Set Readable impl | :x: | :white_check_mark: `stream.set_readable()` | Custom stream impl |
+| Streaming XLSX writer | :star: `StreamingXlsxWriter` | :x: | 100K+ rows, O(unique strings) memory |
 | WASM streaming reader | :star: via WASM SAX parser | :x: | Rust SAX-style XML parsing |
 | Parallel sheet parsing | :star: rayon feature flag | :x: | Multi-threaded WASM |
 
@@ -617,7 +618,8 @@
 | **Performance (write)** | ~parity | Baseline | Tie |
 | **Output file size** | ~8x smaller | Baseline | modern-xlsx |
 | **Type safety** | 109+ types | Basic typings | modern-xlsx |
-| **Streaming export** | None | 4 stream formats | SheetJS |
+| **Streaming XLSX writer** | `StreamingXlsxWriter` | None | modern-xlsx |
+| **Streaming conversions** (CSV/JSON/HTML) | None | 4 stream formats | SheetJS |
 | **DOM integration** | None | table_to_book, etc. | SheetJS |
 | **Sync API** | None | Full sync support | SheetJS |
 | **Legacy format support** | None | XLS, BIFF, WK, etc. | SheetJS |
@@ -630,6 +632,6 @@
 
 ### Overall
 
-- **modern-xlsx wins on:** Read performance, output file size, type safety, styling (free), data validation, conditional formatting, images, charts, barcodes, table layout, rich text API, validation/repair, encryption, Web Workers, API ergonomics
-- **SheetJS wins on:** Multi-format support (20+ read, 23 write), streaming exports, DOM integration, sync API, legacy format compatibility, broader ecosystem maturity
+- **modern-xlsx wins on:** Read performance, output file size, type safety, styling (free), data validation, conditional formatting, images, charts, barcodes, table layout, rich text API, validation/repair, encryption, streaming XLSX writer, Web Workers, API ergonomics
+- **SheetJS wins on:** Multi-format support (20+ read, 23 write), streaming CSV/JSON/HTML conversions, DOM integration, sync API, legacy format compatibility, broader ecosystem maturity
 - **Tie on:** Core XLSX read/write, write performance, CSV/JSON export speed, cell operations, formulas, merge cells, frozen panes, auto filter, hyperlinks, comments, document properties, number formatting, sheet conversion utilities, cell reference utilities

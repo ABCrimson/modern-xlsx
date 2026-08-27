@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/modern-xlsx"><img alt="npm" src="https://img.shields.io/npm/v/modern-xlsx?color=cb0000&label=npm&logo=npm"></a>
-  <a href="https://github.com/ABCrimson/modern-xlsx/blob/main/packages/modern-xlsx/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://github.com/ABCrimson/modern-xlsx/blob/master/packages/modern-xlsx/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Types" src="https://img.shields.io/badge/types-included-blue?logo=typescript&logoColor=white">
   <img alt="Zero deps" src="https://img.shields.io/badge/dependencies-0-brightgreen">
 </p>
@@ -69,21 +69,18 @@ console.log(existing.getSheet('Sheet1')?.cell('A1').value);
 
 ## Performance
 
-Benchmarks on Node.js (single thread, v1.0.0):
+Node.js 26, single thread, vs SheetJS (`xlsx` 0.20.3) — indicative, hardware-dependent:
 
 | Operation | modern-xlsx | SheetJS CE | Factor |
 |-----------|------------:|-----------:|-------:|
-| **Read 100K rows** | 472 ms | 1,901 ms | **4.0x faster** |
-| **Read 10K rows** | 69 ms | 170 ms | **2.5x faster** |
-| **Write 100K** (batch `aoaToSheet`) | 232 ms | 1,950 ms | **8.4x faster** |
-| **Write 50K** (batch `aoaToSheet`) | 49 ms | 80 ms | **1.6x faster** |
-| **Write 10K** (cell-by-cell) | 175 ms | 125 ms | 0.7x |
-| sheetToCsv (10K) | 37 ms | 31 ms | ~1.0x |
-| sheetToJson (10K) | 36 ms | 22 ms | ~0.6x |
+| **Read 100K rows** | 494 ms | 2,072 ms | **4.2x faster** |
+| **Read 10K rows** | 52 ms | 177 ms | **3.4x faster** |
+| **Write 10K rows** (cell-by-cell) | 180 ms | 159 ms | ~parity |
+| **Output size** (100K rows) | ~5 MB | ~40 MB | **~8x smaller** |
 
-**Summary:** modern-xlsx is **4-8x faster for bulk read/write** (its primary use case). SheetJS is faster for cell-by-cell writes and small utility conversions. For large workbooks, the WASM-accelerated Rust core delivers significant throughput gains.
+**Summary:** the biggest wins are **read speed** (3-4x faster) and **output file size** (~8x smaller). Write throughput and CSV/JSON conversions land roughly at parity. For large workbooks, the WASM-accelerated Rust core delivers significant throughput gains.
 
-> ESM 133 KB + IIFE 60 KB + WASM 1.1 MB. Zero runtime dependencies.
+> Browser bundle ~78 KB minified (~24 KB gzip) + ~1.9 MB WASM (~630 KB gzip). Zero runtime dependencies.
 
 ## Feature Comparison
 
@@ -145,7 +142,7 @@ Benchmarks on Node.js (single thread, v1.0.0):
                     └────────────────────────────┘
 ```
 
-Data crosses the WASM boundary as a JSON string — 8-13x faster than `serde_wasm_bindgen` for large workbooks. The Rust core (Rust 1.95, Edition 2024) handles all ZIP compression, XML parsing, shared string tables, and style resolution. Error paths use `cold_path()` hints for optimal branch layout, and hot-path helpers are `#[inline]`-annotated for maximum throughput.
+Data crosses the WASM boundary as a JSON string — 8-13x faster than `serde_wasm_bindgen` for large workbooks. The Rust core (Edition 2024) handles all ZIP compression, XML parsing, shared string tables, and style resolution. Error paths use `cold_path()` hints for optimal branch layout, and hot-path helpers are `#[inline]`-annotated for maximum throughput.
 
 ---
 
@@ -376,7 +373,7 @@ const result = evaluateFormula('SUM(A1:A10)', ctx);
 
 ### Encryption
 
-Read and write password-protected XLSX files (ECMA-376 Standard Encryption):
+Read and write password-protected XLSX files. Reading supports both ECMA-376 Agile Encryption (Excel 2010+) and Standard Encryption (Excel 2007); writing uses Agile Encryption (AES-256-CBC, SHA-512):
 
 ```typescript
 // Read encrypted file
@@ -517,7 +514,7 @@ wb.addImage('Labels', { fromCol: 5, fromRow: 0, toCol: 9, toRow: 4 }, png);
 
 **Supported formats:** QR Code, Code 128, EAN-13, UPC-A, Code 39, PDF417, Data Matrix, ITF-14, GS1-128.
 
-See the [Barcode Guide](https://github.com/ABCrimson/modern-xlsx/blob/main/docs/guide/barcodes.md) for format comparison and usage details.
+See the [Barcode Guide](https://github.com/ABCrimson/modern-xlsx/blob/master/docs/guide/barcodes.md) for format comparison and usage details.
 
 ### CLI Tool
 
@@ -682,7 +679,7 @@ import type {
 ### Pivot Tables
 
 ```typescript
-const wb = await readAsync(buffer);
+const wb = await readBuffer(buffer);
 const ws = wb.getSheet('PivotReport');
 
 // Read pivot table metadata
@@ -707,9 +704,9 @@ wb.addPivotCache({ source: { ref: 'A1:D100', sheet: 'Data' } });
 ```typescript
 const ws = wb.getSheet('Sheet1');
 
-// Add a threaded comment
-ws.addThreadedComment('A1', 'Review this value', 'Alice');
-ws.replyToComment('A1', 'Looks correct to me', 'Bob');
+// Add a threaded comment (returns the comment id)
+const id = ws.addThreadedComment('A1', 'Review this value', 'Alice');
+ws.replyToComment(id, 'Looks correct to me', 'Bob');
 
 // Read threaded comments
 for (const tc of ws.threadedComments) {
@@ -750,19 +747,6 @@ for (let i = 0; i < 100_000; i++) {
   ]);
 }
 const xlsx: Uint8Array = writer.finish();
-```
-
-### CLI Tool
-
-```bash
-# Get workbook info
-modern-xlsx info report.xlsx
-
-# Convert to JSON
-modern-xlsx convert report.xlsx output.json
-
-# Convert to CSV
-modern-xlsx convert report.xlsx output.csv
 ```
 
 ## License

@@ -2,6 +2,6 @@
   "name": "modern-xlsx-bun-test",
   "type": "module",
   "dependencies": {
-    "modern-xlsx": "^1.1.0"
+    "modern-xlsx": "^1.2.0"
   }
 }
