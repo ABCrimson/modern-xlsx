@@ -154,7 +154,14 @@ const ws = wb.addSheet('Validation');
 // Dropdown list
 ws.addValidation('B2', {
   validationType: 'list',
+  operator: null,
   formula1: '"Yes,No,Maybe"',
+  formula2: null,
+  allowBlank: true,
+  showErrorMessage: null,
+  errorTitle: null,
+  errorMessage: null,
+  showInputMessage: true,
   prompt: 'Select an option',
   promptTitle: 'Choice',
 });
@@ -165,6 +172,8 @@ ws.addValidation('C2', {
   operator: 'between',
   formula1: '1',
   formula2: '100',
+  allowBlank: true,
+  showErrorMessage: true,
   errorTitle: 'Invalid',
   errorMessage: 'Enter a number between 1 and 100',
 });
@@ -251,13 +260,10 @@ const builder = new RichTextBuilder()
 const runs = builder.build();       // RichTextRun[]
 const text = builder.plainText();   // concatenated plain text
 
-// Apply via raw data manipulation
-const data = wb.toJSON();
-if (!data.sharedStrings) {
-  data.sharedStrings = { strings: [], richRuns: [] };
-}
-data.sharedStrings.strings.push(text);
-data.sharedStrings.richRuns.push(runs);
+// Apply directly to a cell — round-trips through write + read
+const cell = ws.cell('A1');
+cell.value = text;
+cell.richText = runs;
 ```
 
 ---

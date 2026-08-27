@@ -98,7 +98,7 @@
 | Get sheet by index | :white_check_mark: `.getSheetByIndex(i)` | :construction: `.Sheets[.SheetNames[i]]` | |
 | Add sheet | :white_check_mark: `.addSheet(name)` | :white_check_mark: `utils.book_append_sheet()` | |
 | Remove sheet | :white_check_mark: `.removeSheet(name)` | :x: | Manual splice required in SheetJS |
-| Sheet visibility | :x: | :white_check_mark: `utils.book_set_sheet_visibility()` | Hidden / very hidden |
+| Sheet visibility | :white_check_mark: `ws.state` | :white_check_mark: `utils.book_set_sheet_visibility()` | `'visible' \| 'hidden' \| 'veryHidden'`; round-trip verified |
 | Date system (1900/1904) | :white_check_mark: `.dateSystem` | :white_check_mark: `.Workbook.WBProps.date1904` | |
 | Workbook views | :star: `.workbookViews` | :construction: `.Workbook.Views` | modern-xlsx: typed interface |
 | Document properties | :star: `.docProperties` | :construction: `.Props` | modern-xlsx: typed `DocPropertiesData` |
@@ -120,9 +120,9 @@
 | Set row height | :white_check_mark: `.setRowHeight(row, h)` | :construction: `ws['!rows'][i].hpt` | |
 | Hide row | :white_check_mark: `.setRowHidden(row, b)` | :construction: `ws['!rows'][i].hidden` | |
 | Hide column | :construction: via `.columns` | :construction: `ws['!cols'][i].hidden` | |
-| Sheet used range | :x: | :white_check_mark: `ws['!ref']` | Auto-computed from data |
-| Outline / grouping | :x: | :construction: `ws['!outline']` | Row/column grouping |
-| Sheet tab color | :x: | :construction: via `Workbook.Sheets` | |
+| Sheet used range | :white_check_mark: `ws.usedRange` | :white_check_mark: `ws['!ref']` | Both computed from populated cells |
+| Outline / grouping | :star: `groupRows()` / `groupColumns()` | :construction: `ws['!outline']` | Levels 0-7 + `collapseRows()` / `expandRows()` + `outlineProperties` |
+| Sheet tab color | :white_check_mark: `ws.tabColor` | :construction: via `Workbook.Sheets` | RGB hex, round-trip verified |
 
 ---
 
@@ -136,7 +136,7 @@
 | Number values | :white_check_mark: | :white_check_mark: | |
 | Boolean values | :white_check_mark: | :white_check_mark: | |
 | Error values | :white_check_mark: type `'error'` | :white_check_mark: type `'e'` | |
-| Date values (native) | :construction: via serial + format | :white_check_mark: type `'d'` | SheetJS has native date type |
+| Date values (native) | :construction: `.dateValue` getter | :white_check_mark: type `'d'` | Read via `.dateValue`; write via `dateToSerial()` + date format |
 | Stub/empty cells | :white_check_mark: type `'stub'` | :white_check_mark: type `'z'` | Both can represent empty cells |
 | Inline strings | :white_check_mark: type `'inlineStr'` | :x: | Stored directly in cell XML |
 | Formula strings | :white_check_mark: type `'formulaStr'` | :x: | Formula returning string |
@@ -144,7 +144,7 @@
 | Cell reference field | :white_check_mark: `.reference` | :x: | Implicit from key in SheetJS |
 | Style index | :star: `.styleIndex` | :lock: `.s` | SheetJS styling is Pro only |
 | Formatted text | :white_check_mark: via `formatCell()` | :white_check_mark: `.w` | |
-| Rich text (in cell) | :construction: via SST `richRuns` | :white_check_mark: `.r` (HTML) | SheetJS stores as HTML |
+| Rich text (in cell) | :white_check_mark: `.richText` getter/setter | :white_check_mark: `.r` (HTML) | Typed `RichTextRun[]`; SheetJS stores as HTML |
 | Cell HTML rendering | :x: | :white_check_mark: `.h` | |
 | Number format override | :construction: via style index | :white_check_mark: `.z` | SheetJS: per-cell `.z` property |
 
@@ -157,7 +157,7 @@
 | Simple formulas | :white_check_mark: `.formula = 'SUM(A1:A3)'` | :white_check_mark: `.f = 'SUM(...)'` | |
 | Array formulas | :white_check_mark: `formulaType: 'array'` | :white_check_mark: `.F` range + `sheet_set_array_formula()` | |
 | Shared formulas | :white_check_mark: `formulaType: 'shared'` + `sharedIndex` | :x: | |
-| Dynamic array formulas | :x: | :white_check_mark: `.D = true` | SPILL formulas |
+| Dynamic array formulas | :white_check_mark: `dynamicArray` flag | :white_check_mark: `.D = true` | `cm="1"` attribute round-trips; spilled-range tracking deferred |
 | Formula reference | :white_check_mark: `.formulaRef` | :white_check_mark: `.F` | Range for array formulas |
 | Sheet to formulae | :white_check_mark: `sheetToFormulae()` | :white_check_mark: `utils.sheet_to_formulae()` | Extract all formulas as strings |
 | Calc chain | :star: `.calcChain` | :construction: parsed but not exposed | modern-xlsx: typed `CalcChainEntryData[]` |
@@ -395,8 +395,8 @@
 |---------|:-----------:|:-------:|-------|
 | Format cell value | :white_check_mark: `formatCell(42, '#,##0')` | :white_check_mark: `SSF.format(fmt, val)` | |
 | Built-in format table | :white_check_mark: `getBuiltinFormat(14)` | :white_check_mark: `SSF.get_table()` | |
-| Load custom format | :x: | :white_check_mark: `SSF.load(fmt, idx)` | Register custom format |
-| Load format table | :x: | :white_check_mark: `SSF.load_table(table)` | Bulk register |
+| Load custom format | :white_check_mark: `loadFormat(fmt, idx)` | :white_check_mark: `SSF.load(fmt, idx)` | Register custom format at runtime |
+| Load format table | :white_check_mark: `loadFormatTable(table)` | :white_check_mark: `SSF.load_table(table)` | Bulk register (`Record<number, string>`) |
 | General format | :white_check_mark: | :white_check_mark: | |
 | Number formats (#,##0) | :white_check_mark: | :white_check_mark: | |
 | Percentage (0%) | :white_check_mark: | :white_check_mark: | |
@@ -407,7 +407,7 @@
 | Multi-section formats | :white_check_mark: | :white_check_mark: | pos;neg;zero;text |
 | Color codes ([Red], etc.) | :white_check_mark: | :white_check_mark: | |
 | Locale codes ([$-409]) | :construction: | :white_check_mark: | |
-| Conditional sections | :construction: | :white_check_mark: | [>100]#,##0 |
+| Conditional sections | :white_check_mark: | :white_check_mark: | `[>100]#,##0;[<=100]0.00` |
 
 ---
 
@@ -463,7 +463,7 @@
 | Custom styled runs | :star: `.styled('text', opts)` | :x: | font, size, bold, italic, color |
 | Build rich text array | :star: `.build()` → `RichTextRun[]` | :x: | |
 | Plain text extraction | :star: `.plainText()` | :x: | |
-| Rich text in cells | :construction: via SST `richRuns` | :white_check_mark: `.r` (HTML string) | SheetJS: HTML-based |
+| Rich text in cells | :white_check_mark: `Cell.richText` | :white_check_mark: `.r` (HTML string) | Typed runs vs HTML string |
 | Rich text roundtrip | :white_check_mark: | :white_check_mark: | |
 
 ---
@@ -572,8 +572,8 @@
 | Tree-shakeable | :white_check_mark: ESM | :construction: CJS + ESM | |
 | Zero runtime deps | :star: | :x: | SheetJS bundles CFB, SSF |
 | TypeScript types | :star: Full generics + interfaces | :construction: `@types/xlsx` | |
-| Type safety | :star: 109+ exported types | :construction: | |
-| Bundle size (minified) | :construction: ~300KB (WASM) | :white_check_mark: ~200KB (JS) | WASM has fixed overhead |
+| Type safety | :star: 120+ exported types | :construction: | |
+| Bundle size (browser, gzipped) | :construction: ~24 KB JS + ~650 KB WASM | :white_check_mark: ~200 KB JS | WASM has fixed overhead |
 | Async-first | :white_check_mark: | :x: | All I/O is async |
 | Sync API | :x: | :white_check_mark: | SheetJS has sync methods |
 | Browser support | :white_check_mark: | :white_check_mark: | Both work in browser |
@@ -597,6 +597,22 @@
 
 ---
 
+## 33. Advanced Features (0.9.x+)
+
+| Feature | modern-xlsx | SheetJS | Notes |
+|---------|:-----------:|:-------:|-------|
+| Pivot tables (read) | :star: `.pivotTables` | :lock: Pro only | Typed `PivotTableData[]` |
+| Pivot tables (write) | :star: `.addPivotTable()` / `PivotTableBuilder` | :lock: | Fluent builder via `addPivotTableFromBuilder()` |
+| Pivot caches | :star: `wb.addPivotCache()` | :lock: | Workbook-level cache definitions |
+| Threaded comments (read/write) | :star: `.addThreadedComment()` / `.replyToComment()` | :x: | Modern Excel comment threads |
+| Slicers (read/write) | :star: `.slicers` / `.addSlicer()` | :x: | Plus `wb.addSlicerCache()` |
+| Timelines (read/write) | :star: `.timelines` / `.addTimeline()` | :x: | Plus `wb.addTimelineCache()` |
+| Sparklines | :white_check_mark: `SparklineGroupData` | :lock: Pro only | Parse + write |
+| CLI tool | :star: `npx modern-xlsx info\|convert` | :x: | XLSX → JSON/CSV from the terminal |
+| Feature-gated WASM (`/lite`) | :star: `modern-xlsx/lite` | :x: | Smaller binary without encryption |
+
+---
+
 ## Summary Scorecard
 
 | Category | modern-xlsx | SheetJS | Winner |
@@ -617,8 +633,12 @@
 | **Performance (read)** | ~3.4x faster | Baseline | modern-xlsx |
 | **Performance (write)** | ~parity | Baseline | Tie |
 | **Output file size** | ~8x smaller | Baseline | modern-xlsx |
-| **Type safety** | 109+ types | Basic typings | modern-xlsx |
+| **Type safety** | 120+ types | Basic typings | modern-xlsx |
 | **Streaming XLSX writer** | `StreamingXlsxWriter` | None | modern-xlsx |
+| **Pivot tables** | Read + write (free) | Pro only | modern-xlsx |
+| **Threaded comments** | Read + write | None | modern-xlsx |
+| **Slicers & timelines** | Read + write | None | modern-xlsx |
+| **CLI tool** | `info` / `convert` | None | modern-xlsx |
 | **Streaming conversions** (CSV/JSON/HTML) | None | 4 stream formats | SheetJS |
 | **DOM integration** | None | table_to_book, etc. | SheetJS |
 | **Sync API** | None | Full sync support | SheetJS |
@@ -632,6 +652,6 @@
 
 ### Overall
 
-- **modern-xlsx wins on:** Read performance, output file size, type safety, styling (free), data validation, conditional formatting, images, charts, barcodes, table layout, rich text API, validation/repair, encryption, streaming XLSX writer, Web Workers, API ergonomics
+- **modern-xlsx wins on:** Read performance, output file size, type safety, styling (free), data validation, conditional formatting, images, charts, barcodes, table layout, rich text API, validation/repair, encryption, streaming XLSX writer, Web Workers, pivot tables, threaded comments, slicers & timelines, CLI tooling, API ergonomics
 - **SheetJS wins on:** Multi-format support (20+ read, 23 write), streaming CSV/JSON/HTML conversions, DOM integration, sync API, legacy format compatibility, broader ecosystem maturity
 - **Tie on:** Core XLSX read/write, write performance, CSV/JSON export speed, cell operations, formulas, merge cells, frozen panes, auto filter, hyperlinks, comments, document properties, number formatting, sheet conversion utilities, cell reference utilities

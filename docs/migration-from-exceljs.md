@@ -141,7 +141,13 @@ await initWasm(); // Call once at startup
 - };
 + ws.addValidation('A1', {
 +   validationType: 'list',
++   operator: null,
 +   formula1: '"Yes,No,Maybe"',
++   formula2: null,
++   allowBlank: true,
++   showErrorMessage: null,
++   errorTitle: null,
++   errorMessage: null,
 + });
 ```
 

@@ -56,7 +56,7 @@ Node.js 26, single thread, vs SheetJS (`xlsx` 0.20.3) — indicative, hardware-d
 
 The biggest wins are read speed (3-4x) and file size (~8x smaller); write throughput and CSV/JSON export are roughly at parity.
 
-> Browser bundle ~78 KB minified (~24 KB gzip) + ~1.9 MB WASM (~630 KB gzip). Zero runtime dependencies.
+> Browser bundle ~78 KB minified (~24 KB gzip) + ~1.9 MB WASM (~650 KB gzip). Zero runtime dependencies.
 
 ## Install
 

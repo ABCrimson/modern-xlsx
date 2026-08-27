@@ -80,7 +80,7 @@ Node.js 26, single thread, vs SheetJS (`xlsx` 0.20.3) — indicative, hardware-d
 
 **Summary:** the biggest wins are **read speed** (3-4x faster) and **output file size** (~8x smaller). Write throughput and CSV/JSON conversions land roughly at parity. For large workbooks, the WASM-accelerated Rust core delivers significant throughput gains.
 
-> Browser bundle ~78 KB minified (~24 KB gzip) + ~1.9 MB WASM (~630 KB gzip). Zero runtime dependencies.
+> Browser bundle ~78 KB minified (~24 KB gzip) + ~1.9 MB WASM (~650 KB gzip). Zero runtime dependencies.
 
 ## Feature Comparison
 
@@ -298,12 +298,20 @@ ws.sheetProtection = {
 
 // Excel Tables (ListObjects)
 ws.addTable({
-  name: 'SalesData', ref: 'A1:B3',
-  columns: [{ name: 'Product' }, { name: 'Revenue' }],
-  style: { name: 'TableStyleMedium9', showRowStripes: true },
+  id: 1, displayName: 'SalesData', ref: 'A1:B3',
+  headerRowCount: 1, totalsRowCount: 0, totalsRowShown: false,
+  columns: [
+    { id: 1, name: 'Product' },
+    { id: 2, name: 'Revenue' },
+  ],
+  styleInfo: {
+    name: 'TableStyleMedium9',
+    showFirstColumn: false, showLastColumn: false,
+    showRowStripes: true, showColumnStripes: false,
+  },
 });
 ws.tables;                         // TableDefinitionData[]
-ws.getTable('SalesData');          // TableDefinitionData | undefined
+ws.getTable('SalesData');          // TableDefinitionData | undefined (by display name)
 ws.removeTable('SalesData');       // boolean
 
 // Headers & Footers
@@ -324,9 +332,9 @@ ws.expandRows(2, 10);
 ws.groupColumns(1, 3);            // columns A-C
 ws.outlineProperties = { summaryBelow: true, summaryRight: true };
 
-// Print Titles & Areas
-wb.setPrintTitles('Sheet1', { rows: { start: 1, end: 1 } });
-wb.setPrintArea('Sheet1', 'A1:G50');
+// Print Titles & Areas (0-based sheet index + range reference)
+wb.setPrintTitles(0, 'Sheet1!$1:$1');       // repeat row 1 on every page
+wb.setPrintArea(0, 'Sheet1!$A$1:$G$50');    // limit the printed area
 ```
 
 ### Charts
@@ -340,16 +348,22 @@ const ws = wb.addSheet('Sales');
 ws.cell('A1').value = 'Q1'; ws.cell('A2').value = 'Q2';
 ws.cell('B1').value = 100;  ws.cell('B2').value = 200;
 
-// Create a bar chart
-const chart = new ChartBuilder('bar')
-  .title('Quarterly Sales')
-  .addSeries({ name: 'Revenue', values: 'Sales!$B$1:$B$4' })
-  .categoryAxis({ title: 'Quarter' })
-  .valueAxis({ title: 'Amount ($)' })
-  .size(800, 400)
-  .build();
+// Create a bar chart via the builder callback
+ws.addChart('bar', (b) => {
+  b.title('Quarterly Sales')
+   .addSeries({ name: 'Revenue', catRef: 'Sales!$A$1:$A$2', valRef: 'Sales!$B$1:$B$2' })
+   .catAxis({ title: 'Quarter' })
+   .valAxis({ title: 'Amount ($)' })
+   .legend('bottom')
+   .anchor({ col: 3, row: 0 }, { col: 12, row: 18 });
+});
 
-ws.addChart(chart);
+// Or build the data model yourself and attach it
+const chart = new ChartBuilder('line')
+  .title('Trend')
+  .addSeries({ name: 'Revenue', valRef: 'Sales!$B$1:$B$2' })
+  .build();
+ws.addChartData(chart);
 
 // Supported types: bar, column, line, pie, area, scatter, radar, doughnut, bubble, stock
 ```
@@ -359,10 +373,14 @@ ws.addChart(chart);
 Evaluate 54 built-in Excel functions in-memory:
 
 ```typescript
-import { evaluateFormula, createDefaultFunctions } from 'modern-xlsx';
+import { evaluateFormula, createDefaultFunctions, encodeCellRef } from 'modern-xlsx';
 
 const ctx = {
-  getCell: (sheet, col, row) => wb.getSheet(sheet)?.cell(encodeCellRef(row - 1, letterToColumn(col)))?.value ?? null,
+  // getCell receives the sheet name, a 0-based column index, and a 1-based row
+  getCell: (sheet, col, row) => {
+    const value = wb.getSheet(sheet)?.cell(encodeCellRef(row - 1, col)).value;
+    return typeof value === 'undefined' ? null : value;
+  },
   currentSheet: 'Sheet1',
   functions: createDefaultFunctions(),
 };
