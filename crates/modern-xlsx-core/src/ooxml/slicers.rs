@@ -105,7 +105,7 @@ pub fn parse_slicers(data: &[u8]) -> Result<Vec<SlicerData>> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
-                if e.local_name().as_ref() == b"slicer" {
+                if e.local_name().as_ref() == "slicer" {
                     let mut name = String::new();
                     let mut caption: Option<String> = None;
                     let mut cache_name = String::new();
@@ -115,41 +115,39 @@ pub fn parse_slicers(data: &[u8]) -> Result<Vec<SlicerData>> {
 
                     for attr in e.attributes().flatten() {
                         match attr.key.local_name().as_ref() {
-                            b"name" => {
+                            "name" => {
                                 name = attr
                                     .normalized_value(XmlVersion::Implicit1_0)
                                     .unwrap_or_default()
                                     .into_owned();
                             }
-                            b"cache" => {
+                            "cache" => {
                                 cache_name = attr
                                     .normalized_value(XmlVersion::Implicit1_0)
                                     .unwrap_or_default()
                                     .into_owned();
                             }
-                            b"caption" => {
+                            "caption" => {
                                 caption = Some(
                                     attr.normalized_value(XmlVersion::Implicit1_0)
                                         .unwrap_or_default()
                                         .into_owned(),
                                 );
                             }
-                            b"columnName" => {
+                            "columnName" => {
                                 column_name = Some(
                                     attr.normalized_value(XmlVersion::Implicit1_0)
                                         .unwrap_or_default()
                                         .into_owned(),
                                 );
                             }
-                            b"sortOrder" => {
+                            "sortOrder" => {
                                 sort_order = SortOrder::from_xml(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default(),
+                                    attr.value.as_ref(),
                                 );
                             }
-                            b"startItem" => {
-                                start_item = std::str::from_utf8(&attr.value)
-                                    .ok()
-                                    .and_then(|s| s.parse().ok());
+                            "startItem" => {
+                                start_item = attr.value.parse().ok();
                             }
                             _ => {}
                         }
@@ -211,16 +209,16 @@ impl SlicerCacheData {
                 Ok(Event::Start(ref e) | Event::Empty(ref e)) => {
                     let local = e.local_name();
                     match local.as_ref() {
-                        b"slicerCacheDefinition" => {
+                        "slicerCacheDefinition" => {
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"name" => {
+                                    "name" => {
                                         name = attr
                                             .normalized_value(XmlVersion::Implicit1_0)
                                             .unwrap_or_default()
                                             .into_owned();
                                     }
-                                    b"sourceName" => {
+                                    "sourceName" => {
                                         source_name = Some(
                                             attr.normalized_value(XmlVersion::Implicit1_0)
                                                 .unwrap_or_default()
@@ -231,21 +229,21 @@ impl SlicerCacheData {
                                 }
                             }
                         }
-                        b"i" => {
+                        "i" => {
                             let mut item_n = String::new();
                             let mut item_s = false;
 
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"n" => {
+                                    "n" => {
                                         item_n = attr
                                             .normalized_value(XmlVersion::Implicit1_0)
                                             .unwrap_or_default()
                                             .into_owned();
                                     }
-                                    b"s" => {
+                                    "s" => {
                                         let val =
-                                            std::str::from_utf8(&attr.value).unwrap_or_default();
+                                            attr.value.as_ref();
                                         item_s = val == "1" || val == "true";
                                     }
                                     _ => {}

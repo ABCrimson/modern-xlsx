@@ -88,12 +88,12 @@ impl SharedStringTable {
                 Ok(Event::Start(e)) => {
                     let local = e.local_name();
                     match local.as_ref() {
-                        b"si" => {
+                        "si" => {
                             in_si = true;
                             current_text.clear();
                             runs.clear();
                         }
-                        b"r" if in_si => {
+                        "r" if in_si => {
                             in_r = true;
                             run_text.clear();
                             run_bold = None;
@@ -104,39 +104,34 @@ impl SharedStringTable {
                             run_font_size = None;
                             run_color = None;
                         }
-                        b"rPr" if in_r => {
+                        "rPr" if in_r => {
                             in_rpr = true;
                         }
-                        b"t" if in_si => {
+                        "t" if in_si => {
                             in_t = true;
                         }
-                        b"rFont" if in_rpr => {
+                        "rFont" if in_rpr => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
+                                .find(|a| a.key.local_name().as_ref() == "val")
                             {
                                 run_font_name = Some(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
                         }
-                        b"sz" if in_rpr => {
+                        "sz" if in_rpr => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
-                                && let Ok(s) = std::str::from_utf8(&attr.value)
+                                .find(|a| a.key.local_name().as_ref() == "val")
                             {
-                                run_font_size = s.parse::<f64>().ok();
+                                run_font_size = attr.value.parse::<f64>().ok();
                             }
                         }
-                        b"color" if in_rpr => {
+                        "color" if in_rpr => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
                                 run_color = Some(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
                         }
@@ -146,45 +141,40 @@ impl SharedStringTable {
                 Ok(Event::Empty(e)) => {
                     let local = e.local_name();
                     match local.as_ref() {
-                        b"b" if in_rpr => {
+                        "b" if in_rpr => {
                             run_bold = Some(true);
                         }
-                        b"i" if in_rpr => {
+                        "i" if in_rpr => {
                             run_italic = Some(true);
                         }
-                        b"u" if in_rpr => {
+                        "u" if in_rpr => {
                             run_underline = Some(true);
                         }
-                        b"strike" if in_rpr => {
+                        "strike" if in_rpr => {
                             run_strike = Some(true);
                         }
-                        b"rFont" if in_rpr => {
+                        "rFont" if in_rpr => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
+                                .find(|a| a.key.local_name().as_ref() == "val")
                             {
                                 run_font_name = Some(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
                         }
-                        b"sz" if in_rpr => {
+                        "sz" if in_rpr => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
-                                && let Ok(s) = std::str::from_utf8(&attr.value)
+                                .find(|a| a.key.local_name().as_ref() == "val")
                             {
-                                run_font_size = s.parse::<f64>().ok();
+                                run_font_size = attr.value.parse::<f64>().ok();
                             }
                         }
-                        b"color" if in_rpr => {
+                        "color" if in_rpr => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
                                 run_color = Some(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
                         }
@@ -193,7 +183,7 @@ impl SharedStringTable {
                 }
                 Ok(Event::Text(e)) if in_t => {
                     let text =
-                        std::str::from_utf8(e.as_ref()).unwrap_or_default();
+                        e.as_ref();
                     current_text.push_str(text);
                     if in_r {
                         run_text.push_str(text);
@@ -210,13 +200,13 @@ impl SharedStringTable {
                 Ok(Event::End(e)) => {
                     let local = e.local_name();
                     match local.as_ref() {
-                        b"t" => {
+                        "t" => {
                             in_t = false;
                         }
-                        b"rPr" => {
+                        "rPr" => {
                             in_rpr = false;
                         }
-                        b"r" => {
+                        "r" => {
                             runs.push(RichTextRun {
                                 text: std::mem::take(&mut run_text),
                                 bold: run_bold,
@@ -229,7 +219,7 @@ impl SharedStringTable {
                             });
                             in_r = false;
                         }
-                        b"si" => {
+                        "si" => {
                             strings
                                 .push(std::mem::take(&mut current_text));
                             if runs.is_empty() {

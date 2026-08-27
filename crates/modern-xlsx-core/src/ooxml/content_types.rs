@@ -108,16 +108,16 @@ impl ContentTypes {
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
                     match e.local_name().as_ref() {
-                        b"Default" => {
+                        "Default" => {
                             let (mut ext, mut ctype) = (String::new(), String::new());
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"Extension" => {
-                                        ext = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    "Extension" => {
+                                        ext = attr.value.into_owned();
                                     }
-                                    b"ContentType" => {
+                                    "ContentType" => {
                                         ctype =
-                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                            attr.value.into_owned();
                                     }
                                     _ => {}
                                 }
@@ -126,17 +126,17 @@ impl ContentTypes {
                                 ct.defaults.insert(ext, ctype);
                             }
                         }
-                        b"Override" => {
+                        "Override" => {
                             let (mut part, mut ctype) = (String::new(), String::new());
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"PartName" => {
+                                    "PartName" => {
                                         part =
-                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                            attr.value.into_owned();
                                     }
-                                    b"ContentType" => {
+                                    "ContentType" => {
                                         ctype =
-                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                            attr.value.into_owned();
                                     }
                                     _ => {}
                                 }

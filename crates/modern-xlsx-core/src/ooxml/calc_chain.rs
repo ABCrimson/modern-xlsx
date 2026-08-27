@@ -44,21 +44,19 @@ pub fn parse(data: &[u8]) -> Result<Vec<CalcChainEntry>> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Empty(ref e) | Event::Start(ref e))
-                if e.local_name().as_ref() == b"c" =>
+                if e.local_name().as_ref() == "c" =>
             {
                 let mut cell_ref = String::new();
                 let mut sheet_id: u32 = 0;
 
                 for attr in e.attributes().flatten() {
                     match attr.key.local_name().as_ref() {
-                        b"r" => {
-                            cell_ref = std::str::from_utf8(&attr.value)
-                                .unwrap_or_default()
-                                .to_owned();
+                        "r" => {
+                            cell_ref = attr.value.into_owned();
                         }
-                        b"i" => {
+                        "i" => {
                             let val =
-                                std::str::from_utf8(&attr.value).unwrap_or_default();
+                                attr.value.as_ref();
                             sheet_id = val.parse::<u32>().unwrap_or(0);
                         }
                         _ => {}

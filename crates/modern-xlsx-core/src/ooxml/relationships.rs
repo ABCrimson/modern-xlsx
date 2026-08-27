@@ -161,22 +161,22 @@ impl Relationships {
         loop {
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
-                    if e.local_name().as_ref() == b"Relationship" {
+                    if e.local_name().as_ref() == "Relationship" {
                         let (mut id, mut rel_type, mut target): (String, Cow<'static, str>, Cow<'static, str>) =
                             (String::new(), Cow::Owned(String::new()), Cow::Owned(String::new()));
                         for attr in e.attributes().flatten() {
                             match attr.key.local_name().as_ref() {
-                                b"Id" => {
-                                    id = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                "Id" => {
+                                    id = attr.value.into_owned();
                                 }
-                                b"Type" => {
+                                "Type" => {
                                     rel_type = Cow::Owned(
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                        attr.value.into_owned(),
                                     );
                                 }
-                                b"Target" => {
+                                "Target" => {
                                     target = Cow::Owned(
-                                        std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                        attr.value.into_owned(),
                                     );
                                 }
                                 _ => {}

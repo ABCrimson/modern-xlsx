@@ -1147,34 +1147,32 @@ pub(super) fn parse_col_element(e: &quick_xml::events::BytesStart<'_>) -> super:
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
         match ln.as_ref() {
-            b"min" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "min" => {
+                let val = attr.value.as_ref();
                 min = val.parse::<u32>().unwrap_or(1);
             }
-            b"max" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "max" => {
+                let val = attr.value.as_ref();
                 max = val.parse::<u32>().unwrap_or(1);
             }
-            b"width" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "width" => {
+                let val = attr.value.as_ref();
                 width = val.parse::<f64>().unwrap_or(8.43);
             }
-            b"hidden" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "hidden" => {
+                let val = attr.value.as_ref();
                 hidden = val == "1" || val.eq_ignore_ascii_case("true");
             }
-            b"customWidth" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "customWidth" => {
+                let val = attr.value.as_ref();
                 custom_width = val == "1" || val.eq_ignore_ascii_case("true");
             }
-            b"outlineLevel" => {
-                outline_level = std::str::from_utf8(&attr.value)
-                    .ok()
-                    .and_then(|v| v.parse::<u8>().ok())
+            "outlineLevel" => {
+                outline_level = attr.value.parse::<u8>().ok()
                     .filter(|&v| v > 0);
             }
-            b"collapsed" => {
-                collapsed = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+            "collapsed" => {
+                collapsed = attr.value.as_ref() == "1";
             }
             _ => {}
         }

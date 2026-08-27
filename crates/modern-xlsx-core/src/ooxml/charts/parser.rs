@@ -15,21 +15,19 @@ use crate::{ModernXlsxError, Result};
 
 /// Helper to extract `val` attribute from a `BytesStart`.
 #[inline]
-fn attr_val(e: &BytesStart<'_>, key: &[u8]) -> Option<String> {
+fn attr_val(e: &BytesStart<'_>, key: &str) -> Option<String> {
     e.attributes()
         .flatten()
         .find(|attr| attr.key.as_ref() == key)
         .map(|attr| {
-            std::str::from_utf8(&attr.value)
-                .unwrap_or_default()
-                .to_owned()
+            attr.value.into_owned()
         })
 }
 
 /// Parse the `val` attribute as `&str`.
 #[inline]
 fn attr_val_str(e: &BytesStart<'_>) -> String {
-    attr_val(e, b"val").unwrap_or_default()
+    attr_val(e, "val").unwrap_or_default()
 }
 
 /// Parser state machine context.
@@ -414,21 +412,21 @@ impl ChartData {
                     let ctx = current_ctx(&ctx_stack);
 
                     match (ctx, local) {
-                        (ParseCtx::Root, b"chart") => {
+                        (ParseCtx::Root, "chart") => {
                             ctx_stack.push(ParseCtx::Chart);
                         }
-                        (ParseCtx::Chart, b"plotArea") => {
+                        (ParseCtx::Chart, "plotArea") => {
                             ctx_stack.push(ParseCtx::PlotArea);
                         }
-                        (ParseCtx::Chart, b"title") => {
+                        (ParseCtx::Chart, "title") => {
                             cur_title = TitleBuilder::default();
                             ctx_stack.push(ParseCtx::Title(TitleOwner::Chart));
                         }
-                        (ParseCtx::Chart, b"legend") => {
+                        (ParseCtx::Chart, "legend") => {
                             cur_legend = LegendBuilder::default();
                             ctx_stack.push(ParseCtx::Legend);
                         }
-                        (ParseCtx::Chart, b"view3D") => {
+                        (ParseCtx::Chart, "view3D") => {
                             cur_view_3d = View3DBuilder::default();
                             ctx_stack.push(ParseCtx::View3D);
                         }
@@ -436,18 +434,18 @@ impl ChartData {
                         // When a second chart-type element appears, it's the
                         // secondary chart in a combo-chart layout.
                         (ParseCtx::PlotArea,
-b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
-| b"areaChart" | b"radarChart" | b"bubbleChart" | b"stockChart") => {
+"barChart" | "lineChart" | "pieChart" | "doughnutChart" | "scatterChart"
+| "areaChart" | "radarChart" | "bubbleChart" | "stockChart") => {
                             let ct = match local {
-                                b"barChart" => ChartType::Column, // barDir refines
-                                b"lineChart" => ChartType::Line,
-                                b"pieChart" => ChartType::Pie,
-                                b"doughnutChart" => ChartType::Doughnut,
-                                b"scatterChart" => ChartType::Scatter,
-                                b"areaChart" => ChartType::Area,
-                                b"radarChart" => ChartType::Radar,
-                                b"bubbleChart" => ChartType::Bubble,
-                                b"stockChart" => ChartType::Stock,
+                                "barChart" => ChartType::Column, // barDir refines
+                                "lineChart" => ChartType::Line,
+                                "pieChart" => ChartType::Pie,
+                                "doughnutChart" => ChartType::Doughnut,
+                                "scatterChart" => ChartType::Scatter,
+                                "areaChart" => ChartType::Area,
+                                "radarChart" => ChartType::Radar,
+                                "bubbleChart" => ChartType::Bubble,
+                                "stockChart" => ChartType::Stock,
                                 _ => {
                                     cold_path();
                                     unreachable!()
@@ -464,28 +462,28 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             }
                             ctx_stack.push(ParseCtx::ChartTypeElem);
                         }
-                        (ParseCtx::PlotArea, b"layout") => {
+                        (ParseCtx::PlotArea, "layout") => {
                             ctx_stack.push(ParseCtx::ManualLayoutCtx);
                         }
-                        (ParseCtx::PlotArea, b"dTable") => {
+                        (ParseCtx::PlotArea, "dTable") => {
                             show_data_table = true;
                             ctx_stack.push(ParseCtx::PlotArea); // track depth
                         }
-                        (ParseCtx::ManualLayoutCtx, b"manualLayout") => {
+                        (ParseCtx::ManualLayoutCtx, "manualLayout") => {
                             // stay in ManualLayoutCtx
                             ctx_stack.push(ParseCtx::ManualLayoutCtx);
                         }
                         // Axes inside plotArea.
-                        (ParseCtx::PlotArea, b"catAx") => {
+                        (ParseCtx::PlotArea, "catAx") => {
                             cur_cat_axis = AxisBuilder::default();
                             ctx_stack.push(ParseCtx::CatAxis);
                         }
-                        (ParseCtx::PlotArea, b"valAx") => {
+                        (ParseCtx::PlotArea, "valAx") => {
                             cur_val_axis = AxisBuilder::default();
                             ctx_stack.push(ParseCtx::ValAxis);
                         }
                         // Series inside chart type element.
-                        (ParseCtx::ChartTypeElem, b"ser") => {
+                        (ParseCtx::ChartTypeElem, "ser") => {
                             cur_ser = Some(ChartSeries {
                                 idx: 0,
                                 order: 0,
@@ -506,66 +504,66 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             });
                             ctx_stack.push(ParseCtx::Series);
                         }
-                        (ParseCtx::ChartTypeElem, b"dLbls") => {
+                        (ParseCtx::ChartTypeElem, "dLbls") => {
                             cur_dlbls = DataLabelsBuilder::default();
                             ctx_stack.push(ParseCtx::DataLabels);
                         }
                         // Series children.
-                        (ParseCtx::Series, b"tx") => {
+                        (ParseCtx::Series, "tx") => {
                             ctx_stack.push(ParseCtx::SerTx);
                         }
-                        (ParseCtx::Series, b"cat") => {
+                        (ParseCtx::Series, "cat") => {
                             ctx_stack.push(ParseCtx::SerRef(SerRefKind::Cat));
                         }
-                        (ParseCtx::Series, b"val") => {
+                        (ParseCtx::Series, "val") => {
                             ctx_stack.push(ParseCtx::SerRef(SerRefKind::Val));
                         }
-                        (ParseCtx::Series, b"xVal") => {
+                        (ParseCtx::Series, "xVal") => {
                             ctx_stack.push(ParseCtx::SerRef(SerRefKind::XVal));
                         }
-                        (ParseCtx::Series, b"yVal") => {
+                        (ParseCtx::Series, "yVal") => {
                             ctx_stack.push(ParseCtx::SerRef(SerRefKind::YVal));
                         }
-                        (ParseCtx::Series, b"bubbleSize") => {
+                        (ParseCtx::Series, "bubbleSize") => {
                             ctx_stack.push(ParseCtx::SerRef(SerRefKind::BubbleSize));
                         }
-                        (ParseCtx::Series, b"spPr") => {
+                        (ParseCtx::Series, "spPr") => {
                             ctx_stack.push(ParseCtx::SerSpPr);
                         }
-                        (ParseCtx::Series, b"marker") => {
+                        (ParseCtx::Series, "marker") => {
                             ctx_stack.push(ParseCtx::SerMarker);
                         }
-                        (ParseCtx::Series, b"dLbls") => {
+                        (ParseCtx::Series, "dLbls") => {
                             cur_ser_dlbls = DataLabelsBuilder::default();
                             ctx_stack.push(ParseCtx::SerDataLabels);
                         }
-                        (ParseCtx::Series, b"trendline") => {
+                        (ParseCtx::Series, "trendline") => {
                             cur_trendline = Some(TrendlineBuilder::default());
                             ctx_stack.push(ParseCtx::SerTrendline);
                         }
-                        (ParseCtx::Series, b"errBars") => {
+                        (ParseCtx::Series, "errBars") => {
                             cur_err_bars = Some(ErrorBarsBuilder::default());
                             ctx_stack.push(ParseCtx::SerErrBars);
                         }
                         // spPr children.
-                        (ParseCtx::SerSpPr, b"solidFill") => {
+                        (ParseCtx::SerSpPr, "solidFill") => {
                             ctx_stack.push(ParseCtx::SerSpPrFill);
                         }
-                        (ParseCtx::SerSpPr, b"ln") => {
+                        (ParseCtx::SerSpPr, "ln") => {
                             // Parse line width from `w` attribute.
                             if let Some(ref mut ser) = cur_ser
-                                && let Some(w) = attr_val(e, b"w")
+                                && let Some(w) = attr_val(e, "w")
                             {
                                 ser.line_width = w.parse().ok();
                             }
                             ctx_stack.push(ParseCtx::SerSpPrLn);
                         }
-                        (ParseCtx::SerSpPrLn, b"solidFill") => {
+                        (ParseCtx::SerSpPrLn, "solidFill") => {
                             ctx_stack.push(ParseCtx::SerSpPrLnFill);
                         }
                         // Series text formula capture.
-                        (ParseCtx::SerTx, b"f" | b"strRef") => {
-                            if local == b"f" {
+                        (ParseCtx::SerTx, "f" | "strRef") => {
+                            if local == "f" {
                                 capturing_text = true;
                                 text_target = TextTarget::SerName;
                                 text_buf.clear();
@@ -573,7 +571,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             ctx_stack.push(ctx); // stay in SerTx
                         }
                         // Ref formula capture.
-                        (ParseCtx::SerRef(kind), b"f") => {
+                        (ParseCtx::SerRef(kind), "f") => {
                             capturing_text = true;
                             text_target = match kind {
                                 SerRefKind::Cat => TextTarget::CatRef,
@@ -589,25 +587,25 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             ctx_stack.push(ctx);
                         }
                         // Axis children.
-                        (ParseCtx::CatAxis, b"scaling") => {
+                        (ParseCtx::CatAxis, "scaling") => {
                             ctx_stack.push(ParseCtx::AxisScaling(AxisKind::Cat));
                         }
-                        (ParseCtx::ValAxis, b"scaling") => {
+                        (ParseCtx::ValAxis, "scaling") => {
                             ctx_stack.push(ParseCtx::AxisScaling(AxisKind::Val));
                         }
-                        (ParseCtx::CatAxis, b"title") => {
+                        (ParseCtx::CatAxis, "title") => {
                             cur_cat_axis_title = TitleBuilder::default();
                             ctx_stack.push(ParseCtx::Title(TitleOwner::CatAxis));
                         }
-                        (ParseCtx::ValAxis, b"title") => {
+                        (ParseCtx::ValAxis, "title") => {
                             cur_val_axis_title = TitleBuilder::default();
                             ctx_stack.push(ParseCtx::Title(TitleOwner::ValAxis));
                         }
                         // Axis tick label text properties.
-                        (ParseCtx::CatAxis, b"txPr") => {
+                        (ParseCtx::CatAxis, "txPr") => {
                             ctx_stack.push(ParseCtx::AxisTxPr(AxisKind::Cat));
                         }
-                        (ParseCtx::ValAxis, b"txPr") => {
+                        (ParseCtx::ValAxis, "txPr") => {
                             ctx_stack.push(ParseCtx::AxisTxPr(AxisKind::Val));
                         }
                         (ParseCtx::AxisTxPr(_), _) => {
@@ -615,49 +613,49 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             ctx_stack.push(ctx);
                         }
                         // Title text structure.
-                        (ParseCtx::Title(owner), b"r") => {
+                        (ParseCtx::Title(owner), "r") => {
                             ctx_stack.push(ParseCtx::TitleRun(owner));
                         }
-                        (ParseCtx::Title(owner), b"pPr") => {
+                        (ParseCtx::Title(owner), "pPr") => {
                             ctx_stack.push(ParseCtx::TitlePPr(owner));
                         }
-                        (ParseCtx::TitlePPr(owner), b"defRPr") => {
+                        (ParseCtx::TitlePPr(owner), "defRPr") => {
                             // Parse font_size and bold from defRPr attributes.
                             let title_b = match owner {
                                 TitleOwner::Chart => &mut cur_title,
                                 TitleOwner::CatAxis => &mut cur_cat_axis_title,
                                 TitleOwner::ValAxis => &mut cur_val_axis_title,
                             };
-                            if let Some(sz) = attr_val(e, b"sz") {
+                            if let Some(sz) = attr_val(e, "sz") {
                                 title_b.font_size = sz.parse().ok();
                             }
-                            if let Some(b) = attr_val(e, b"b") {
+                            if let Some(b) = attr_val(e, "b") {
                                 title_b.bold = Some(b == "1" || b == "true");
                             }
                             ctx_stack.push(ParseCtx::TitleDefRPr(owner));
                         }
-                        (ParseCtx::TitleDefRPr(owner), b"solidFill") => {
+                        (ParseCtx::TitleDefRPr(owner), "solidFill") => {
                             ctx_stack.push(ParseCtx::TitleDefRPrFill(owner));
                         }
-                        (ParseCtx::TitleRun(owner), b"rPr") => {
+                        (ParseCtx::TitleRun(owner), "rPr") => {
                             // Parse font_size and bold from rPr attributes.
                             let title_b = match owner {
                                 TitleOwner::Chart => &mut cur_title,
                                 TitleOwner::CatAxis => &mut cur_cat_axis_title,
                                 TitleOwner::ValAxis => &mut cur_val_axis_title,
                             };
-                            if let Some(sz) = attr_val(e, b"sz") {
+                            if let Some(sz) = attr_val(e, "sz") {
                                 title_b.font_size = sz.parse().ok();
                             }
-                            if let Some(b) = attr_val(e, b"b") {
+                            if let Some(b) = attr_val(e, "b") {
                                 title_b.bold = Some(b == "1" || b == "true");
                             }
                             ctx_stack.push(ParseCtx::TitleRunPr(owner));
                         }
-                        (ParseCtx::TitleRunPr(owner), b"solidFill") => {
+                        (ParseCtx::TitleRunPr(owner), "solidFill") => {
                             ctx_stack.push(ParseCtx::TitleRunPrFill(owner));
                         }
-                        (ParseCtx::TitleRun(owner), b"t") => {
+                        (ParseCtx::TitleRun(owner), "t") => {
                             capturing_text = true;
                             text_target = match owner {
                                 TitleOwner::Chart => TextTarget::TitleText,
@@ -681,7 +679,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                     match (ctx, local) {
                         // Chart-type element attributes — route to
                         // primary or secondary accumulator.
-                        (ParseCtx::ChartTypeElem, b"barDir") => {
+                        (ParseCtx::ChartTypeElem, "barDir") => {
                             let val = attr_val_str(e);
                             let (ct, bh) = if val == "bar" {
                                 (ChartType::Bar, Some(true))
@@ -696,7 +694,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                                 bar_dir_horizontal = bh;
                             }
                         }
-                        (ParseCtx::ChartTypeElem, b"grouping") => {
+                        (ParseCtx::ChartTypeElem, "grouping") => {
                             let g = ChartGrouping::from_xml(&attr_val_str(e));
                             if is_secondary_chart {
                                 secondary_grouping = g;
@@ -704,7 +702,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                                 grouping = g;
                             }
                         }
-                        (ParseCtx::ChartTypeElem, b"scatterStyle") => {
+                        (ParseCtx::ChartTypeElem, "scatterStyle") => {
                             let s = ScatterStyle::from_xml(&attr_val_str(e));
                             if is_secondary_chart {
                                 secondary_scatter_style = s;
@@ -712,7 +710,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                                 scatter_style = s;
                             }
                         }
-                        (ParseCtx::ChartTypeElem, b"radarStyle") => {
+                        (ParseCtx::ChartTypeElem, "radarStyle") => {
                             let r = RadarStyle::from_xml(&attr_val_str(e));
                             if is_secondary_chart {
                                 secondary_radar_style = r;
@@ -720,7 +718,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                                 radar_style = r;
                             }
                         }
-                        (ParseCtx::ChartTypeElem, b"holeSize") => {
+                        (ParseCtx::ChartTypeElem, "holeSize") => {
                             let h = attr_val_str(e).parse().ok();
                             if is_secondary_chart {
                                 secondary_hole_size = h;
@@ -728,228 +726,228 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                                 hole_size = h;
                             }
                         }
-                        (ParseCtx::ChartTypeElem, b"axId") => {
+                        (ParseCtx::ChartTypeElem, "axId") => {
                             // Axis IDs inside chart type elem — ignored (parsed from axis elements).
                         }
                         // Series attributes.
-                        (ParseCtx::Series, b"idx") => {
+                        (ParseCtx::Series, "idx") => {
                             if let Some(ref mut ser) = cur_ser {
                                 ser.idx = attr_val_str(e).parse().unwrap_or(0);
                             }
                         }
-                        (ParseCtx::Series, b"order") => {
+                        (ParseCtx::Series, "order") => {
                             if let Some(ref mut ser) = cur_ser {
                                 ser.order = attr_val_str(e).parse().unwrap_or(0);
                             }
                         }
-                        (ParseCtx::Series, b"smooth") => {
+                        (ParseCtx::Series, "smooth") => {
                             if let Some(ref mut ser) = cur_ser {
                                 let val = attr_val_str(e);
                                 ser.smooth = Some(val == "1" || val == "true");
                             }
                         }
-                        (ParseCtx::Series, b"explosion") => {
+                        (ParseCtx::Series, "explosion") => {
                             if let Some(ref mut ser) = cur_ser {
                                 ser.explosion = attr_val_str(e).parse().ok();
                             }
                         }
                         // Fill color in spPr.
-                        (ParseCtx::SerSpPrFill, b"srgbClr") => {
+                        (ParseCtx::SerSpPrFill, "srgbClr") => {
                             if let Some(ref mut ser) = cur_ser {
-                                ser.fill_color = attr_val(e, b"val");
+                                ser.fill_color = attr_val(e, "val");
                             }
                         }
                         // Line color in spPr > ln.
-                        (ParseCtx::SerSpPrLnFill, b"srgbClr") => {
+                        (ParseCtx::SerSpPrLnFill, "srgbClr") => {
                             if let Some(ref mut ser) = cur_ser {
-                                ser.line_color = attr_val(e, b"val");
+                                ser.line_color = attr_val(e, "val");
                             }
                         }
                         // Line width from ln element.
-                        (ParseCtx::SerSpPrLn, b"ln") => {
+                        (ParseCtx::SerSpPrLn, "ln") => {
                             // This shouldn't happen (ln is usually Start), but handle anyway.
                         }
                         // Marker symbol.
-                        (ParseCtx::SerMarker, b"symbol") => {
+                        (ParseCtx::SerMarker, "symbol") => {
                             if let Some(ref mut ser) = cur_ser {
                                 ser.marker = MarkerStyle::from_xml(&attr_val_str(e));
                             }
                         }
                         // Data labels (chart-level).
-                        (ParseCtx::DataLabels, b"showVal") => {
+                        (ParseCtx::DataLabels, "showVal") => {
                             cur_dlbls.show_val = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::DataLabels, b"showCatName") => {
+                        (ParseCtx::DataLabels, "showCatName") => {
                             cur_dlbls.show_cat_name = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::DataLabels, b"showSerName") => {
+                        (ParseCtx::DataLabels, "showSerName") => {
                             cur_dlbls.show_ser_name = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::DataLabels, b"showPercent") => {
+                        (ParseCtx::DataLabels, "showPercent") => {
                             cur_dlbls.show_percent = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::DataLabels, b"showLeaderLines") => {
+                        (ParseCtx::DataLabels, "showLeaderLines") => {
                             cur_dlbls.show_leader_lines = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::DataLabels, b"numFmt") => {
-                            cur_dlbls.num_fmt = attr_val(e, b"formatCode");
+                        (ParseCtx::DataLabels, "numFmt") => {
+                            cur_dlbls.num_fmt = attr_val(e, "formatCode");
                         }
                         // Data labels (series-level).
-                        (ParseCtx::SerDataLabels, b"showVal") => {
+                        (ParseCtx::SerDataLabels, "showVal") => {
                             cur_ser_dlbls.show_val = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::SerDataLabels, b"showCatName") => {
+                        (ParseCtx::SerDataLabels, "showCatName") => {
                             cur_ser_dlbls.show_cat_name = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::SerDataLabels, b"showSerName") => {
+                        (ParseCtx::SerDataLabels, "showSerName") => {
                             cur_ser_dlbls.show_ser_name = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::SerDataLabels, b"showPercent") => {
+                        (ParseCtx::SerDataLabels, "showPercent") => {
                             cur_ser_dlbls.show_percent = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::SerDataLabels, b"showLeaderLines") => {
+                        (ParseCtx::SerDataLabels, "showLeaderLines") => {
                             cur_ser_dlbls.show_leader_lines = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::SerDataLabels, b"numFmt") => {
-                            cur_ser_dlbls.num_fmt = attr_val(e, b"formatCode");
+                        (ParseCtx::SerDataLabels, "numFmt") => {
+                            cur_ser_dlbls.num_fmt = attr_val(e, "formatCode");
                         }
                         // Axis attributes.
-                        (ParseCtx::CatAxis, b"axId") => {
+                        (ParseCtx::CatAxis, "axId") => {
                             cur_cat_axis.id = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::CatAxis, b"delete") => {
+                        (ParseCtx::CatAxis, "delete") => {
                             cur_cat_axis.delete = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::CatAxis, b"axPos") => {
+                        (ParseCtx::CatAxis, "axPos") => {
                             cur_cat_axis.position = AxisPosition::from_xml(&attr_val_str(e));
                         }
-                        (ParseCtx::CatAxis, b"majorGridlines") => {
+                        (ParseCtx::CatAxis, "majorGridlines") => {
                             cur_cat_axis.major_gridlines = true;
                         }
-                        (ParseCtx::CatAxis, b"minorGridlines") => {
+                        (ParseCtx::CatAxis, "minorGridlines") => {
                             cur_cat_axis.minor_gridlines = true;
                         }
-                        (ParseCtx::CatAxis, b"numFmt") => {
-                            cur_cat_axis.num_fmt = attr_val(e, b"formatCode");
-                            if let Some(sl) = attr_val(e, b"sourceLinked") {
+                        (ParseCtx::CatAxis, "numFmt") => {
+                            cur_cat_axis.num_fmt = attr_val(e, "formatCode");
+                            if let Some(sl) = attr_val(e, "sourceLinked") {
                                 cur_cat_axis.source_linked = sl == "1";
                             }
                         }
-                        (ParseCtx::CatAxis, b"majorTickMark") => {
+                        (ParseCtx::CatAxis, "majorTickMark") => {
                             cur_cat_axis.major_tick_mark = TickMark::from_xml(&attr_val_str(e));
                         }
-                        (ParseCtx::CatAxis, b"minorTickMark") => {
+                        (ParseCtx::CatAxis, "minorTickMark") => {
                             cur_cat_axis.minor_tick_mark = TickMark::from_xml(&attr_val_str(e));
                         }
-                        (ParseCtx::CatAxis, b"tickLblPos") => {
+                        (ParseCtx::CatAxis, "tickLblPos") => {
                             cur_cat_axis.tick_lbl_pos = TickLabelPosition::from_xml(&attr_val_str(e));
                         }
-                        (ParseCtx::CatAxis, b"crossAx") => {
+                        (ParseCtx::CatAxis, "crossAx") => {
                             cur_cat_axis.cross_ax = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::CatAxis, b"crossesAt") => {
+                        (ParseCtx::CatAxis, "crossesAt") => {
                             cur_cat_axis.crosses_at = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::CatAxis, b"crosses") => {
+                        (ParseCtx::CatAxis, "crosses") => {
                             // autoZero -> None (default).
                         }
-                        (ParseCtx::CatAxis, b"majorUnit") => {
+                        (ParseCtx::CatAxis, "majorUnit") => {
                             cur_cat_axis.major_unit = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::CatAxis, b"minorUnit") => {
+                        (ParseCtx::CatAxis, "minorUnit") => {
                             cur_cat_axis.minor_unit = attr_val_str(e).parse().ok();
                         }
                         // ValAxis.
-                        (ParseCtx::ValAxis, b"axId") => {
+                        (ParseCtx::ValAxis, "axId") => {
                             cur_val_axis.id = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::ValAxis, b"delete") => {
+                        (ParseCtx::ValAxis, "delete") => {
                             cur_val_axis.delete = attr_val_str(e) == "1";
                         }
-                        (ParseCtx::ValAxis, b"axPos") => {
+                        (ParseCtx::ValAxis, "axPos") => {
                             cur_val_axis.position = AxisPosition::from_xml(&attr_val_str(e));
                         }
-                        (ParseCtx::ValAxis, b"majorGridlines") => {
+                        (ParseCtx::ValAxis, "majorGridlines") => {
                             cur_val_axis.major_gridlines = true;
                         }
-                        (ParseCtx::ValAxis, b"minorGridlines") => {
+                        (ParseCtx::ValAxis, "minorGridlines") => {
                             cur_val_axis.minor_gridlines = true;
                         }
-                        (ParseCtx::ValAxis, b"numFmt") => {
-                            cur_val_axis.num_fmt = attr_val(e, b"formatCode");
-                            if let Some(sl) = attr_val(e, b"sourceLinked") {
+                        (ParseCtx::ValAxis, "numFmt") => {
+                            cur_val_axis.num_fmt = attr_val(e, "formatCode");
+                            if let Some(sl) = attr_val(e, "sourceLinked") {
                                 cur_val_axis.source_linked = sl == "1";
                             }
                         }
-                        (ParseCtx::ValAxis, b"majorTickMark") => {
+                        (ParseCtx::ValAxis, "majorTickMark") => {
                             cur_val_axis.major_tick_mark = TickMark::from_xml(&attr_val_str(e));
                         }
-                        (ParseCtx::ValAxis, b"minorTickMark") => {
+                        (ParseCtx::ValAxis, "minorTickMark") => {
                             cur_val_axis.minor_tick_mark = TickMark::from_xml(&attr_val_str(e));
                         }
-                        (ParseCtx::ValAxis, b"tickLblPos") => {
+                        (ParseCtx::ValAxis, "tickLblPos") => {
                             cur_val_axis.tick_lbl_pos = TickLabelPosition::from_xml(&attr_val_str(e));
                         }
-                        (ParseCtx::ValAxis, b"crossAx") => {
+                        (ParseCtx::ValAxis, "crossAx") => {
                             cur_val_axis.cross_ax = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::ValAxis, b"crossesAt") => {
+                        (ParseCtx::ValAxis, "crossesAt") => {
                             cur_val_axis.crosses_at = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::ValAxis, b"crosses") => {
+                        (ParseCtx::ValAxis, "crosses") => {
                             // autoZero -> None.
                         }
-                        (ParseCtx::ValAxis, b"majorUnit") => {
+                        (ParseCtx::ValAxis, "majorUnit") => {
                             cur_val_axis.major_unit = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::ValAxis, b"minorUnit") => {
+                        (ParseCtx::ValAxis, "minorUnit") => {
                             cur_val_axis.minor_unit = attr_val_str(e).parse().ok();
                         }
                         // Axis scaling.
-                        (ParseCtx::AxisScaling(AxisKind::Cat), b"orientation") => {
+                        (ParseCtx::AxisScaling(AxisKind::Cat), "orientation") => {
                             cur_cat_axis.reversed = attr_val_str(e) == "maxMin";
                         }
-                        (ParseCtx::AxisScaling(AxisKind::Cat), b"min") => {
+                        (ParseCtx::AxisScaling(AxisKind::Cat), "min") => {
                             cur_cat_axis.min = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::AxisScaling(AxisKind::Cat), b"max") => {
+                        (ParseCtx::AxisScaling(AxisKind::Cat), "max") => {
                             cur_cat_axis.max = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::AxisScaling(AxisKind::Cat), b"logBase") => {
+                        (ParseCtx::AxisScaling(AxisKind::Cat), "logBase") => {
                             cur_cat_axis.log_base = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::AxisScaling(AxisKind::Val), b"orientation") => {
+                        (ParseCtx::AxisScaling(AxisKind::Val), "orientation") => {
                             cur_val_axis.reversed = attr_val_str(e) == "maxMin";
                         }
-                        (ParseCtx::AxisScaling(AxisKind::Val), b"min") => {
+                        (ParseCtx::AxisScaling(AxisKind::Val), "min") => {
                             cur_val_axis.min = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::AxisScaling(AxisKind::Val), b"max") => {
+                        (ParseCtx::AxisScaling(AxisKind::Val), "max") => {
                             cur_val_axis.max = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::AxisScaling(AxisKind::Val), b"logBase") => {
+                        (ParseCtx::AxisScaling(AxisKind::Val), "logBase") => {
                             cur_val_axis.log_base = attr_val_str(e).parse().ok();
                         }
                         // Axis txPr — defRPr with sz attribute.
-                        (ParseCtx::AxisTxPr(AxisKind::Cat), b"defRPr") => {
-                            if let Some(sz) = attr_val(e, b"sz") {
+                        (ParseCtx::AxisTxPr(AxisKind::Cat), "defRPr") => {
+                            if let Some(sz) = attr_val(e, "sz") {
                                 cur_cat_axis.font_size = sz.parse().ok();
                             }
                         }
-                        (ParseCtx::AxisTxPr(AxisKind::Val), b"defRPr") => {
-                            if let Some(sz) = attr_val(e, b"sz") {
+                        (ParseCtx::AxisTxPr(AxisKind::Val), "defRPr") => {
+                            if let Some(sz) = attr_val(e, "sz") {
                                 cur_val_axis.font_size = sz.parse().ok();
                             }
                         }
                         // Legend.
-                        (ParseCtx::Legend, b"legendPos") => {
+                        (ParseCtx::Legend, "legendPos") => {
                             cur_legend.position = LegendPosition::from_xml(&attr_val_str(e));
                         }
-                        (ParseCtx::Legend, b"overlay") => {
+                        (ParseCtx::Legend, "overlay") => {
                             cur_legend.overlay = attr_val_str(e) == "1";
                         }
                         // Title overlay.
-                        (ParseCtx::Title(owner), b"overlay") => {
+                        (ParseCtx::Title(owner), "overlay") => {
                             let val = attr_val_str(e) == "1";
                             match owner {
                                 TitleOwner::Chart => cur_title.overlay = val,
@@ -958,137 +956,137 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             }
                         }
                         // Title defRPr (Empty variant).
-                        (ParseCtx::TitlePPr(owner), b"defRPr") => {
+                        (ParseCtx::TitlePPr(owner), "defRPr") => {
                             let title_b = match owner {
                                 TitleOwner::Chart => &mut cur_title,
                                 TitleOwner::CatAxis => &mut cur_cat_axis_title,
                                 TitleOwner::ValAxis => &mut cur_val_axis_title,
                             };
-                            if let Some(sz) = attr_val(e, b"sz") {
+                            if let Some(sz) = attr_val(e, "sz") {
                                 title_b.font_size = sz.parse().ok();
                             }
-                            if let Some(b) = attr_val(e, b"b") {
+                            if let Some(b) = attr_val(e, "b") {
                                 title_b.bold = Some(b == "1" || b == "true");
                             }
                         }
                         // Title rPr (Empty variant).
-                        (ParseCtx::TitleRun(owner), b"rPr") => {
+                        (ParseCtx::TitleRun(owner), "rPr") => {
                             let title_b = match owner {
                                 TitleOwner::Chart => &mut cur_title,
                                 TitleOwner::CatAxis => &mut cur_cat_axis_title,
                                 TitleOwner::ValAxis => &mut cur_val_axis_title,
                             };
-                            if let Some(sz) = attr_val(e, b"sz") {
+                            if let Some(sz) = attr_val(e, "sz") {
                                 title_b.font_size = sz.parse().ok();
                             }
-                            if let Some(b) = attr_val(e, b"b") {
+                            if let Some(b) = attr_val(e, "b") {
                                 title_b.bold = Some(b == "1" || b == "true");
                             }
                         }
                         // Color in title defRPr fill.
-                        (ParseCtx::TitleDefRPrFill(owner), b"srgbClr") => {
+                        (ParseCtx::TitleDefRPrFill(owner), "srgbClr") => {
                             let title_b = match owner {
                                 TitleOwner::Chart => &mut cur_title,
                                 TitleOwner::CatAxis => &mut cur_cat_axis_title,
                                 TitleOwner::ValAxis => &mut cur_val_axis_title,
                             };
-                            title_b.color = attr_val(e, b"val");
+                            title_b.color = attr_val(e, "val");
                         }
                         // Color in title rPr fill.
-                        (ParseCtx::TitleRunPrFill(owner), b"srgbClr") => {
+                        (ParseCtx::TitleRunPrFill(owner), "srgbClr") => {
                             let title_b = match owner {
                                 TitleOwner::Chart => &mut cur_title,
                                 TitleOwner::CatAxis => &mut cur_cat_axis_title,
                                 TitleOwner::ValAxis => &mut cur_val_axis_title,
                             };
-                            title_b.color = attr_val(e, b"val");
+                            title_b.color = attr_val(e, "val");
                         }
                         // Manual layout values.
-                        (ParseCtx::ManualLayoutCtx, b"x") => {
+                        (ParseCtx::ManualLayoutCtx, "x") => {
                             layout_x = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::ManualLayoutCtx, b"y") => {
+                        (ParseCtx::ManualLayoutCtx, "y") => {
                             layout_y = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::ManualLayoutCtx, b"w") => {
+                        (ParseCtx::ManualLayoutCtx, "w") => {
                             layout_w = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::ManualLayoutCtx, b"h") => {
+                        (ParseCtx::ManualLayoutCtx, "h") => {
                             layout_h = attr_val_str(e).parse().ok();
                         }
                         // Trendline attributes.
-                        (ParseCtx::SerTrendline, b"trendlineType") => {
+                        (ParseCtx::SerTrendline, "trendlineType") => {
                             if let Some(ref mut tb) = cur_trendline {
                                 tb.trend_type = TrendlineType::from_xml(&attr_val_str(e));
                             }
                         }
-                        (ParseCtx::SerTrendline, b"order") => {
+                        (ParseCtx::SerTrendline, "order") => {
                             if let Some(ref mut tb) = cur_trendline {
                                 tb.order = attr_val_str(e).parse().ok();
                             }
                         }
-                        (ParseCtx::SerTrendline, b"period") => {
+                        (ParseCtx::SerTrendline, "period") => {
                             if let Some(ref mut tb) = cur_trendline {
                                 tb.period = attr_val_str(e).parse().ok();
                             }
                         }
-                        (ParseCtx::SerTrendline, b"forward") => {
+                        (ParseCtx::SerTrendline, "forward") => {
                             if let Some(ref mut tb) = cur_trendline {
                                 tb.forward = attr_val_str(e).parse().ok();
                             }
                         }
-                        (ParseCtx::SerTrendline, b"backward") => {
+                        (ParseCtx::SerTrendline, "backward") => {
                             if let Some(ref mut tb) = cur_trendline {
                                 tb.backward = attr_val_str(e).parse().ok();
                             }
                         }
-                        (ParseCtx::SerTrendline, b"dispEq") => {
+                        (ParseCtx::SerTrendline, "dispEq") => {
                             if let Some(ref mut tb) = cur_trendline {
                                 tb.display_eq = attr_val_str(e) == "1";
                             }
                         }
-                        (ParseCtx::SerTrendline, b"dispRSqr") => {
+                        (ParseCtx::SerTrendline, "dispRSqr") => {
                             if let Some(ref mut tb) = cur_trendline {
                                 tb.display_r_sqr = attr_val_str(e) == "1";
                             }
                         }
                         // Error bars attributes.
-                        (ParseCtx::SerErrBars, b"errBarType") => {
+                        (ParseCtx::SerErrBars, "errBarType") => {
                             if let Some(ref mut eb) = cur_err_bars {
                                 eb.direction = ErrorBarDirection::from_xml(&attr_val_str(e));
                             }
                         }
-                        (ParseCtx::SerErrBars, b"errValType") => {
+                        (ParseCtx::SerErrBars, "errValType") => {
                             if let Some(ref mut eb) = cur_err_bars {
                                 eb.err_type = ErrorBarType::from_xml(&attr_val_str(e));
                             }
                         }
-                        (ParseCtx::SerErrBars, b"val") => {
+                        (ParseCtx::SerErrBars, "val") => {
                             if let Some(ref mut eb) = cur_err_bars {
                                 eb.value = attr_val_str(e).parse().ok();
                             }
                         }
                         // View3D attributes.
-                        (ParseCtx::View3D, b"rotX") => {
+                        (ParseCtx::View3D, "rotX") => {
                             cur_view_3d.rot_x = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::View3D, b"rotY") => {
+                        (ParseCtx::View3D, "rotY") => {
                             cur_view_3d.rot_y = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::View3D, b"perspective") => {
+                        (ParseCtx::View3D, "perspective") => {
                             cur_view_3d.perspective = attr_val_str(e).parse().ok();
                         }
-                        (ParseCtx::View3D, b"rAngAx") => {
+                        (ParseCtx::View3D, "rAngAx") => {
                             let val = attr_val_str(e);
                             cur_view_3d.r_ang_ax = Some(val == "1" || val == "true");
                         }
                         // Data table (showKeys within dTable).
-                        (ParseCtx::PlotArea | _, b"dTable") => {
+                        (ParseCtx::PlotArea | _, "dTable") => {
                             // Self-closing <c:dTable/> or containing <c:showKeys/>.
                             show_data_table = true;
                         }
                         // Style ID (on chartSpace level).
-                        (_, b"style") => {
+                        (_, "style") => {
                             style_id = attr_val_str(e).parse().ok();
                         }
                         _ => {}
@@ -1100,7 +1098,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                     let ctx = current_ctx(&ctx_stack);
 
                     match (ctx, local) {
-                        (ParseCtx::Series, b"ser") => {
+                        (ParseCtx::Series, "ser") => {
                             if let Some(ser) = cur_ser.take() {
                                 if is_secondary_chart {
                                     secondary_series.push(ser);
@@ -1110,7 +1108,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             }
                             ctx_stack.pop();
                         }
-                        (ParseCtx::DataLabels, b"dLbls") => {
+                        (ParseCtx::DataLabels, "dLbls") => {
                             let dl = Some(cur_dlbls.build_and_reset());
                             if is_secondary_chart {
                                 secondary_data_labels = dl;
@@ -1119,13 +1117,13 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             }
                             ctx_stack.pop();
                         }
-                        (ParseCtx::SerDataLabels, b"dLbls") => {
+                        (ParseCtx::SerDataLabels, "dLbls") => {
                             if let Some(ref mut ser) = cur_ser {
                                 ser.data_labels = Some(cur_ser_dlbls.build_and_reset());
                             }
                             ctx_stack.pop();
                         }
-                        (ParseCtx::SerTrendline, b"trendline") => {
+                        (ParseCtx::SerTrendline, "trendline") => {
                             if let Some(ref mut ser) = cur_ser
                                 && let Some(tb) = cur_trendline.take()
                             {
@@ -1133,7 +1131,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             }
                             ctx_stack.pop();
                         }
-                        (ParseCtx::SerErrBars, b"errBars") => {
+                        (ParseCtx::SerErrBars, "errBars") => {
                             if let Some(ref mut ser) = cur_ser
                                 && let Some(eb) = cur_err_bars.take()
                             {
@@ -1141,25 +1139,25 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             }
                             ctx_stack.pop();
                         }
-                        (ParseCtx::View3D, b"view3D") => {
+                        (ParseCtx::View3D, "view3D") => {
                             view_3d = cur_view_3d.build();
                             ctx_stack.pop();
                         }
-                        (ParseCtx::AxisTxPr(_), b"txPr") => {
+                        (ParseCtx::AxisTxPr(_), "txPr") => {
                             ctx_stack.pop();
                         }
                         (ParseCtx::AxisTxPr(_), _) => {
                             // Pop child contexts within txPr (a:p, a:pPr, etc.)
                             ctx_stack.pop();
                         }
-                        (ParseCtx::CatAxis, b"catAx") => {
+                        (ParseCtx::CatAxis, "catAx") => {
                             let builder = std::mem::take(&mut cur_cat_axis);
                             cat_axis = Some(builder.build_with_title(
                                 cur_cat_axis_title.build_option(),
                             ));
                             ctx_stack.pop();
                         }
-                        (ParseCtx::ValAxis, b"valAx") => {
+                        (ParseCtx::ValAxis, "valAx") => {
                             let builder = std::mem::take(&mut cur_val_axis);
                             let axis = builder.build_with_title(
                                 cur_val_axis_title.build_option(),
@@ -1172,23 +1170,23 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             val_axis_count += 1;
                             ctx_stack.pop();
                         }
-                        (ParseCtx::Legend, b"legend") => {
+                        (ParseCtx::Legend, "legend") => {
                             legend = Some(cur_legend.build());
                             ctx_stack.pop();
                         }
-                        (ParseCtx::Title(TitleOwner::Chart), b"title") => {
+                        (ParseCtx::Title(TitleOwner::Chart), "title") => {
                             title = cur_title.build_option();
                             ctx_stack.pop();
                         }
-                        (ParseCtx::Title(TitleOwner::CatAxis), b"title") => {
+                        (ParseCtx::Title(TitleOwner::CatAxis), "title") => {
                             // Title is stored in axis builder on close.
                             ctx_stack.pop();
                         }
-                        (ParseCtx::Title(TitleOwner::ValAxis), b"title") => {
+                        (ParseCtx::Title(TitleOwner::ValAxis), "title") => {
                             ctx_stack.pop();
                         }
                         // Text capture end.
-                        (_, b"f") if capturing_text && matches!(text_target, TextTarget::SerName | TextTarget::CatRef | TextTarget::ValRef | TextTarget::XValRef | TextTarget::BubbleRef) => {
+                        (_, "f") if capturing_text && matches!(text_target, TextTarget::SerName | TextTarget::CatRef | TextTarget::ValRef | TextTarget::XValRef | TextTarget::BubbleRef) => {
                             if let Some(ref mut ser) = cur_ser {
                                 let val = std::mem::take(&mut text_buf);
                                 match text_target {
@@ -1204,7 +1202,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             text_target = TextTarget::None;
                             ctx_stack.pop();
                         }
-                        (_, b"t") if capturing_text && matches!(text_target, TextTarget::TitleText | TextTarget::CatAxisTitleText | TextTarget::ValAxisTitleText) => {
+                        (_, "t") if capturing_text && matches!(text_target, TextTarget::TitleText | TextTarget::CatAxisTitleText | TextTarget::ValAxisTitleText) => {
                             let val = std::mem::take(&mut text_buf);
                             match text_target {
                                 TextTarget::TitleText => cur_title.text = val,
@@ -1217,7 +1215,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                             ctx_stack.pop();
                         }
                         // Manual layout end.
-                        (ParseCtx::ManualLayoutCtx, b"layout") => {
+                        (ParseCtx::ManualLayoutCtx, "layout") => {
                             if let (Some(x), Some(y), Some(w), Some(h)) =
                                 (layout_x, layout_y, layout_w, layout_h)
                             {
@@ -1233,7 +1231,7 @@ b"barChart" | b"lineChart" | b"pieChart" | b"doughnutChart" | b"scatterChart"
                 }
                 Ok(Event::Text(ref e)) if capturing_text => {
                     text_buf.push_str(
-                        std::str::from_utf8(e.as_ref()).unwrap_or_default(),
+                        e.as_ref(),
                     );
                 }
                 Ok(Event::GeneralRef(ref e)) if capturing_text => {
@@ -1371,21 +1369,21 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                 let local = e.local_name();
                 let local = local.as_ref();
                 match local {
-                    b"twoCellAnchor" => {
+                    "twoCellAnchor" => {
                         reset_anchor_state!();
                         is_one_cell_anchor = false;
                     }
-                    b"oneCellAnchor" => {
+                    "oneCellAnchor" => {
                         reset_anchor_state!();
                         is_one_cell_anchor = true;
                     }
-                    b"from" if in_anchor => {
+                    "from" if in_anchor => {
                         in_from = true;
                     }
-                    b"to" if in_anchor => {
+                    "to" if in_anchor => {
                         in_to = true;
                     }
-                    b"col" if in_anchor && (in_from || in_to) => {
+                    "col" if in_anchor && (in_from || in_to) => {
                         text_buf.clear();
                         text_target = if in_from {
                             DrawingTextTarget::FromCol
@@ -1393,7 +1391,7 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                             DrawingTextTarget::ToCol
                         };
                     }
-                    b"colOff" if in_anchor && (in_from || in_to) => {
+                    "colOff" if in_anchor && (in_from || in_to) => {
                         text_buf.clear();
                         text_target = if in_from {
                             DrawingTextTarget::FromColOff
@@ -1401,7 +1399,7 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                             DrawingTextTarget::ToColOff
                         };
                     }
-                    b"row" if in_anchor && (in_from || in_to) => {
+                    "row" if in_anchor && (in_from || in_to) => {
                         text_buf.clear();
                         text_target = if in_from {
                             DrawingTextTarget::FromRow
@@ -1409,7 +1407,7 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                             DrawingTextTarget::ToRow
                         };
                     }
-                    b"rowOff" if in_anchor && (in_from || in_to) => {
+                    "rowOff" if in_anchor && (in_from || in_to) => {
                         text_buf.clear();
                         text_target = if in_from {
                             DrawingTextTarget::FromRowOff
@@ -1417,7 +1415,7 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                             DrawingTextTarget::ToRowOff
                         };
                     }
-                    b"graphicFrame" if in_anchor => {
+                    "graphicFrame" if in_anchor => {
                         in_graphic_frame = true;
                     }
                     _ => {}
@@ -1427,28 +1425,26 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                 let local = e.local_name();
                 let local = local.as_ref();
                 // <c:chart r:id="rId1"/> — may also appear as just `chart`.
-                if local == b"chart" && in_anchor {
+                if local == "chart" && in_anchor {
                     // Extract r:id attribute.
                     if let Some(attr) = e.attributes().flatten().find(|a| {
                         let key = a.key.as_ref();
-                        key == b"r:id" || key.ends_with(b":id")
+                        key == "r:id" || key.ends_with(":id")
                     }) {
                         chart_r_id = Some(
-                            std::str::from_utf8(&attr.value)
-                                .unwrap_or_default()
-                                .to_owned(),
+                            attr.value.into_owned(),
                         );
                     }
                 }
                 // <xdr:ext cx="..." cy="..."/> — oneCellAnchor dimensions.
                 // Only match the direct-child ext, not <a:ext> inside graphicFrame.
-                if local == b"ext" && in_anchor && is_one_cell_anchor && !in_from && !in_to && !in_graphic_frame {
+                if local == "ext" && in_anchor && is_one_cell_anchor && !in_from && !in_to && !in_graphic_frame {
                     for attr in e.attributes().flatten() {
                         let key = attr.key.as_ref();
-                        let val_str = std::str::from_utf8(&attr.value).unwrap_or_default();
-                        if key == b"cx" {
+                        let val_str = attr.value.as_ref();
+                        if key == "cx" {
                             ext_cx = Some(val_str.parse().unwrap_or(0));
-                        } else if key == b"cy" {
+                        } else if key == "cy" {
                             ext_cy = Some(val_str.parse().unwrap_or(0));
                         }
                     }
@@ -1458,7 +1454,7 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                 let local = e.local_name();
                 let local = local.as_ref();
                 match local {
-                    b"twoCellAnchor" | b"oneCellAnchor" => {
+                    "twoCellAnchor" | "oneCellAnchor" => {
                         if let Some(r_id) = chart_r_id.take() {
                             result.push((
                                 ChartAnchor {
@@ -1481,16 +1477,16 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
                         in_from = false;
                         in_to = false;
                     }
-                    b"from" => {
+                    "from" => {
                         in_from = false;
                     }
-                    b"to" => {
+                    "to" => {
                         in_to = false;
                     }
-                    b"graphicFrame" => {
+                    "graphicFrame" => {
                         in_graphic_frame = false;
                     }
-                    b"col" | b"colOff" | b"row" | b"rowOff" => {
+                    "col" | "colOff" | "row" | "rowOff" => {
                         let val_str = std::mem::take(&mut text_buf);
                         match text_target {
                             DrawingTextTarget::FromCol => from_col = val_str.parse().unwrap_or(0),
@@ -1510,7 +1506,7 @@ pub fn parse_drawing_anchors(data: &[u8]) -> Result<Vec<(ChartAnchor, String)>> 
             }
             Ok(Event::Text(ref e)) if text_target != DrawingTextTarget::None => {
                 text_buf.push_str(
-                    std::str::from_utf8(e.as_ref()).unwrap_or_default(),
+                    e.as_ref(),
                 );
             }
             Ok(Event::Eof) => break,

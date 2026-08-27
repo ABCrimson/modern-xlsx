@@ -430,7 +430,7 @@ class Parser {
     const args: ASTNode[] = [];
     const closeParen = this.peek();
 
-    if (!closeParen || closeParen.type !== 'paren_close') {
+    if (closeParen?.type !== 'paren_close') {
       // Parse first argument
       args.push(this.parseComparison());
 

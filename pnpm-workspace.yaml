@@ -11,5 +11,6 @@ allowBuilds:
 # (mitigates compromised just-published versions). Exclusions below are deliberate bleeding-edge pins.
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
-  - playwright-core@1.62.0-alpha-2026-06-27
-  - playwright@1.62.0-alpha-2026-06-27
+  - playwright-core@1.63.0-alpha-2026-08-27
+  - playwright@1.63.0-alpha-2026-08-27
+  - "@types/node@26.4.0"

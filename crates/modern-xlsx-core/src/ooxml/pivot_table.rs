@@ -296,15 +296,15 @@ impl PivotCacheDefinitionData {
                 }
                 Ok(Event::End(ref e)) => {
                     match e.local_name().as_ref() {
-                        b"cacheSource" => in_cache_source = false,
-                        b"cacheFields" => in_cache_fields = false,
-                        b"cacheField" => {
+                        "cacheSource" => in_cache_source = false,
+                        "cacheFields" => in_cache_fields = false,
+                        "cacheField" => {
                             if let Some(field) = current_cache_field.take() {
                                 fields.push(field);
                             }
                             in_shared_items = false;
                         }
-                        b"sharedItems" => in_shared_items = false,
+                        "sharedItems" => in_shared_items = false,
                         _ => {}
                     }
                 }
@@ -433,39 +433,37 @@ impl PivotCacheDefinitionData {
     ) {
         let local = e.local_name();
         match local.as_ref() {
-            b"pivotCacheDefinition" => {
+            "pivotCacheDefinition" => {
                 if let Some(attr) = e
                     .attributes()
                     .flatten()
-                    .find(|a| a.key.local_name().as_ref() == b"recordCount")
+                    .find(|a| a.key.local_name().as_ref() == "recordCount")
                 {
-                    *record_count = std::str::from_utf8(&attr.value)
-                        .ok()
-                        .and_then(|s| s.parse().ok());
+                    *record_count = attr.value.parse().ok();
                 }
             }
-            b"cacheSource" if is_start => {
+            "cacheSource" if is_start => {
                 *in_cache_source = true;
             }
-            b"worksheetSource" if *in_cache_source => {
+            "worksheetSource" if *in_cache_source => {
                 for attr in e.attributes().flatten() {
                     match attr.key.local_name().as_ref() {
-                        b"ref" => {
+                        "ref" => {
                             source.ref_range =
-                                String::from_utf8_lossy(&attr.value).into_owned();
+                                attr.value.into_owned();
                         }
-                        b"sheet" => {
+                        "sheet" => {
                             source.sheet =
-                                String::from_utf8_lossy(&attr.value).into_owned();
+                                attr.value.into_owned();
                         }
                         _ => {}
                     }
                 }
             }
-            b"cacheFields" if is_start => {
+            "cacheFields" if is_start => {
                 *in_cache_fields = true;
             }
-            b"cacheField" if *in_cache_fields => {
+            "cacheField" if *in_cache_fields => {
                 let mut field = CacheFieldData {
                     name: String::new(),
                     shared_items: Vec::new(),
@@ -473,10 +471,10 @@ impl PivotCacheDefinitionData {
                 if let Some(attr) = e
                     .attributes()
                     .flatten()
-                    .find(|a| a.key.local_name().as_ref() == b"name")
+                    .find(|a| a.key.local_name().as_ref() == "name")
                 {
                     field.name =
-                        String::from_utf8_lossy(&attr.value).into_owned();
+                        attr.value.into_owned();
                 }
                 if is_start {
                     *current_cache_field = Some(field);
@@ -485,10 +483,10 @@ impl PivotCacheDefinitionData {
                     fields.push(field);
                 }
             }
-            b"sharedItems" if current_cache_field.is_some() && is_start => {
+            "sharedItems" if current_cache_field.is_some() && is_start => {
                 *in_shared_items = true;
             }
-            b"s" | b"n" | b"b" | b"d" | b"m" | b"e"
+            "s" | "n" | "b" | "d" | "m" | "e"
                 if *in_shared_items && current_cache_field.is_some() =>
             {
                 if let Some(ref mut field) = *current_cache_field {
@@ -520,7 +518,7 @@ impl PivotCacheRecordsData {
         loop {
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) => {
-                    if e.local_name().as_ref() == b"r" {
+                    if e.local_name().as_ref() == "r" {
                         in_record = true;
                         current_record.clear();
                     }
@@ -528,7 +526,7 @@ impl PivotCacheRecordsData {
                 Ok(Event::Empty(ref e)) if in_record => {
                     let local = e.local_name();
                     match local.as_ref() {
-                        b"x" | b"n" | b"s" | b"b" | b"d" | b"m" | b"e" => {
+                        "x" | "n" | "s" | "b" | "d" | "m" | "e" => {
                             current_record
                                 .push(parse_cache_value(local.as_ref(), e));
                         }
@@ -536,7 +534,7 @@ impl PivotCacheRecordsData {
                     }
                 }
                 Ok(Event::End(ref e)) => {
-                    if e.local_name().as_ref() == b"r" {
+                    if e.local_name().as_ref() == "r" {
                         records.push(std::mem::take(&mut current_record));
                         in_record = false;
                     }
@@ -611,7 +609,7 @@ impl PivotCacheRecordsData {
 /// Parse a single cache value element (`<s>`, `<n>`, `<b>`, `<d>`, `<m>`, `<e>`, `<x>`).
 #[inline]
 fn parse_cache_value(
-    tag: &[u8],
+    tag: &str,
     e: &quick_xml::events::BytesStart<'_>,
 ) -> CacheValue {
     /// Extract the `v` attribute as a UTF-8 string.
@@ -619,29 +617,29 @@ fn parse_cache_value(
     fn v_str(e: &quick_xml::events::BytesStart<'_>) -> String {
         e.attributes()
             .flatten()
-            .find(|a| a.key.local_name().as_ref() == b"v")
-            .map(|a| String::from_utf8_lossy(&a.value).into_owned())
+            .find(|a| a.key.local_name().as_ref() == "v")
+            .map(|a| a.value.into_owned())
             .unwrap_or_default()
     }
 
     match tag {
-        b"s" => CacheValue::String { v: v_str(e) },
-        b"n" => {
+        "s" => CacheValue::String { v: v_str(e) },
+        "n" => {
             let s = v_str(e);
             CacheValue::Number {
                 v: s.parse::<f64>().unwrap_or(0.0),
             }
         }
-        b"b" => {
+        "b" => {
             let s = v_str(e);
             CacheValue::Boolean {
                 v: s == "1" || s.eq_ignore_ascii_case("true"),
             }
         }
-        b"d" => CacheValue::DateTime { v: v_str(e) },
-        b"m" => CacheValue::Missing,
-        b"e" => CacheValue::Error { v: v_str(e) },
-        b"x" => {
+        "d" => CacheValue::DateTime { v: v_str(e) },
+        "m" => CacheValue::Missing,
+        "e" => CacheValue::Error { v: v_str(e) },
+        "x" => {
             let s = v_str(e);
             CacheValue::Index {
                 v: s.parse::<u32>().unwrap_or(0),
@@ -785,28 +783,28 @@ impl PivotTableData {
                 Ok(Event::End(ref e)) => {
                     let local = e.local_name();
                     match local.as_ref() {
-                        b"pivotFields" => {
+                        "pivotFields" => {
                             in_pivot_fields = false;
                         }
-                        b"pivotField" => {
+                        "pivotField" => {
                             if let Some(field) = current_field.take() {
                                 pivot_fields.push(field);
                             }
                             in_items = false;
                         }
-                        b"items" => {
+                        "items" => {
                             in_items = false;
                         }
-                        b"rowFields" => {
+                        "rowFields" => {
                             in_row_fields = false;
                         }
-                        b"colFields" => {
+                        "colFields" => {
                             in_col_fields = false;
                         }
-                        b"dataFields" => {
+                        "dataFields" => {
                             in_data_fields = false;
                         }
-                        b"pageFields" => {
+                        "pageFields" => {
                             in_page_fields = false;
                         }
                         _ => {}
@@ -1054,61 +1052,53 @@ impl PivotTableData {
     ) {
         let local = e.local_name();
         match local.as_ref() {
-            b"pivotTableDefinition" => {
+            "pivotTableDefinition" => {
                 for attr in e.attributes().flatten() {
                     match attr.key.local_name().as_ref() {
-                        b"name" => {
+                        "name" => {
                             *name =
-                                String::from_utf8_lossy(&attr.value).into_owned();
+                                attr.value.into_owned();
                         }
-                        b"dataCaption" => {
+                        "dataCaption" => {
                             *data_caption = Some(
-                                String::from_utf8_lossy(&attr.value).into_owned(),
+                                attr.value.into_owned(),
                             );
                         }
-                        b"cacheId" => {
-                            *cache_id = std::str::from_utf8(&attr.value)
-                                .ok()
-                                .and_then(|s| s.parse().ok())
+                        "cacheId" => {
+                            *cache_id = attr.value.parse().ok()
                                 .unwrap_or(0);
                         }
                         _ => {}
                     }
                 }
             }
-            b"location" => {
+            "location" => {
                 for attr in e.attributes().flatten() {
                     match attr.key.local_name().as_ref() {
-                        b"ref" => {
+                        "ref" => {
                             location.ref_range =
-                                String::from_utf8_lossy(&attr.value).into_owned();
+                                attr.value.into_owned();
                         }
-                        b"firstHeaderRow" => {
+                        "firstHeaderRow" => {
                             location.first_header_row =
-                                std::str::from_utf8(&attr.value)
-                                    .ok()
-                                    .and_then(|s| s.parse().ok());
+                                attr.value.parse().ok();
                         }
-                        b"firstDataRow" => {
+                        "firstDataRow" => {
                             location.first_data_row =
-                                std::str::from_utf8(&attr.value)
-                                    .ok()
-                                    .and_then(|s| s.parse().ok());
+                                attr.value.parse().ok();
                         }
-                        b"firstDataCol" => {
+                        "firstDataCol" => {
                             location.first_data_col =
-                                std::str::from_utf8(&attr.value)
-                                    .ok()
-                                    .and_then(|s| s.parse().ok());
+                                attr.value.parse().ok();
                         }
                         _ => {}
                     }
                 }
             }
-            b"pivotFields" if !*in_pivot_fields && is_start => {
+            "pivotFields" if !*in_pivot_fields && is_start => {
                 *in_pivot_fields = true;
             }
-            b"pivotField" if *in_pivot_fields => {
+            "pivotField" if *in_pivot_fields => {
                 // OOXML defaults: compact=true, outline=true.
                 let mut field = PivotFieldData {
                     axis: None,
@@ -1120,23 +1110,21 @@ impl PivotTableData {
                 };
                 for attr in e.attributes().flatten() {
                     match attr.key.local_name().as_ref() {
-                        b"axis" => {
-                            field.axis = std::str::from_utf8(&attr.value)
-                                .ok()
-                                .and_then(PivotAxis::from_xml);
+                        "axis" => {
+                            field.axis = PivotAxis::from_xml(&attr.value);
                         }
-                        b"name" => {
+                        "name" => {
                             field.name = Some(
-                                String::from_utf8_lossy(&attr.value).into_owned(),
+                                attr.value.into_owned(),
                             );
                         }
-                        b"compact" => {
-                            field.compact = attr.value.as_ref() != b"0";
+                        "compact" => {
+                            field.compact = attr.value.as_ref() != "0";
                         }
-                        b"outline" => {
-                            field.outline = attr.value.as_ref() != b"0";
+                        "outline" => {
+                            field.outline = attr.value.as_ref() != "0";
                         }
-                        b"dataField" => {
+                        "dataField" => {
                             // Presence noted but not stored directly;
                             // the dataFields section captures this.
                         }
@@ -1150,24 +1138,21 @@ impl PivotTableData {
                     pivot_fields.push(field);
                 }
             }
-            b"items" if current_field.is_some() && is_start => {
+            "items" if current_field.is_some() && is_start => {
                 *in_items = true;
             }
-            b"item" if *in_items => {
+            "item" if *in_items => {
                 if let Some(ref mut field) = *current_field {
                     let mut item = PivotItem { t: None, x: None };
                     for attr in e.attributes().flatten() {
                         match attr.key.local_name().as_ref() {
-                            b"t" => {
+                            "t" => {
                                 item.t = Some(
-                                    String::from_utf8_lossy(&attr.value)
-                                        .into_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
-                            b"x" => {
-                                item.x = std::str::from_utf8(&attr.value)
-                                    .ok()
-                                    .and_then(|s| s.parse().ok());
+                            "x" => {
+                                item.x = attr.value.parse().ok();
                             }
                             _ => {}
                         }
@@ -1175,18 +1160,18 @@ impl PivotTableData {
                     field.items.push(item);
                 }
             }
-            b"rowFields" if is_start => {
+            "rowFields" if is_start => {
                 *in_row_fields = true;
             }
-            b"colFields" if is_start => {
+            "colFields" if is_start => {
                 *in_col_fields = true;
             }
-            b"field" if *in_row_fields || *in_col_fields => {
+            "field" if *in_row_fields || *in_col_fields => {
                 let x: i32 = e
                     .attributes()
                     .flatten()
-                    .find(|a| a.key.local_name().as_ref() == b"x")
-                    .and_then(|a| std::str::from_utf8(&a.value).ok()?.parse().ok())
+                    .find(|a| a.key.local_name().as_ref() == "x")
+                    .and_then(|a| a.value.parse().ok())
                     .unwrap_or(0);
                 let field_ref = PivotFieldRef { x };
                 if *in_row_fields {
@@ -1195,10 +1180,10 @@ impl PivotTableData {
                     col_fields.push(field_ref);
                 }
             }
-            b"dataFields" if is_start => {
+            "dataFields" if is_start => {
                 *in_data_fields = true;
             }
-            b"dataField" if *in_data_fields => {
+            "dataField" if *in_data_fields => {
                 let mut df = PivotDataFieldData {
                     name: None,
                     fld: 0,
@@ -1207,37 +1192,31 @@ impl PivotTableData {
                 };
                 for attr in e.attributes().flatten() {
                     match attr.key.local_name().as_ref() {
-                        b"name" => {
+                        "name" => {
                             df.name = Some(
-                                String::from_utf8_lossy(&attr.value).into_owned(),
+                                attr.value.into_owned(),
                             );
                         }
-                        b"fld" => {
-                            df.fld = std::str::from_utf8(&attr.value)
-                                .ok()
-                                .and_then(|s| s.parse().ok())
+                        "fld" => {
+                            df.fld = attr.value.parse().ok()
                                 .unwrap_or(0);
                         }
-                        b"subtotal" => {
-                            df.subtotal = std::str::from_utf8(&attr.value)
-                                .ok()
-                                .and_then(SubtotalFunction::from_xml)
+                        "subtotal" => {
+                            df.subtotal = SubtotalFunction::from_xml(&attr.value)
                                 .unwrap_or_default();
                         }
-                        b"numFmtId" => {
-                            df.num_fmt_id = std::str::from_utf8(&attr.value)
-                                .ok()
-                                .and_then(|s| s.parse().ok());
+                        "numFmtId" => {
+                            df.num_fmt_id = attr.value.parse().ok();
                         }
                         _ => {}
                     }
                 }
                 data_fields.push(df);
             }
-            b"pageFields" if is_start => {
+            "pageFields" if is_start => {
                 *in_page_fields = true;
             }
-            b"pageField" if *in_page_fields => {
+            "pageField" if *in_page_fields => {
                 let mut pf = PivotPageFieldData {
                     fld: 0,
                     item: None,
@@ -1245,20 +1224,16 @@ impl PivotTableData {
                 };
                 for attr in e.attributes().flatten() {
                     match attr.key.local_name().as_ref() {
-                        b"fld" => {
-                            pf.fld = std::str::from_utf8(&attr.value)
-                                .ok()
-                                .and_then(|s| s.parse().ok())
+                        "fld" => {
+                            pf.fld = attr.value.parse().ok()
                                 .unwrap_or(0);
                         }
-                        b"item" => {
-                            pf.item = std::str::from_utf8(&attr.value)
-                                .ok()
-                                .and_then(|s| s.parse().ok());
+                        "item" => {
+                            pf.item = attr.value.parse().ok();
                         }
-                        b"name" => {
+                        "name" => {
                             pf.name = Some(
-                                String::from_utf8_lossy(&attr.value).into_owned(),
+                                attr.value.into_owned(),
                             );
                         }
                         _ => {}

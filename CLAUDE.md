@@ -54,9 +54,9 @@ pnpm -C packages/modern-xlsx typecheck
 
 ## Toolchain Versions
 
-- Rust 1.96 MSRV / beta 1.97 (CI + `rust-toolchain.toml` track `dtolnay/rust-toolchain@beta`), Edition 2024, wasm-bindgen 0.2.126, quick-xml 0.40.1, zip 8.6 (`deflate`), ryu 1.0, itoa 1.0
+- Rust 1.96 MSRV / beta 1.99 (CI + `rust-toolchain.toml` track `dtolnay/rust-toolchain@beta`), Edition 2024, wasm-bindgen 0.2.127, quick-xml 0.42.0 (str-based event/attribute API), zip 8.6 (`deflate`), ryu 1.0, itoa 1.0
 - RustCrypto (cipher 0.5 generation): digest 0.11, sha2 0.11, sha1 0.11, hmac 0.13, aes 0.9, cbc 0.2, constant_time_eq 0.5, getrandom 0.4, zeroize 1.9
-- TypeScript 7.0.1-rc, Vitest 5.0.0-beta.5, tsdown 0.22.3 (rolldown 1.1.3), Biome 2.5.1, pnpm 11.9.0, Playwright 1.62.0-alpha, @types/node 26, vite 8.1
+- TypeScript 7.0.2, Vitest 5.0.0-rc.2, tsdown 0.23.0-rc.0 (rolldown 1.2.6), Biome 2.5.10, pnpm 12.0.0, Playwright 1.63.0-alpha, @types/node 26.4, vite 8.1
 - wasm-pack 0.15.0; CI runs Node 24 + 26
 
 ## Code Conventions

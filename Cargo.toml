@@ -15,7 +15,7 @@ repository = "https://github.com/ABCrimson/modern-xlsx"
 
 [workspace.dependencies]
 # XML parsing — SAX-style, zero-copy, serde support
-quick-xml = { version = "0.40.1", features = ["serialize"] }
+quick-xml = { version = "0.42.0", features = ["serialize"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -42,7 +42,7 @@ itoa = "1.0"
 ryu = "1.0"
 
 # WASM bindings
-wasm-bindgen = "0.2.126"
+wasm-bindgen = "0.2.127"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "console", "Performance"] }
 # Readable Rust panic messages in the browser console (debug builds only)
@@ -87,6 +87,9 @@ assigning_clones = "allow"
 unreadable_literal = "allow"
 case_sensitive_file_extension_comparisons = "allow"
 match_wildcard_for_single_variants = "allow"
+# New in clippy 1.99: `assert!(x.is_empty())` in tests is idiomatic; the suggested
+# `assert_eq!(x, [] as [T; 0])` rewrite is noisier than the failure it improves.
+assert_is_empty = "allow"
 needless_continue = "allow"
 unnecessary_wraps = "allow"
 trivially_copy_pass_by_ref = "allow"

@@ -148,23 +148,23 @@ impl WorkbookXml {
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Empty(ref e)) => {
                     match e.local_name().as_ref() {
-                        b"workbookPr" => {
+                        "workbookPr" => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"date1904")
+                                .find(|a| a.key.local_name().as_ref() == "date1904")
                             {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                let val = attr.value.as_ref();
                                 if val == "1" || val.eq_ignore_ascii_case("true") {
                                     date_system = DateSystem::Date1904;
                                 }
                             }
                         }
-                        b"sheet" => {
+                        "sheet" => {
                             sheets.push(parse_sheet_element(e)?);
                         }
-                        b"workbookView" => {
+                        "workbookView" => {
                             workbook_views.push(parse_workbook_view_element(e));
                         }
-                        b"workbookProtection" => {
+                        "workbookProtection" => {
                             protection = Some(parse_workbook_protection_element(e));
                         }
                         _ => {}
@@ -172,38 +172,38 @@ impl WorkbookXml {
                 }
                 Ok(Event::Start(ref e)) => {
                     match e.local_name().as_ref() {
-                        b"workbookPr" => {
+                        "workbookPr" => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"date1904")
+                                .find(|a| a.key.local_name().as_ref() == "date1904")
                             {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                let val = attr.value.as_ref();
                                 if val == "1" || val.eq_ignore_ascii_case("true") {
                                     date_system = DateSystem::Date1904;
                                 }
                             }
                         }
-                        b"sheet" => {
+                        "sheet" => {
                             sheets.push(parse_sheet_element(e)?);
                         }
-                        b"workbookView" => {
+                        "workbookView" => {
                             workbook_views.push(parse_workbook_view_element(e));
                         }
-                        b"workbookProtection" => {
+                        "workbookProtection" => {
                             protection = Some(parse_workbook_protection_element(e));
                         }
-                        b"definedName" => {
+                        "definedName" => {
                             in_defined_name = true;
                             current_dn_name.clear();
                             current_dn_sheet_id = None;
                             current_dn_value.clear();
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"name" => {
+                                    "name" => {
                                         current_dn_name =
-                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                            attr.value.into_owned();
                                     }
-                                    b"localSheetId" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    "localSheetId" => {
+                                        let val = attr.value.as_ref();
                                         current_dn_sheet_id = val.parse::<u32>().ok();
                                     }
                                     _ => {}
@@ -215,10 +215,10 @@ impl WorkbookXml {
                 }
                 Ok(Event::Text(ref e)) if in_defined_name => {
                     current_dn_value
-                        .push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                        .push_str(e.as_ref());
                 }
                 Ok(Event::End(ref e))
-                    if e.local_name().as_ref() == b"definedName" && in_defined_name =>
+                    if e.local_name().as_ref() == "definedName" && in_defined_name =>
                 {
                     defined_names.push(DefinedName {
                         name: std::mem::take(&mut current_dn_name),
@@ -428,21 +428,21 @@ impl WorkbookXml {
 fn parse_workbook_protection_element(e: &BytesStart<'_>) -> WorkbookProtection {
     let mut prot = WorkbookProtection::default();
     for attr in e.attributes().flatten() {
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         match attr.key.local_name().as_ref() {
-            b"lockStructure" => prot.lock_structure = val == "1",
-            b"lockWindows" => prot.lock_windows = val == "1",
-            b"lockRevision" => prot.lock_revision = val == "1",
-            b"workbookAlgorithmName" => prot.workbook_algorithm_name = Some(val.to_owned()),
-            b"workbookHashValue" => prot.workbook_hash_value = Some(val.to_owned()),
-            b"workbookSaltValue" => prot.workbook_salt_value = Some(val.to_owned()),
-            b"workbookSpinCount" => prot.workbook_spin_count = val.parse().ok(),
-            b"revisionsAlgorithmName" => prot.revisions_algorithm_name = Some(val.to_owned()),
-            b"revisionsHashValue" => prot.revisions_hash_value = Some(val.to_owned()),
-            b"revisionsSaltValue" => prot.revisions_salt_value = Some(val.to_owned()),
-            b"revisionsSpinCount" => prot.revisions_spin_count = val.parse().ok(),
-            b"workbookPassword" => prot.workbook_password = Some(val.to_owned()),
-            b"revisionsPassword" => prot.revisions_password = Some(val.to_owned()),
+            "lockStructure" => prot.lock_structure = val == "1",
+            "lockWindows" => prot.lock_windows = val == "1",
+            "lockRevision" => prot.lock_revision = val == "1",
+            "workbookAlgorithmName" => prot.workbook_algorithm_name = Some(val.to_owned()),
+            "workbookHashValue" => prot.workbook_hash_value = Some(val.to_owned()),
+            "workbookSaltValue" => prot.workbook_salt_value = Some(val.to_owned()),
+            "workbookSpinCount" => prot.workbook_spin_count = val.parse().ok(),
+            "revisionsAlgorithmName" => prot.revisions_algorithm_name = Some(val.to_owned()),
+            "revisionsHashValue" => prot.revisions_hash_value = Some(val.to_owned()),
+            "revisionsSaltValue" => prot.revisions_salt_value = Some(val.to_owned()),
+            "revisionsSpinCount" => prot.revisions_spin_count = val.parse().ok(),
+            "workbookPassword" => prot.workbook_password = Some(val.to_owned()),
+            "revisionsPassword" => prot.revisions_password = Some(val.to_owned()),
             _ => {}
         }
     }
@@ -455,30 +455,30 @@ fn parse_workbook_view_element(e: &BytesStart<'_>) -> WorkbookView {
 
     for attr in e.attributes().flatten() {
         let local = attr.key.local_name();
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         match local.as_ref() {
-            b"activeTab" => {
+            "activeTab" => {
                 view.active_tab = val.parse::<u32>().unwrap_or(0);
             }
-            b"firstSheet" => {
+            "firstSheet" => {
                 view.first_sheet = val.parse::<u32>().unwrap_or(0);
             }
-            b"showHorizontalScroll" => {
+            "showHorizontalScroll" => {
                 view.show_horizontal_scroll = val != "0" && !val.eq_ignore_ascii_case("false");
             }
-            b"showVerticalScroll" => {
+            "showVerticalScroll" => {
                 view.show_vertical_scroll = val != "0" && !val.eq_ignore_ascii_case("false");
             }
-            b"showSheetTabs" => {
+            "showSheetTabs" => {
                 view.show_sheet_tabs = val != "0" && !val.eq_ignore_ascii_case("false");
             }
-            b"windowWidth" => {
+            "windowWidth" => {
                 view.window_width = val.parse::<u32>().ok();
             }
-            b"windowHeight" => {
+            "windowHeight" => {
                 view.window_height = val.parse::<u32>().ok();
             }
-            b"tabRatio" => {
+            "tabRatio" => {
                 view.tab_ratio = val.parse::<u32>().ok();
             }
             _ => {}
@@ -500,15 +500,15 @@ fn parse_sheet_element(e: &BytesStart<'_>) -> Result<SheetInfo> {
         let local_name = attr.key.local_name();
         let local = local_name.as_ref();
         match local {
-            b"name" => {
-                name = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+            "name" => {
+                name = attr.value.into_owned();
             }
-            b"sheetId" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "sheetId" => {
+                let val = attr.value.as_ref();
                 sheet_id = val.parse::<u32>().unwrap_or(0);
             }
-            b"state" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "state" => {
+                let val = attr.value.as_ref();
                 state = match val {
                     "hidden" => SheetState::Hidden,
                     "veryHidden" => SheetState::VeryHidden,
@@ -518,8 +518,8 @@ fn parse_sheet_element(e: &BytesStart<'_>) -> Result<SheetInfo> {
             _ => {
                 // Check for r:id — the full key might be "r:id" or just "id"
                 // depending on namespace handling.
-                if key == b"r:id" || local == b"id" {
-                    r_id = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                if key == "r:id" || local == "id" {
+                    r_id = attr.value.into_owned();
                 }
             }
         }

@@ -109,14 +109,14 @@ impl EncryptionInfo {
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
                     let local = e.local_name();
-                    let tag = std::str::from_utf8(local.as_ref()).unwrap_or_default();
+                    let tag = local.as_ref();
                     match tag {
                         "keyData" => {
                             for attr in e.attributes().flatten() {
                                 let key =
-                                    std::str::from_utf8(attr.key.as_ref()).unwrap_or_default();
+                                    attr.key.as_ref();
                                 let val =
-                                    std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    attr.value.as_ref();
                                 match key {
                                     "saltValue" => key_salt = decode_base64(val)?,
                                     "blockSize" => key_block_size = val.parse().unwrap_or(0),
@@ -132,9 +132,9 @@ impl EncryptionInfo {
                         "dataIntegrity" => {
                             for attr in e.attributes().flatten() {
                                 let key =
-                                    std::str::from_utf8(attr.key.as_ref()).unwrap_or_default();
+                                    attr.key.as_ref();
                                 let val =
-                                    std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    attr.value.as_ref();
                                 match key {
                                     "encryptedHmacKey" => {
                                         encrypted_hmac_key = decode_base64(val)?;
@@ -149,9 +149,9 @@ impl EncryptionInfo {
                         "encryptedKey" => {
                             for attr in e.attributes().flatten() {
                                 let key =
-                                    std::str::from_utf8(attr.key.as_ref()).unwrap_or_default();
+                                    attr.key.as_ref();
                                 let val =
-                                    std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    attr.value.as_ref();
                                 match key {
                                     "spinCount" => {
                                         pw_spin_count = val.parse().unwrap_or(0);
@@ -266,8 +266,10 @@ impl EncryptionInfo {
         // CSP name: UTF-16LE from offset 32 to end of header
         let csp_bytes = &header[32..];
         let provider: String = csp_bytes
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
             .take_while(|&c| c != 0)
             .map(|c| char::from_u32(u32::from(c)).unwrap_or('\u{FFFD}'))
             .collect();

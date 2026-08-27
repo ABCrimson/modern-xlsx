@@ -65,28 +65,25 @@ pub fn parse_comments(data: &[u8]) -> Result<Vec<Comment>> {
             Ok(Event::Start(ref e)) => {
                 let local = e.local_name();
                 match local.as_ref() {
-                    b"authors" => {
+                    "authors" => {
                         in_authors = true;
                     }
-                    b"author" if in_authors => {
+                    "author" if in_authors => {
                         in_author = true;
                         current_author_text.clear();
                     }
-                    b"comment" => {
+                    "comment" => {
                         in_comment = true;
                         current_ref.clear();
                         current_author_id = 0;
                         current_comment_text.clear();
                         for attr in e.attributes().flatten() {
                             match attr.key.local_name().as_ref() {
-                                b"ref" => {
-                                    current_ref = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
+                                "ref" => {
+                                    current_ref = attr.value.into_owned();
                                 }
-                                b"authorId" => {
-                                    current_author_id = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
+                                "authorId" => {
+                                    current_author_id = attr.value.as_ref()
                                         .parse::<usize>()
                                         .unwrap_or(0);
                                 }
@@ -94,10 +91,10 @@ pub fn parse_comments(data: &[u8]) -> Result<Vec<Comment>> {
                             }
                         }
                     }
-                    b"text" if in_comment => {
+                    "text" if in_comment => {
                         in_text = true;
                     }
-                    b"t" if in_text => {
+                    "t" if in_text => {
                         in_t = true;
                     }
                     _ => {}
@@ -105,10 +102,10 @@ pub fn parse_comments(data: &[u8]) -> Result<Vec<Comment>> {
             }
             Ok(Event::Text(ref e)) => {
                 if in_author {
-                    let text = std::str::from_utf8(e.as_ref()).unwrap_or_default();
+                    let text = e.as_ref();
                     current_author_text.push_str(text);
                 } else if in_t {
-                    let text = std::str::from_utf8(e.as_ref()).unwrap_or_default();
+                    let text = e.as_ref();
                     current_comment_text.push_str(text);
                 }
             }
@@ -122,14 +119,14 @@ pub fn parse_comments(data: &[u8]) -> Result<Vec<Comment>> {
             Ok(Event::End(ref e)) => {
                 let local = e.local_name();
                 match local.as_ref() {
-                    b"authors" => {
+                    "authors" => {
                         in_authors = false;
                     }
-                    b"author" => {
+                    "author" => {
                         authors.push(std::mem::take(&mut current_author_text));
                         in_author = false;
                     }
-                    b"comment" => {
+                    "comment" => {
                         let author = authors
                             .get(current_author_id)
                             .cloned()
@@ -141,10 +138,10 @@ pub fn parse_comments(data: &[u8]) -> Result<Vec<Comment>> {
                         });
                         in_comment = false;
                     }
-                    b"text" => {
+                    "text" => {
                         in_text = false;
                     }
-                    b"t" => {
+                    "t" => {
                         in_t = false;
                     }
                     _ => {}

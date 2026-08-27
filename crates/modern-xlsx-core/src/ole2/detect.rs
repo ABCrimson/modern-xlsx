@@ -106,8 +106,10 @@ fn read_fat(data: &[u8], header: &Ole2Header) -> Vec<u32> {
         if offset < end {
             fat.extend(
                 data[offset..end]
-                    .chunks_exact(4)
-                    .map(|c| u32::from_le_bytes(c.try_into().unwrap_or_default())),
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| u32::from_le_bytes(*c)),
             );
         }
     }
@@ -160,7 +162,7 @@ fn read_directory(data: &[u8], header: &Ole2Header, fat: &[u32]) -> Vec<DirEntry
     let dir_bytes = read_sectors(data, header, &chain, chain.len() * header.sector_size);
 
     let mut entries = Vec::with_capacity(dir_bytes.len() / 128);
-    for chunk in dir_bytes.chunks_exact(128) {
+    for chunk in dir_bytes.as_chunks::<128>().0 {
         let entry_type = chunk[66];
         if entry_type == 0 {
             continue;

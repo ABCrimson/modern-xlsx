@@ -246,7 +246,7 @@ impl TableDefinition {
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) => {
                     match e.local_name().as_ref() {
-                        b"table" => {
+                        "table" => {
                             Self::parse_table_attrs(
                                 e,
                                 &mut id,
@@ -258,29 +258,27 @@ impl TableDefinition {
                                 &mut totals_row_shown,
                             );
                         }
-                        b"autoFilter" => {
+                        "autoFilter" => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.as_ref() == b"ref")
+                                .find(|a| a.key.as_ref() == "ref")
                             {
                                 auto_filter_ref = Some(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
                         }
-                        b"tableColumn" => {
+                        "tableColumn" => {
                             current_col = Some(Self::parse_column_attrs(e));
                         }
-                        b"calculatedColumnFormula" => {
+                        "calculatedColumnFormula" => {
                             in_calc_formula = true;
                             formula_buf.clear();
                         }
-                        b"totalsRowFormula" => {
+                        "totalsRowFormula" => {
                             in_totals_formula = true;
                             totals_formula_buf.clear();
                         }
-                        b"tableStyleInfo" => {
+                        "tableStyleInfo" => {
                             style_info = Some(Self::parse_style_info(e));
                         }
                         _ => {}
@@ -288,7 +286,7 @@ impl TableDefinition {
                 }
                 Ok(Event::Empty(ref e)) => {
                     match e.local_name().as_ref() {
-                        b"table" => {
+                        "table" => {
                             Self::parse_table_attrs(
                                 e,
                                 &mut id,
@@ -300,21 +298,19 @@ impl TableDefinition {
                                 &mut totals_row_shown,
                             );
                         }
-                        b"autoFilter" => {
+                        "autoFilter" => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.as_ref() == b"ref")
+                                .find(|a| a.key.as_ref() == "ref")
                             {
                                 auto_filter_ref = Some(
-                                    std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
                         }
-                        b"tableColumn" => {
+                        "tableColumn" => {
                             columns.push(Self::parse_column_attrs(e));
                         }
-                        b"tableStyleInfo" => {
+                        "tableStyleInfo" => {
                             style_info = Some(Self::parse_style_info(e));
                         }
                         _ => {}
@@ -322,7 +318,7 @@ impl TableDefinition {
                 }
                 Ok(Event::End(ref e)) => {
                     match e.local_name().as_ref() {
-                        b"tableColumn" => {
+                        "tableColumn" => {
                             if let Some(mut col) = current_col.take() {
                                 if !formula_buf.is_empty() {
                                     col.calculated_column_formula =
@@ -331,10 +327,10 @@ impl TableDefinition {
                                 columns.push(col);
                             }
                         }
-                        b"calculatedColumnFormula" => {
+                        "calculatedColumnFormula" => {
                             in_calc_formula = false;
                         }
-                        b"totalsRowFormula" => {
+                        "totalsRowFormula" => {
                             in_totals_formula = false;
                         }
                         _ => {}
@@ -343,10 +339,10 @@ impl TableDefinition {
                 Ok(Event::Text(ref e)) => {
                     if in_calc_formula {
                         formula_buf
-                            .push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                            .push_str(e.as_ref());
                     } else if in_totals_formula {
                         totals_formula_buf
-                            .push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                            .push_str(e.as_ref());
                     }
                 }
                 Ok(Event::GeneralRef(ref e)) => {
@@ -396,44 +392,35 @@ impl TableDefinition {
     ) {
         for attr in e.attributes().flatten() {
             match attr.key.as_ref() {
-                b"id" => {
-                    *id = std::str::from_utf8(&attr.value)
-                        .unwrap_or("0")
+                "id" => {
+                    *id = attr.value.as_ref()
                         .parse()
                         .unwrap_or(0);
                 }
-                b"name" => {
+                "name" => {
                     *name = Some(
-                        std::str::from_utf8(&attr.value)
-                            .unwrap_or_default()
-                            .to_owned(),
+                        attr.value.into_owned(),
                     );
                 }
-                b"displayName" => {
-                    *display_name = std::str::from_utf8(&attr.value)
-                        .unwrap_or_default()
-                        .to_owned();
+                "displayName" => {
+                    *display_name = attr.value.into_owned();
                 }
-                b"ref" => {
-                    *ref_range = std::str::from_utf8(&attr.value)
-                        .unwrap_or_default()
-                        .to_owned();
+                "ref" => {
+                    *ref_range = attr.value.into_owned();
                 }
-                b"headerRowCount" => {
-                    *header_row_count = std::str::from_utf8(&attr.value)
-                        .unwrap_or("1")
+                "headerRowCount" => {
+                    *header_row_count = attr.value.as_ref()
                         .parse()
                         .unwrap_or(1);
                 }
-                b"totalsRowCount" => {
-                    *totals_row_count = std::str::from_utf8(&attr.value)
-                        .unwrap_or("0")
+                "totalsRowCount" => {
+                    *totals_row_count = attr.value.as_ref()
                         .parse()
                         .unwrap_or(0);
                 }
-                b"totalsRowShown" => {
+                "totalsRowShown" => {
                     *totals_row_shown =
-                        std::str::from_utf8(&attr.value).unwrap_or("1") != "0";
+                        attr.value.as_ref() != "0";
                 }
                 _ => {}
             }
@@ -445,45 +432,32 @@ impl TableDefinition {
         let mut col = TableColumn::default();
         for attr in e.attributes().flatten() {
             match attr.key.as_ref() {
-                b"id" => {
-                    col.id = std::str::from_utf8(&attr.value)
-                        .unwrap_or("0")
+                "id" => {
+                    col.id = attr.value.as_ref()
                         .parse()
                         .unwrap_or(0);
                 }
-                b"name" => {
-                    col.name = std::str::from_utf8(&attr.value)
-                        .unwrap_or_default()
-                        .to_owned();
+                "name" => {
+                    col.name = attr.value.into_owned();
                 }
-                b"totalsRowFunction" => {
+                "totalsRowFunction" => {
                     col.totals_row_function = Some(
-                        std::str::from_utf8(&attr.value)
-                            .unwrap_or_default()
-                            .to_owned(),
+                        attr.value.into_owned(),
                     );
                 }
-                b"totalsRowLabel" => {
+                "totalsRowLabel" => {
                     col.totals_row_label = Some(
-                        std::str::from_utf8(&attr.value)
-                            .unwrap_or_default()
-                            .to_owned(),
+                        attr.value.into_owned(),
                     );
                 }
-                b"headerRowDxfId" => {
-                    col.header_row_dxf_id = std::str::from_utf8(&attr.value)
-                        .ok()
-                        .and_then(|v| v.parse().ok());
+                "headerRowDxfId" => {
+                    col.header_row_dxf_id = attr.value.parse().ok();
                 }
-                b"dataDxfId" => {
-                    col.data_dxf_id = std::str::from_utf8(&attr.value)
-                        .ok()
-                        .and_then(|v| v.parse().ok());
+                "dataDxfId" => {
+                    col.data_dxf_id = attr.value.parse().ok();
                 }
-                b"totalsRowDxfId" => {
-                    col.totals_row_dxf_id = std::str::from_utf8(&attr.value)
-                        .ok()
-                        .and_then(|v| v.parse().ok());
+                "totalsRowDxfId" => {
+                    col.totals_row_dxf_id = attr.value.parse().ok();
                 }
                 _ => {}
             }
@@ -502,28 +476,26 @@ impl TableDefinition {
         };
         for attr in e.attributes().flatten() {
             match attr.key.as_ref() {
-                b"name" => {
+                "name" => {
                     si.name = Some(
-                        std::str::from_utf8(&attr.value)
-                            .unwrap_or_default()
-                            .to_owned(),
+                        attr.value.into_owned(),
                     );
                 }
-                b"showFirstColumn" => {
+                "showFirstColumn" => {
                     si.show_first_column =
-                        std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+                        attr.value.as_ref() == "1";
                 }
-                b"showLastColumn" => {
+                "showLastColumn" => {
                     si.show_last_column =
-                        std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+                        attr.value.as_ref() == "1";
                 }
-                b"showRowStripes" => {
+                "showRowStripes" => {
                     si.show_row_stripes =
-                        std::str::from_utf8(&attr.value).unwrap_or("1") != "0";
+                        attr.value.as_ref() != "0";
                 }
-                b"showColumnStripes" => {
+                "showColumnStripes" => {
                     si.show_column_stripes =
-                        std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+                        attr.value.as_ref() == "1";
                 }
                 _ => {}
             }

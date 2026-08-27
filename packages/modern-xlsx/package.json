@@ -68,19 +68,19 @@
     "test:watch": "vitest",
     "lint": "biome check src/ __tests__/",
     "typecheck": "tsc --noEmit",
-    "docs:api": "npx -y typedoc@0.28.19",
+    "docs:api": "npx -y typedoc@0.28.20",
     "prepublishOnly": "pnpm build"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.1",
-    "@types/node": "26.0.1",
-    "@vitest/browser": "5.0.0-beta.5",
-    "@vitest/browser-playwright": "5.0.0-beta.5",
-    "@vitest/coverage-v8": "5.0.0-beta.5",
-    "playwright": "1.62.0-alpha-2026-06-27",
-    "tsdown": "0.22.3",
-    "typescript": "7.0.1-rc",
-    "vitest": "5.0.0-beta.5",
+    "@biomejs/biome": "2.5.10",
+    "@types/node": "26.4.0",
+    "@vitest/browser": "5.0.0-rc.2",
+    "@vitest/browser-playwright": "5.0.0-rc.2",
+    "@vitest/coverage-v8": "5.0.0-rc.2",
+    "playwright": "1.63.0-alpha-2026-08-27",
+    "tsdown": "0.23.0-rc.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0-rc.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

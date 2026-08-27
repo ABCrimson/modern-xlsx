@@ -27,28 +27,27 @@ pub(crate) const SPREADSHEET_NS: &str =
 ///
 /// This avoids per-call `String` allocation for the common predefined entities.
 #[inline]
-pub(crate) fn push_entity(buf: &mut String, name: &[u8]) {
+pub(crate) fn push_entity(buf: &mut String, name: &str) {
     match name {
-        b"amp" => buf.push('&'),
-        b"lt" => buf.push('<'),
-        b"gt" => buf.push('>'),
-        b"quot" => buf.push('"'),
-        b"apos" => buf.push('\''),
-        _ if name.starts_with(b"#x") || name.starts_with(b"#X") => {
+        "amp" => buf.push('&'),
+        "lt" => buf.push('<'),
+        "gt" => buf.push('>'),
+        "quot" => buf.push('"'),
+        "apos" => buf.push('\''),
+        _ if name.starts_with("#x") || name.starts_with("#X") => {
             // Hex character reference: &#xHH;
-            if let Some(c) = std::str::from_utf8(&name[2..])
+            if let Some(c) = u32::from_str_radix(&name[2..], 16)
                 .ok()
-                .and_then(|hex| u32::from_str_radix(hex, 16).ok())
                 .and_then(char::from_u32)
             {
                 buf.push(c);
             }
         }
-        _ if name.starts_with(b"#") => {
+        _ if name.starts_with('#') => {
             // Decimal character reference: &#NN;
-            if let Some(c) = std::str::from_utf8(&name[1..])
+            if let Some(c) = name[1..]
+                .parse::<u32>()
                 .ok()
-                .and_then(|dec| dec.parse::<u32>().ok())
                 .and_then(char::from_u32)
             {
                 buf.push(c);

@@ -84,12 +84,11 @@ pub fn parse_core(data: &[u8]) -> Result<DocProperties> {
             Ok(Event::Start(ref e)) => {
                 let local = e.local_name();
                 match local.as_ref() {
-                    b"title" | b"creator" | b"subject" | b"keywords" | b"description"
-                    | b"lastModifiedBy" | b"created" | b"modified" | b"category"
-                    | b"contentStatus" | b"revision" => {
+                    "title" | "creator" | "subject" | "keywords" | "description"
+                    | "lastModifiedBy" | "created" | "modified" | "category"
+                    | "contentStatus" | "revision" => {
                         current_element =
-                            Some(std::str::from_utf8(local.as_ref())
-                                .unwrap_or_default()
+                            Some(local.as_ref()
                                 .to_owned());
                         text_buf.clear();
                     }
@@ -97,7 +96,7 @@ pub fn parse_core(data: &[u8]) -> Result<DocProperties> {
                 }
             }
             Ok(Event::Text(ref e)) if current_element.is_some() => {
-                text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                text_buf.push_str(e.as_ref());
             }
             Ok(Event::End(_)) => {
                 if let Some(ref elem) = current_element {
@@ -153,10 +152,9 @@ pub fn parse_app(props: &mut DocProperties, data: &[u8]) -> Result<()> {
             Ok(Event::Start(ref e)) => {
                 let local = e.local_name();
                 match local.as_ref() {
-                    b"Application" | b"Company" | b"Manager" | b"AppVersion" | b"HyperlinkBase" => {
+                    "Application" | "Company" | "Manager" | "AppVersion" | "HyperlinkBase" => {
                         current_element =
-                            Some(std::str::from_utf8(local.as_ref())
-                                .unwrap_or_default()
+                            Some(local.as_ref()
                                 .to_owned());
                         text_buf.clear();
                     }
@@ -164,7 +162,7 @@ pub fn parse_app(props: &mut DocProperties, data: &[u8]) -> Result<()> {
                 }
             }
             Ok(Event::Text(ref e)) if current_element.is_some() => {
-                text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                text_buf.push_str(e.as_ref());
             }
             Ok(Event::End(_)) => {
                 if let Some(ref elem) = current_element {

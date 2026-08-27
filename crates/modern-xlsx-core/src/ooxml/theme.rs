@@ -86,37 +86,37 @@ pub fn parse(data: &[u8]) -> Result<ThemeColors> {
             Ok(Event::Start(ref e)) => {
                 let local = e.local_name();
                 match local.as_ref() {
-                    b"clrScheme" => {
+                    "clrScheme" => {
                         in_clr_scheme = true;
                     }
-                    b"dk1" if in_clr_scheme => current_slot = Some("dk1"),
-                    b"lt1" if in_clr_scheme => current_slot = Some("lt1"),
-                    b"dk2" if in_clr_scheme => current_slot = Some("dk2"),
-                    b"lt2" if in_clr_scheme => current_slot = Some("lt2"),
-                    b"accent1" if in_clr_scheme => current_slot = Some("accent1"),
-                    b"accent2" if in_clr_scheme => current_slot = Some("accent2"),
-                    b"accent3" if in_clr_scheme => current_slot = Some("accent3"),
-                    b"accent4" if in_clr_scheme => current_slot = Some("accent4"),
-                    b"accent5" if in_clr_scheme => current_slot = Some("accent5"),
-                    b"accent6" if in_clr_scheme => current_slot = Some("accent6"),
-                    b"hlink" if in_clr_scheme => current_slot = Some("hlink"),
-                    b"folHlink" if in_clr_scheme => current_slot = Some("folHlink"),
+                    "dk1" if in_clr_scheme => current_slot = Some("dk1"),
+                    "lt1" if in_clr_scheme => current_slot = Some("lt1"),
+                    "dk2" if in_clr_scheme => current_slot = Some("dk2"),
+                    "lt2" if in_clr_scheme => current_slot = Some("lt2"),
+                    "accent1" if in_clr_scheme => current_slot = Some("accent1"),
+                    "accent2" if in_clr_scheme => current_slot = Some("accent2"),
+                    "accent3" if in_clr_scheme => current_slot = Some("accent3"),
+                    "accent4" if in_clr_scheme => current_slot = Some("accent4"),
+                    "accent5" if in_clr_scheme => current_slot = Some("accent5"),
+                    "accent6" if in_clr_scheme => current_slot = Some("accent6"),
+                    "hlink" if in_clr_scheme => current_slot = Some("hlink"),
+                    "folHlink" if in_clr_scheme => current_slot = Some("folHlink"),
                     _ => {}
                 }
             }
             Ok(Event::Empty(ref e)) if current_slot.is_some() => {
                 let local = e.local_name();
                 let color_value = match local.as_ref() {
-                    b"sysClr" => e
+                    "sysClr" => e
                         .attributes()
                         .flatten()
-                        .find(|a| a.key.local_name().as_ref() == b"lastClr")
-                        .map(|a| std::str::from_utf8(&a.value).unwrap_or_default().to_owned()),
-                    b"srgbClr" => e
+                        .find(|a| a.key.local_name().as_ref() == "lastClr")
+                        .map(|a| a.value.into_owned()),
+                    "srgbClr" => e
                         .attributes()
                         .flatten()
-                        .find(|a| a.key.local_name().as_ref() == b"val")
-                        .map(|a| std::str::from_utf8(&a.value).unwrap_or_default().to_owned()),
+                        .find(|a| a.key.local_name().as_ref() == "val")
+                        .map(|a| a.value.into_owned()),
                     _ => None,
                 };
 
@@ -141,13 +141,13 @@ pub fn parse(data: &[u8]) -> Result<ThemeColors> {
             Ok(Event::End(ref e)) => {
                 let local = e.local_name();
                 match local.as_ref() {
-                    b"clrScheme" => {
+                    "clrScheme" => {
                         in_clr_scheme = false;
                         current_slot = None;
                     }
-                    b"dk1" | b"lt1" | b"dk2" | b"lt2" | b"accent1" | b"accent2"
-                    | b"accent3" | b"accent4" | b"accent5" | b"accent6" | b"hlink"
-                    | b"folHlink"
+                    "dk1" | "lt1" | "dk2" | "lt2" | "accent1" | "accent2"
+                    | "accent3" | "accent4" | "accent5" | "accent6" | "hlink"
+                    | "folHlink"
                         if in_clr_scheme =>
                     {
                         current_slot = None;

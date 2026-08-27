@@ -98,7 +98,7 @@ pub fn parse_timelines(data: &[u8]) -> Result<Vec<TimelineData>> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
-                if e.local_name().as_ref() == b"timeline" {
+                if e.local_name().as_ref() == "timeline" {
                     let mut name = String::new();
                     let mut caption: Option<String> = None;
                     let mut cache_name = String::new();
@@ -107,35 +107,35 @@ pub fn parse_timelines(data: &[u8]) -> Result<Vec<TimelineData>> {
 
                     for attr in e.attributes().flatten() {
                         match attr.key.local_name().as_ref() {
-                            b"name" => {
+                            "name" => {
                                 name = attr
                                     .normalized_value(XmlVersion::Implicit1_0)
                                     .unwrap_or_default()
                                     .into_owned();
                             }
-                            b"cache" => {
+                            "cache" => {
                                 cache_name = attr
                                     .normalized_value(XmlVersion::Implicit1_0)
                                     .unwrap_or_default()
                                     .into_owned();
                             }
-                            b"caption" => {
+                            "caption" => {
                                 caption = Some(
                                     attr.normalized_value(XmlVersion::Implicit1_0)
                                         .unwrap_or_default()
                                         .into_owned(),
                                 );
                             }
-                            b"sourceName" => {
+                            "sourceName" => {
                                 source_name = Some(
                                     attr.normalized_value(XmlVersion::Implicit1_0)
                                         .unwrap_or_default()
                                         .into_owned(),
                                 );
                             }
-                            b"level" => {
+                            "level" => {
                                 level = TimelineLevel::from_xml(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default(),
+                                    attr.value.as_ref(),
                                 );
                             }
                             _ => {}
@@ -193,16 +193,16 @@ impl TimelineCacheData {
                 Ok(Event::Start(ref e) | Event::Empty(ref e)) => {
                     let local = e.local_name();
                     match local.as_ref() {
-                        b"timelineCacheDefinition" => {
+                        "timelineCacheDefinition" => {
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"name" => {
+                                    "name" => {
                                         name = attr
                                             .normalized_value(XmlVersion::Implicit1_0)
                                             .unwrap_or_default()
                                             .into_owned();
                                     }
-                                    b"sourceName" => {
+                                    "sourceName" => {
                                         source_name = Some(
                                             attr.normalized_value(XmlVersion::Implicit1_0)
                                                 .unwrap_or_default()
@@ -213,21 +213,17 @@ impl TimelineCacheData {
                                 }
                             }
                         }
-                        b"selection" => {
+                        "selection" => {
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"startDate" => {
+                                    "startDate" => {
                                         selection_start = Some(
-                                            std::str::from_utf8(&attr.value)
-                                                .unwrap_or_default()
-                                                .to_owned(),
+                                            attr.value.into_owned(),
                                         );
                                     }
-                                    b"endDate" => {
+                                    "endDate" => {
                                         selection_end = Some(
-                                            std::str::from_utf8(&attr.value)
-                                                .unwrap_or_default()
-                                                .to_owned(),
+                                            attr.value.into_owned(),
                                         );
                                     }
                                     _ => {}

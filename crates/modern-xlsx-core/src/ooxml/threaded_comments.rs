@@ -80,7 +80,7 @@ pub fn parse_threaded_comments(data: &[u8]) -> Result<Vec<ThreadedCommentData>> 
             Ok(Event::Start(ref e)) => {
                 let local = e.local_name();
                 match local.as_ref() {
-                    b"threadedComment" => {
+                    "threadedComment" => {
                         in_comment = true;
                         current_id.clear();
                         current_ref.clear();
@@ -91,38 +91,28 @@ pub fn parse_threaded_comments(data: &[u8]) -> Result<Vec<ThreadedCommentData>> 
 
                         for attr in e.attributes().flatten() {
                             match attr.key.local_name().as_ref() {
-                                b"id" => {
-                                    current_id = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
+                                "id" => {
+                                    current_id = attr.value.into_owned();
                                 }
-                                b"ref" => {
-                                    current_ref = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
+                                "ref" => {
+                                    current_ref = attr.value.into_owned();
                                 }
-                                b"personId" => {
-                                    current_person_id = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
+                                "personId" => {
+                                    current_person_id = attr.value.into_owned();
                                 }
-                                b"dt" => {
-                                    current_timestamp = std::str::from_utf8(&attr.value)
-                                        .unwrap_or_default()
-                                        .to_owned();
+                                "dt" => {
+                                    current_timestamp = attr.value.into_owned();
                                 }
-                                b"parentId" => {
+                                "parentId" => {
                                     current_parent_id = Some(
-                                        std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
-                                            .to_owned(),
+                                        attr.value.into_owned(),
                                     );
                                 }
                                 _ => {}
                             }
                         }
                     }
-                    b"text" if in_comment => {
+                    "text" if in_comment => {
                         in_text = true;
                     }
                     _ => {}
@@ -130,7 +120,7 @@ pub fn parse_threaded_comments(data: &[u8]) -> Result<Vec<ThreadedCommentData>> 
             }
             Ok(Event::Text(ref e)) => {
                 if in_text {
-                    let text = std::str::from_utf8(e.as_ref()).unwrap_or_default();
+                    let text = e.as_ref();
                     current_text.push_str(text);
                 }
             }
@@ -142,7 +132,7 @@ pub fn parse_threaded_comments(data: &[u8]) -> Result<Vec<ThreadedCommentData>> 
             Ok(Event::End(ref e)) => {
                 let local = e.local_name();
                 match local.as_ref() {
-                    b"threadedComment" => {
+                    "threadedComment" => {
                         comments.push(ThreadedCommentData {
                             id: std::mem::take(&mut current_id),
                             ref_cell: std::mem::take(&mut current_ref),
@@ -153,7 +143,7 @@ pub fn parse_threaded_comments(data: &[u8]) -> Result<Vec<ThreadedCommentData>> 
                         });
                         in_comment = false;
                     }
-                    b"text" => {
+                    "text" => {
                         in_text = false;
                     }
                     _ => {}
@@ -190,26 +180,26 @@ pub fn parse_persons(data: &[u8]) -> Result<Vec<PersonData>> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
-                if e.local_name().as_ref() == b"person" {
+                if e.local_name().as_ref() == "person" {
                     let mut id = String::new();
                     let mut display_name = String::new();
                     let mut provider_id: Option<String> = None;
 
                     for attr in e.attributes().flatten() {
                         match attr.key.local_name().as_ref() {
-                            b"id" => {
+                            "id" => {
                                 id = attr
                                     .normalized_value(XmlVersion::Implicit1_0)
                                     .unwrap_or_default()
                                     .into_owned();
                             }
-                            b"displayName" => {
+                            "displayName" => {
                                 display_name = attr
                                     .normalized_value(XmlVersion::Implicit1_0)
                                     .unwrap_or_default()
                                     .into_owned();
                             }
-                            b"providerId" => {
+                            "providerId" => {
                                 provider_id = Some(
                                     attr.normalized_value(XmlVersion::Implicit1_0)
                                         .unwrap_or_default()

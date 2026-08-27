@@ -318,46 +318,45 @@ impl Styles {
                     let local = e.local_name();
                     match local.as_ref() {
                         // ----- section openers -----
-                        b"numFmts" => section = Section::NumFmts,
-                        b"fonts" => section = Section::Fonts,
-                        b"fills" => section = Section::Fills,
-                        b"borders" => section = Section::Borders,
-                        b"cellXfs" => section = Section::CellXfs,
-                        b"dxfs" => section = Section::Dxfs,
-                        b"cellStyles" => section = Section::CellStyles,
+                        "numFmts" => section = Section::NumFmts,
+                        "fonts" => section = Section::Fonts,
+                        "fills" => section = Section::Fills,
+                        "borders" => section = Section::Borders,
+                        "cellXfs" => section = Section::CellXfs,
+                        "dxfs" => section = Section::Dxfs,
+                        "cellStyles" => section = Section::CellStyles,
 
                         // ----- font children -----
-                        b"font" if section == Section::Fonts => {
+                        "font" if section == Section::Fonts => {
                             current_font = Font::default();
                             in_font = true;
                         }
 
                         // ----- fill children -----
-                        b"fill" if section == Section::Fills => {
+                        "fill" if section == Section::Fills => {
                             current_fill = Fill::default();
                             in_fill = true;
                         }
-                        b"patternFill" if in_fill && !in_dxf => {
+                        "patternFill" if in_fill && !in_dxf => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"patternType")
+                                .find(|a| a.key.local_name().as_ref() == "patternType")
                             {
                                 current_fill.pattern_type =
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    attr.value.into_owned();
                             }
                         }
-                        b"gradientFill" if in_fill && !in_dxf => {
+                        "gradientFill" if in_fill && !in_dxf => {
                             in_gradient_fill = true;
                             current_gradient = GradientFill::default();
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"type" => {
+                                    "type" => {
                                         current_gradient.gradient_type = Some(
-                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                            attr.value.into_owned(),
                                         );
                                     }
-                                    b"degree" => {
-                                        current_gradient.degree = std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
+                                    "degree" => {
+                                        current_gradient.degree = attr.value.as_ref()
                                             .parse()
                                             .ok();
                                     }
@@ -365,127 +364,125 @@ impl Styles {
                                 }
                             }
                         }
-                        b"stop" if in_gradient_fill && !in_dxf => {
+                        "stop" if in_gradient_fill && !in_dxf => {
                             in_gradient_stop = true;
                             current_stop_position = 0.0;
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"position")
+                                .find(|a| a.key.local_name().as_ref() == "position")
                             {
-                                current_stop_position = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
+                                current_stop_position = attr.value.as_ref()
                                     .parse()
                                     .unwrap_or(0.0);
                             }
                         }
 
                         // ----- border children -----
-                        b"border" if section == Section::Borders => {
+                        "border" if section == Section::Borders => {
                             current_border = Border::default();
                             in_border = true;
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"diagonalUp" => {
-                                        let v = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    "diagonalUp" => {
+                                        let v = attr.value.as_ref();
                                         current_border.diagonal_up = v == "1" || v == "true";
                                     }
-                                    b"diagonalDown" => {
-                                        let v = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    "diagonalDown" => {
+                                        let v = attr.value.as_ref();
                                         current_border.diagonal_down = v == "1" || v == "true";
                                     }
                                     _ => {}
                                 }
                             }
                         }
-                        b"left" if in_border && !in_dxf => {
+                        "left" if in_border && !in_dxf => {
                             border_child = BorderChild::Left;
                             current_border_side = parse_border_side_attrs(e);
                         }
-                        b"right" if in_border && !in_dxf => {
+                        "right" if in_border && !in_dxf => {
                             border_child = BorderChild::Right;
                             current_border_side = parse_border_side_attrs(e);
                         }
-                        b"top" if in_border && !in_dxf => {
+                        "top" if in_border && !in_dxf => {
                             border_child = BorderChild::Top;
                             current_border_side = parse_border_side_attrs(e);
                         }
-                        b"bottom" if in_border && !in_dxf => {
+                        "bottom" if in_border && !in_dxf => {
                             border_child = BorderChild::Bottom;
                             current_border_side = parse_border_side_attrs(e);
                         }
-                        b"diagonal" if in_border && !in_dxf => {
+                        "diagonal" if in_border && !in_dxf => {
                             border_child = BorderChild::Diagonal;
                             current_border_side = parse_border_side_attrs(e);
                         }
 
                         // colour inside a border side
-                        b"color" if border_child != BorderChild::None && !in_dxf => {
+                        "color" if border_child != BorderChild::None && !in_dxf => {
                             if let Some(ref mut side) = current_border_side
                                 && let Some(attr) = e.attributes().flatten()
-                                    .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                    .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
                                 side.color = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
                         }
 
                         // ----- xf (start variant) -----
-                        b"xf" if section == Section::CellXfs => {
+                        "xf" if section == Section::CellXfs => {
                             let xf = parse_xf_attrs(e);
                             current_xf = Some(xf);
                             in_xf = true;
                         }
 
                         // ----- alignment inside xf -----
-                        b"alignment" if in_xf => {
+                        "alignment" if in_xf => {
                             if let Some(ref mut xf) = current_xf {
                                 xf.alignment = Some(parse_alignment_attrs(e));
                             }
                         }
 
                         // ----- protection inside xf -----
-                        b"protection" if in_xf => {
+                        "protection" if in_xf => {
                             if let Some(ref mut xf) = current_xf {
                                 xf.protection = Some(parse_protection_attrs(e));
                             }
                         }
 
                         // ----- DXF section -----
-                        b"dxf" if section == Section::Dxfs => {
+                        "dxf" if section == Section::Dxfs => {
                             current_dxf = DxfStyle::default();
                             in_dxf = true;
                         }
 
                         // DXF children
-                        b"font" if in_dxf && dxf_child == DxfChild::None => {
+                        "font" if in_dxf && dxf_child == DxfChild::None => {
                             dxf_font = Font::default();
                             dxf_child = DxfChild::Font;
                         }
-                        b"fill" if in_dxf && dxf_child == DxfChild::None => {
+                        "fill" if in_dxf && dxf_child == DxfChild::None => {
                             dxf_fill = Fill::default();
                             dxf_child = DxfChild::Fill;
                         }
-                        b"patternFill" if in_dxf && dxf_child == DxfChild::Fill => {
+                        "patternFill" if in_dxf && dxf_child == DxfChild::Fill => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"patternType")
+                                .find(|a| a.key.local_name().as_ref() == "patternType")
                             {
                                 dxf_fill.pattern_type =
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    attr.value.into_owned();
                             }
                         }
-                        b"gradientFill" if in_dxf && dxf_child == DxfChild::Fill => {
+                        "gradientFill" if in_dxf && dxf_child == DxfChild::Fill => {
                             dxf_in_gradient_fill = true;
                             dxf_current_gradient = GradientFill::default();
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"type" => {
+                                    "type" => {
                                         dxf_current_gradient.gradient_type = Some(
-                                            std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                            attr.value.into_owned(),
                                         );
                                     }
-                                    b"degree" => {
-                                        dxf_current_gradient.degree = std::str::from_utf8(&attr.value)
-                                            .unwrap_or_default()
+                                    "degree" => {
+                                        dxf_current_gradient.degree = attr.value.as_ref()
                                             .parse()
                                             .ok();
                                     }
@@ -493,62 +490,61 @@ impl Styles {
                                 }
                             }
                         }
-                        b"stop" if in_dxf && dxf_in_gradient_fill => {
+                        "stop" if in_dxf && dxf_in_gradient_fill => {
                             dxf_in_gradient_stop = true;
                             dxf_current_stop_position = 0.0;
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"position")
+                                .find(|a| a.key.local_name().as_ref() == "position")
                             {
-                                dxf_current_stop_position = std::str::from_utf8(&attr.value)
-                                    .unwrap_or_default()
+                                dxf_current_stop_position = attr.value.as_ref()
                                     .parse()
                                     .unwrap_or(0.0);
                             }
                         }
-                        b"border" if in_dxf && dxf_child == DxfChild::None => {
+                        "border" if in_dxf && dxf_child == DxfChild::None => {
                             dxf_border = Border::default();
                             dxf_child = DxfChild::Border;
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"diagonalUp" => {
-                                        let v = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    "diagonalUp" => {
+                                        let v = attr.value.as_ref();
                                         dxf_border.diagonal_up = v == "1" || v == "true";
                                     }
-                                    b"diagonalDown" => {
-                                        let v = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    "diagonalDown" => {
+                                        let v = attr.value.as_ref();
                                         dxf_border.diagonal_down = v == "1" || v == "true";
                                     }
                                     _ => {}
                                 }
                             }
                         }
-                        b"left" if in_dxf && dxf_child == DxfChild::Border => {
+                        "left" if in_dxf && dxf_child == DxfChild::Border => {
                             border_child = BorderChild::Left;
                             current_border_side = parse_border_side_attrs(e);
                         }
-                        b"right" if in_dxf && dxf_child == DxfChild::Border => {
+                        "right" if in_dxf && dxf_child == DxfChild::Border => {
                             border_child = BorderChild::Right;
                             current_border_side = parse_border_side_attrs(e);
                         }
-                        b"top" if in_dxf && dxf_child == DxfChild::Border => {
+                        "top" if in_dxf && dxf_child == DxfChild::Border => {
                             border_child = BorderChild::Top;
                             current_border_side = parse_border_side_attrs(e);
                         }
-                        b"bottom" if in_dxf && dxf_child == DxfChild::Border => {
+                        "bottom" if in_dxf && dxf_child == DxfChild::Border => {
                             border_child = BorderChild::Bottom;
                             current_border_side = parse_border_side_attrs(e);
                         }
-                        b"diagonal" if in_dxf && dxf_child == DxfChild::Border => {
+                        "diagonal" if in_dxf && dxf_child == DxfChild::Border => {
                             border_child = BorderChild::Diagonal;
                             current_border_side = parse_border_side_attrs(e);
                         }
-                        b"color" if in_dxf && border_child != BorderChild::None => {
+                        "color" if in_dxf && border_child != BorderChild::None => {
                             if let Some(ref mut side) = current_border_side
                                 && let Some(attr) = e.attributes().flatten()
-                                    .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                    .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
                                 side.color = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
                         }
@@ -561,18 +557,18 @@ impl Styles {
                     let local = e.local_name();
                     match local.as_ref() {
                         // ----- numFmt is always self-closing -----
-                        b"numFmt" if section == Section::NumFmts || (in_dxf && dxf_child == DxfChild::None) => {
+                        "numFmt" if section == Section::NumFmts || (in_dxf && dxf_child == DxfChild::None) => {
                             let mut id: u32 = 0;
                             let mut code = String::new();
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"numFmtId" => {
-                                        id = std::str::from_utf8(&attr.value).unwrap_or_default()
+                                    "numFmtId" => {
+                                        id = attr.value.as_ref()
                                             .parse()
                                             .unwrap_or(0);
                                     }
-                                    b"formatCode" => {
-                                        code = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    "formatCode" => {
+                                        code = attr.value.into_owned();
                                     }
                                     _ => {}
                                 }
@@ -591,53 +587,53 @@ impl Styles {
                         }
 
                         // ----- font child elements (self-closing) -----
-                        b"b" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "b" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if in_dxf && dxf_child == DxfChild::Font {
                                 dxf_font.bold = true;
                             } else {
                                 current_font.bold = true;
                             }
                         }
-                        b"i" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "i" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if in_dxf && dxf_child == DxfChild::Font {
                                 dxf_font.italic = true;
                             } else {
                                 current_font.italic = true;
                             }
                         }
-                        b"u" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "u" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if in_dxf && dxf_child == DxfChild::Font {
                                 dxf_font.underline = true;
                             } else {
                                 current_font.underline = true;
                             }
                         }
-                        b"strike" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "strike" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if in_dxf && dxf_child == DxfChild::Font {
                                 dxf_font.strike = true;
                             } else {
                                 current_font.strike = true;
                             }
                         }
-                        b"condense" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "condense" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if in_dxf && dxf_child == DxfChild::Font {
                                 dxf_font.condense = true;
                             } else {
                                 current_font.condense = true;
                             }
                         }
-                        b"extend" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "extend" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if in_dxf && dxf_child == DxfChild::Font {
                                 dxf_font.extend = true;
                             } else {
                                 current_font.extend = true;
                             }
                         }
-                        b"sz" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "sz" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
+                                .find(|a| a.key.local_name().as_ref() == "val")
                             {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default()
+                                let val = attr.value.as_ref()
                                     .parse()
                                     .ok();
                                 if in_dxf && dxf_child == DxfChild::Font {
@@ -647,12 +643,12 @@ impl Styles {
                                 }
                             }
                         }
-                        b"name" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "name" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
+                                .find(|a| a.key.local_name().as_ref() == "val")
                             {
                                 let val = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    attr.value.into_owned(),
                                 );
                                 if in_dxf && dxf_child == DxfChild::Font {
                                     dxf_font.name = val;
@@ -661,12 +657,12 @@ impl Styles {
                                 }
                             }
                         }
-                        b"color" if (in_font || (in_dxf && dxf_child == DxfChild::Font)) && border_child == BorderChild::None => {
+                        "color" if (in_font || (in_dxf && dxf_child == DxfChild::Font)) && border_child == BorderChild::None => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
                                 let val = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    attr.value.into_owned(),
                                 );
                                 if in_dxf && dxf_child == DxfChild::Font {
                                     dxf_font.color = val;
@@ -675,12 +671,12 @@ impl Styles {
                                 }
                             }
                         }
-                        b"vertAlign" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "vertAlign" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
+                                .find(|a| a.key.local_name().as_ref() == "val")
                             {
                                 let val = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    attr.value.into_owned(),
                                 );
                                 if in_dxf && dxf_child == DxfChild::Font {
                                     dxf_font.vert_align = val;
@@ -689,11 +685,11 @@ impl Styles {
                                 }
                             }
                         }
-                        b"family" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "family" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
+                                .find(|a| a.key.local_name().as_ref() == "val")
                             {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default()
+                                let val = attr.value.as_ref()
                                     .parse()
                                     .ok();
                                 if in_dxf && dxf_child == DxfChild::Font {
@@ -703,11 +699,11 @@ impl Styles {
                                 }
                             }
                         }
-                        b"charset" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "charset" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
+                                .find(|a| a.key.local_name().as_ref() == "val")
                             {
-                                let val = std::str::from_utf8(&attr.value).unwrap_or_default()
+                                let val = attr.value.as_ref()
                                     .parse()
                                     .ok();
                                 if in_dxf && dxf_child == DxfChild::Font {
@@ -717,12 +713,12 @@ impl Styles {
                                 }
                             }
                         }
-                        b"scheme" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
+                        "scheme" if in_font || (in_dxf && dxf_child == DxfChild::Font) => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"val")
+                                .find(|a| a.key.local_name().as_ref() == "val")
                             {
                                 let val = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    attr.value.into_owned(),
                                 );
                                 if in_dxf && dxf_child == DxfChild::Font {
                                     dxf_font.scheme = val;
@@ -733,30 +729,30 @@ impl Styles {
                         }
 
                         // ----- patternFill as self-closing -----
-                        b"patternFill" if in_fill && !in_dxf => {
+                        "patternFill" if in_fill && !in_dxf => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"patternType")
+                                .find(|a| a.key.local_name().as_ref() == "patternType")
                             {
                                 current_fill.pattern_type =
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    attr.value.into_owned();
                             }
                         }
-                        b"patternFill" if in_dxf && dxf_child == DxfChild::Fill => {
+                        "patternFill" if in_dxf && dxf_child == DxfChild::Fill => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"patternType")
+                                .find(|a| a.key.local_name().as_ref() == "patternType")
                             {
                                 dxf_fill.pattern_type =
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    attr.value.into_owned();
                             }
                         }
 
                         // ----- fgColor / bgColor inside fill -----
-                        b"fgColor" if (in_fill && !in_dxf) || (in_dxf && dxf_child == DxfChild::Fill) => {
+                        "fgColor" if (in_fill && !in_dxf) || (in_dxf && dxf_child == DxfChild::Fill) => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
                                 let val = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    attr.value.into_owned(),
                                 );
                                 if in_dxf && dxf_child == DxfChild::Fill {
                                     dxf_fill.fg_color = val;
@@ -765,12 +761,12 @@ impl Styles {
                                 }
                             }
                         }
-                        b"bgColor" if (in_fill && !in_dxf) || (in_dxf && dxf_child == DxfChild::Fill) => {
+                        "bgColor" if (in_fill && !in_dxf) || (in_dxf && dxf_child == DxfChild::Fill) => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
                                 let val = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    attr.value.into_owned(),
                                 );
                                 if in_dxf && dxf_child == DxfChild::Fill {
                                     dxf_fill.bg_color = val;
@@ -781,22 +777,22 @@ impl Styles {
                         }
 
                         // ----- color inside gradient stop -----
-                        b"color" if in_gradient_stop && !in_dxf => {
+                        "color" if in_gradient_stop && !in_dxf => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
-                                let color = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                let color = attr.value.into_owned();
                                 current_gradient.stops.push(GradientStop {
                                     position: current_stop_position,
                                     color,
                                 });
                             }
                         }
-                        b"color" if dxf_in_gradient_stop && in_dxf => {
+                        "color" if dxf_in_gradient_stop && in_dxf => {
                             if let Some(attr) = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
-                                let color = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                let color = attr.value.into_owned();
                                 dxf_current_gradient.stops.push(GradientStop {
                                     position: dxf_current_stop_position,
                                     color,
@@ -805,100 +801,100 @@ impl Styles {
                         }
 
                         // ----- empty border sides (e.g. <left/>) -----
-                        b"left" if in_border && !in_dxf => {
+                        "left" if in_border && !in_dxf => {
                             current_border.left = parse_border_side_attrs(e);
                         }
-                        b"right" if in_border && !in_dxf => {
+                        "right" if in_border && !in_dxf => {
                             current_border.right = parse_border_side_attrs(e);
                         }
-                        b"top" if in_border && !in_dxf => {
+                        "top" if in_border && !in_dxf => {
                             current_border.top = parse_border_side_attrs(e);
                         }
-                        b"bottom" if in_border && !in_dxf => {
+                        "bottom" if in_border && !in_dxf => {
                             current_border.bottom = parse_border_side_attrs(e);
                         }
-                        b"diagonal" if in_border && !in_dxf => {
+                        "diagonal" if in_border && !in_dxf => {
                             current_border.diagonal = parse_border_side_attrs(e);
                         }
 
                         // DXF border sides (self-closing)
-                        b"left" if in_dxf && dxf_child == DxfChild::Border => {
+                        "left" if in_dxf && dxf_child == DxfChild::Border => {
                             dxf_border.left = parse_border_side_attrs(e);
                         }
-                        b"right" if in_dxf && dxf_child == DxfChild::Border => {
+                        "right" if in_dxf && dxf_child == DxfChild::Border => {
                             dxf_border.right = parse_border_side_attrs(e);
                         }
-                        b"top" if in_dxf && dxf_child == DxfChild::Border => {
+                        "top" if in_dxf && dxf_child == DxfChild::Border => {
                             dxf_border.top = parse_border_side_attrs(e);
                         }
-                        b"bottom" if in_dxf && dxf_child == DxfChild::Border => {
+                        "bottom" if in_dxf && dxf_child == DxfChild::Border => {
                             dxf_border.bottom = parse_border_side_attrs(e);
                         }
-                        b"diagonal" if in_dxf && dxf_child == DxfChild::Border => {
+                        "diagonal" if in_dxf && dxf_child == DxfChild::Border => {
                             dxf_border.diagonal = parse_border_side_attrs(e);
                         }
 
                         // colour inside a DXF border side (self-closing)
-                        b"color" if in_dxf && border_child != BorderChild::None => {
+                        "color" if in_dxf && border_child != BorderChild::None => {
                             if let Some(ref mut side) = current_border_side
                                 && let Some(attr) = e.attributes().flatten()
-                                    .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                    .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
                                 side.color = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
                         }
 
                         // colour inside a border side (self-closing)
-                        b"color" if border_child != BorderChild::None && !in_dxf => {
+                        "color" if border_child != BorderChild::None && !in_dxf => {
                             if let Some(ref mut side) = current_border_side
                                 && let Some(attr) = e.attributes().flatten()
-                                    .find(|a| a.key.local_name().as_ref() == b"rgb")
+                                    .find(|a| a.key.local_name().as_ref() == "rgb")
                             {
                                 side.color = Some(
-                                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                                    attr.value.into_owned(),
                                 );
                             }
                         }
 
                         // ----- xf (self-closing) -----
-                        b"xf" if section == Section::CellXfs => {
+                        "xf" if section == Section::CellXfs => {
                             cell_xfs.push(parse_xf_attrs(e));
                         }
 
                         // ----- alignment (self-closing inside xf) -----
-                        b"alignment" if in_xf => {
+                        "alignment" if in_xf => {
                             if let Some(ref mut xf) = current_xf {
                                 xf.alignment = Some(parse_alignment_attrs(e));
                             }
                         }
 
                         // ----- protection (self-closing inside xf) -----
-                        b"protection" if in_xf => {
+                        "protection" if in_xf => {
                             if let Some(ref mut xf) = current_xf {
                                 xf.protection = Some(parse_protection_attrs(e));
                             }
                         }
 
                         // ----- cellStyle (self-closing) -----
-                        b"cellStyle" if section == Section::CellStyles => {
+                        "cellStyle" if section == Section::CellStyles => {
                             cell_styles.push(parse_cell_style_attrs(e));
                         }
 
                         // ----- numFmt inside DXF -----
-                        b"numFmt" if in_dxf && dxf_child == DxfChild::None => {
+                        "numFmt" if in_dxf && dxf_child == DxfChild::None => {
                             let mut id: u32 = 0;
                             let mut code = String::new();
                             for attr in e.attributes().flatten() {
                                 match attr.key.local_name().as_ref() {
-                                    b"numFmtId" => {
-                                        id = std::str::from_utf8(&attr.value).unwrap_or_default()
+                                    "numFmtId" => {
+                                        id = attr.value.as_ref()
                                             .parse()
                                             .unwrap_or(0);
                                     }
-                                    b"formatCode" => {
-                                        code = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                                    "formatCode" => {
+                                        code = attr.value.into_owned();
                                     }
                                     _ => {}
                                 }
@@ -917,108 +913,108 @@ impl Styles {
                     let local = e.local_name();
                     match local.as_ref() {
                         // ----- section closers -----
-                        b"numFmts" => section = Section::None,
-                        b"fonts" if section == Section::Fonts => section = Section::None,
-                        b"fills" if section == Section::Fills => section = Section::None,
-                        b"borders" if section == Section::Borders => section = Section::None,
-                        b"cellXfs" => section = Section::None,
-                        b"dxfs" => section = Section::None,
-                        b"cellStyles" => section = Section::None,
+                        "numFmts" => section = Section::None,
+                        "fonts" if section == Section::Fonts => section = Section::None,
+                        "fills" if section == Section::Fills => section = Section::None,
+                        "borders" if section == Section::Borders => section = Section::None,
+                        "cellXfs" => section = Section::None,
+                        "dxfs" => section = Section::None,
+                        "cellStyles" => section = Section::None,
 
                         // ----- font end -----
-                        b"font" if in_font && !in_dxf => {
+                        "font" if in_font && !in_dxf => {
                             fonts.push(std::mem::take(&mut current_font));
                             in_font = false;
                         }
-                        b"font" if in_dxf && dxf_child == DxfChild::Font => {
+                        "font" if in_dxf && dxf_child == DxfChild::Font => {
                             current_dxf.font = Some(std::mem::take(&mut dxf_font));
                             dxf_child = DxfChild::None;
                         }
 
                         // ----- fill end -----
-                        b"fill" if in_fill && !in_dxf => {
+                        "fill" if in_fill && !in_dxf => {
                             fills.push(std::mem::take(&mut current_fill));
                             in_fill = false;
                         }
-                        b"fill" if in_dxf && dxf_child == DxfChild::Fill => {
+                        "fill" if in_dxf && dxf_child == DxfChild::Fill => {
                             current_dxf.fill = Some(std::mem::take(&mut dxf_fill));
                             dxf_child = DxfChild::None;
                         }
 
                         // ----- gradientFill end -----
-                        b"gradientFill" if in_gradient_fill && !in_dxf => {
+                        "gradientFill" if in_gradient_fill && !in_dxf => {
                             current_fill.gradient_fill = Some(std::mem::take(&mut current_gradient));
                             in_gradient_fill = false;
                         }
-                        b"gradientFill" if dxf_in_gradient_fill && in_dxf => {
+                        "gradientFill" if dxf_in_gradient_fill && in_dxf => {
                             dxf_fill.gradient_fill = Some(std::mem::take(&mut dxf_current_gradient));
                             dxf_in_gradient_fill = false;
                         }
 
                         // ----- stop end -----
-                        b"stop" if in_gradient_stop && !in_dxf => {
+                        "stop" if in_gradient_stop && !in_dxf => {
                             in_gradient_stop = false;
                         }
-                        b"stop" if dxf_in_gradient_stop && in_dxf => {
+                        "stop" if dxf_in_gradient_stop && in_dxf => {
                             dxf_in_gradient_stop = false;
                         }
 
                         // ----- border side ends -----
-                        b"left" if border_child == BorderChild::Left && !in_dxf => {
+                        "left" if border_child == BorderChild::Left && !in_dxf => {
                             current_border.left = current_border_side.take();
                             border_child = BorderChild::None;
                         }
-                        b"right" if border_child == BorderChild::Right && !in_dxf => {
+                        "right" if border_child == BorderChild::Right && !in_dxf => {
                             current_border.right = current_border_side.take();
                             border_child = BorderChild::None;
                         }
-                        b"top" if border_child == BorderChild::Top && !in_dxf => {
+                        "top" if border_child == BorderChild::Top && !in_dxf => {
                             current_border.top = current_border_side.take();
                             border_child = BorderChild::None;
                         }
-                        b"bottom" if border_child == BorderChild::Bottom && !in_dxf => {
+                        "bottom" if border_child == BorderChild::Bottom && !in_dxf => {
                             current_border.bottom = current_border_side.take();
                             border_child = BorderChild::None;
                         }
-                        b"diagonal" if border_child == BorderChild::Diagonal && !in_dxf => {
+                        "diagonal" if border_child == BorderChild::Diagonal && !in_dxf => {
                             current_border.diagonal = current_border_side.take();
                             border_child = BorderChild::None;
                         }
 
                         // DXF border side ends
-                        b"left" if border_child == BorderChild::Left && in_dxf => {
+                        "left" if border_child == BorderChild::Left && in_dxf => {
                             dxf_border.left = current_border_side.take();
                             border_child = BorderChild::None;
                         }
-                        b"right" if border_child == BorderChild::Right && in_dxf => {
+                        "right" if border_child == BorderChild::Right && in_dxf => {
                             dxf_border.right = current_border_side.take();
                             border_child = BorderChild::None;
                         }
-                        b"top" if border_child == BorderChild::Top && in_dxf => {
+                        "top" if border_child == BorderChild::Top && in_dxf => {
                             dxf_border.top = current_border_side.take();
                             border_child = BorderChild::None;
                         }
-                        b"bottom" if border_child == BorderChild::Bottom && in_dxf => {
+                        "bottom" if border_child == BorderChild::Bottom && in_dxf => {
                             dxf_border.bottom = current_border_side.take();
                             border_child = BorderChild::None;
                         }
-                        b"diagonal" if border_child == BorderChild::Diagonal && in_dxf => {
+                        "diagonal" if border_child == BorderChild::Diagonal && in_dxf => {
                             dxf_border.diagonal = current_border_side.take();
                             border_child = BorderChild::None;
                         }
 
                         // ----- border end -----
-                        b"border" if in_border && !in_dxf => {
+                        "border" if in_border && !in_dxf => {
                             borders.push(std::mem::take(&mut current_border));
                             in_border = false;
                         }
-                        b"border" if in_dxf && dxf_child == DxfChild::Border => {
+                        "border" if in_dxf && dxf_child == DxfChild::Border => {
                             current_dxf.border = Some(std::mem::take(&mut dxf_border));
                             dxf_child = DxfChild::None;
                         }
 
                         // ----- xf end -----
-                        b"xf" if in_xf => {
+                        "xf" if in_xf => {
                             if let Some(xf) = current_xf.take() {
                                 cell_xfs.push(xf);
                             }
@@ -1026,7 +1022,7 @@ impl Styles {
                         }
 
                         // ----- dxf end -----
-                        b"dxf" if in_dxf => {
+                        "dxf" if in_dxf => {
                             dxfs.push(std::mem::take(&mut current_dxf));
                             in_dxf = false;
                             dxf_child = DxfChild::None;
@@ -1301,9 +1297,9 @@ impl Styles {
 fn parse_border_side_attrs(e: &BytesStart<'_>) -> Option<BorderSide> {
     e.attributes()
         .flatten()
-        .find(|attr| attr.key.local_name().as_ref() == b"style")
+        .find(|attr| attr.key.local_name().as_ref() == "style")
         .map(|attr| BorderSide {
-            style: std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+            style: attr.value.into_owned(),
             color: None,
         })
 }
@@ -1313,42 +1309,42 @@ fn parse_xf_attrs(e: &BytesStart<'_>) -> CellXf {
     let mut xf = CellXf::default();
     for attr in e.attributes().flatten() {
         match attr.key.local_name().as_ref() {
-            b"numFmtId" => {
-                xf.num_fmt_id = std::str::from_utf8(&attr.value).unwrap_or_default()
+            "numFmtId" => {
+                xf.num_fmt_id = attr.value.as_ref()
                     .parse()
                     .unwrap_or(0);
             }
-            b"fontId" => {
-                xf.font_id = std::str::from_utf8(&attr.value).unwrap_or_default()
+            "fontId" => {
+                xf.font_id = attr.value.as_ref()
                     .parse()
                     .unwrap_or(0);
             }
-            b"fillId" => {
-                xf.fill_id = std::str::from_utf8(&attr.value).unwrap_or_default()
+            "fillId" => {
+                xf.fill_id = attr.value.as_ref()
                     .parse()
                     .unwrap_or(0);
             }
-            b"borderId" => {
-                xf.border_id = std::str::from_utf8(&attr.value).unwrap_or_default()
+            "borderId" => {
+                xf.border_id = attr.value.as_ref()
                     .parse()
                     .unwrap_or(0);
             }
-            b"applyFont" => {
+            "applyFont" => {
                 xf.apply_font = parse_bool_attr(&attr.value);
             }
-            b"applyFill" => {
+            "applyFill" => {
                 xf.apply_fill = parse_bool_attr(&attr.value);
             }
-            b"applyBorder" => {
+            "applyBorder" => {
                 xf.apply_border = parse_bool_attr(&attr.value);
             }
-            b"applyNumberFormat" => {
+            "applyNumberFormat" => {
                 xf.apply_number_format = parse_bool_attr(&attr.value);
             }
-            b"applyAlignment" => {
+            "applyAlignment" => {
                 xf.apply_alignment = parse_bool_attr(&attr.value);
             }
-            b"applyProtection" => {
+            "applyProtection" => {
                 xf.apply_protection = parse_bool_attr(&attr.value);
             }
             _ => {}
@@ -1362,30 +1358,30 @@ fn parse_alignment_attrs(e: &BytesStart<'_>) -> Alignment {
     let mut alignment = Alignment::default();
     for attr in e.attributes().flatten() {
         match attr.key.local_name().as_ref() {
-            b"horizontal" => {
+            "horizontal" => {
                 alignment.horizontal = Some(
-                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                    attr.value.into_owned(),
                 );
             }
-            b"vertical" => {
+            "vertical" => {
                 alignment.vertical = Some(
-                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned(),
+                    attr.value.into_owned(),
                 );
             }
-            b"wrapText" => {
+            "wrapText" => {
                 alignment.wrap_text = parse_bool_attr(&attr.value);
             }
-            b"textRotation" => {
-                alignment.text_rotation = std::str::from_utf8(&attr.value).unwrap_or_default()
+            "textRotation" => {
+                alignment.text_rotation = attr.value.as_ref()
                     .parse()
                     .ok();
             }
-            b"indent" => {
-                alignment.indent = std::str::from_utf8(&attr.value).unwrap_or_default()
+            "indent" => {
+                alignment.indent = attr.value.as_ref()
                     .parse()
                     .ok();
             }
-            b"shrinkToFit" => {
+            "shrinkToFit" => {
                 alignment.shrink_to_fit = parse_bool_attr(&attr.value);
             }
             _ => {}
@@ -1399,10 +1395,10 @@ fn parse_protection_attrs(e: &BytesStart<'_>) -> Protection {
     let mut protection = Protection::default();
     for attr in e.attributes().flatten() {
         match attr.key.local_name().as_ref() {
-            b"locked" => {
+            "locked" => {
                 protection.locked = parse_bool_attr(&attr.value);
             }
-            b"hidden" => {
+            "hidden" => {
                 protection.hidden = parse_bool_attr(&attr.value);
             }
             _ => {}
@@ -1416,16 +1412,16 @@ fn parse_cell_style_attrs(e: &BytesStart<'_>) -> CellStyle {
     let mut cs = CellStyle::default();
     for attr in e.attributes().flatten() {
         match attr.key.local_name().as_ref() {
-            b"name" => {
-                cs.name = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+            "name" => {
+                cs.name = attr.value.into_owned();
             }
-            b"xfId" => {
-                cs.xf_id = std::str::from_utf8(&attr.value).unwrap_or_default()
+            "xfId" => {
+                cs.xf_id = attr.value.as_ref()
                     .parse()
                     .unwrap_or(0);
             }
-            b"builtinId" => {
-                cs.builtin_id = std::str::from_utf8(&attr.value).unwrap_or_default()
+            "builtinId" => {
+                cs.builtin_id = attr.value.as_ref()
                     .parse()
                     .ok();
             }
@@ -1437,9 +1433,8 @@ fn parse_cell_style_attrs(e: &BytesStart<'_>) -> CellStyle {
 
 /// Parse a boolean attribute value ("1", "true" -> true, everything else -> false).
 #[inline]
-fn parse_bool_attr(value: &[u8]) -> bool {
-    let s = std::str::from_utf8(value).unwrap_or_default();
-    s == "1" || s == "true"
+fn parse_bool_attr(value: &str) -> bool {
+    value == "1" || value == "true"
 }
 
 /// Write a single font element.

@@ -53,26 +53,24 @@ fn parse_row_attrs(e: &BytesStart<'_>) -> RowAttrs {
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
         match ln.as_ref() {
-            b"r" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "r" => {
+                let val = attr.value.as_ref();
                 ra.index = val.parse::<u32>().unwrap_or(0);
             }
-            b"ht" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "ht" => {
+                let val = attr.value.as_ref();
                 ra.height = val.parse::<f64>().ok();
             }
-            b"hidden" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "hidden" => {
+                let val = attr.value.as_ref();
                 ra.hidden = val == "1" || val.eq_ignore_ascii_case("true");
             }
-            b"outlineLevel" => {
-                ra.outline_level = std::str::from_utf8(&attr.value)
-                    .ok()
-                    .and_then(|v| v.parse::<u8>().ok())
+            "outlineLevel" => {
+                ra.outline_level = attr.value.parse::<u8>().ok()
                     .filter(|&v| v > 0);
             }
-            b"collapsed" => {
-                ra.collapsed = std::str::from_utf8(&attr.value).unwrap_or("0") == "1";
+            "collapsed" => {
+                ra.collapsed = attr.value.as_ref() == "1";
             }
             _ => {}
         }
@@ -98,16 +96,16 @@ fn parse_cell_attrs(e: &BytesStart<'_>) -> CellAttrs {
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
         match ln.as_ref() {
-            b"r" => {
+            "r" => {
                 ca.reference =
-                    std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+                    attr.value.into_owned();
             }
-            b"t" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "t" => {
+                let val = attr.value.as_ref();
                 ca.cell_type = parse_cell_type_attr(val);
             }
-            b"s" => {
-                let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+            "s" => {
+                let val = attr.value.as_ref();
                 ca.style_index = val.parse::<u32>().ok();
             }
             _ => {}
@@ -134,23 +132,23 @@ struct FormulaState {
 fn parse_formula_attrs(e: &BytesStart<'_>, fs: &mut FormulaState) {
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         match ln.as_ref() {
-            b"t" => fs.formula_type = Some(val.to_owned()),
-            b"ref" => fs.formula_ref = Some(val.to_owned()),
-            b"si" => fs.shared_index = val.parse::<u32>().ok(),
-            b"cm" if val == "1" => {
+            "t" => fs.formula_type = Some(val.to_owned()),
+            "ref" => fs.formula_ref = Some(val.to_owned()),
+            "si" => fs.shared_index = val.parse::<u32>().ok(),
+            "cm" if val == "1" => {
                 fs.dynamic_array = Some(true);
             }
-            b"r1" => fs.formula_r1 = Some(val.to_owned()),
-            b"r2" => fs.formula_r2 = Some(val.to_owned()),
-            b"dt2D" if val == "1" || val.eq_ignore_ascii_case("true") => {
+            "r1" => fs.formula_r1 = Some(val.to_owned()),
+            "r2" => fs.formula_r2 = Some(val.to_owned()),
+            "dt2D" if val == "1" || val.eq_ignore_ascii_case("true") => {
                 fs.formula_dt2d = Some(true);
             }
-            b"dtr1" if val == "1" || val.eq_ignore_ascii_case("true") => {
+            "dtr1" if val == "1" || val.eq_ignore_ascii_case("true") => {
                 fs.formula_dtr1 = Some(true);
             }
-            b"dtr2" if val == "1" || val.eq_ignore_ascii_case("true") => {
+            "dtr2" if val == "1" || val.eq_ignore_ascii_case("true") => {
                 fs.formula_dtr2 = Some(true);
             }
             _ => {}
@@ -163,23 +161,23 @@ fn parse_sheet_view_attrs(e: &BytesStart<'_>) -> (SheetViewData, bool) {
     let mut sv = SheetViewData::default();
     let mut has_non_default = false;
     for attr in e.attributes().flatten() {
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         match attr.key.local_name().as_ref() {
-            b"showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
-            b"showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
-            b"showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
-            b"rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
-            b"tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
-            b"showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
-            b"showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
-            b"showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
-            b"defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
-            b"zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
-            b"zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
-            b"zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
-            b"zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
-            b"colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
-            b"view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
+            "showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
+            "showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
+            "showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
+            "rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
+            "tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
+            "showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
+            "showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
+            "showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
+            "defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
+            "zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
+            "zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
+            "zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
+            "zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
+            "colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
+            "view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
             _ => {}
         }
     }
@@ -195,14 +193,14 @@ fn parse_selection_attrs(e: &BytesStart<'_>) -> PaneSelection {
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
         match ln.as_ref() {
-            b"pane" => {
-                sel_pane = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+            "pane" => {
+                sel_pane = Some(attr.value.into_owned());
             }
-            b"activeCell" => {
-                sel_active = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+            "activeCell" => {
+                sel_active = Some(attr.value.into_owned());
             }
-            b"sqref" => {
-                sel_sqref = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+            "sqref" => {
+                sel_sqref = Some(attr.value.into_owned());
             }
             _ => {}
         }
@@ -225,20 +223,20 @@ fn parse_pane_attrs(e: &BytesStart<'_>) -> (Option<FrozenPane>, Option<SplitPane
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
         match ln.as_ref() {
-            b"ySplit" => {
-                y_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+            "ySplit" => {
+                y_split_raw = attr.value.into_owned();
             }
-            b"xSplit" => {
-                x_split_raw = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+            "xSplit" => {
+                x_split_raw = attr.value.into_owned();
             }
-            b"state" => {
-                state_val = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+            "state" => {
+                state_val = attr.value.into_owned();
             }
-            b"topLeftCell" => {
-                top_left_cell_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+            "topLeftCell" => {
+                top_left_cell_val = Some(attr.value.into_owned());
             }
-            b"activePane" => {
-                active_pane_val = Some(std::str::from_utf8(&attr.value).unwrap_or_default().to_owned());
+            "activePane" => {
+                active_pane_val = Some(attr.value.into_owned());
             }
             _ => {}
         }
@@ -286,24 +284,24 @@ fn parse_data_validation_attrs(e: &BytesStart<'_>) -> DataValidation {
     };
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         match ln.as_ref() {
-            b"sqref" => dv.sqref = val.to_owned(),
-            b"type" => dv.validation_type = Some(val.to_owned()),
-            b"operator" => dv.operator = Some(val.to_owned()),
-            b"allowBlank" => {
+            "sqref" => dv.sqref = val.to_owned(),
+            "type" => dv.validation_type = Some(val.to_owned()),
+            "operator" => dv.operator = Some(val.to_owned()),
+            "allowBlank" => {
                 dv.allow_blank = Some(val == "1" || val.eq_ignore_ascii_case("true"));
             }
-            b"showErrorMessage" => {
+            "showErrorMessage" => {
                 dv.show_error_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
             }
-            b"errorTitle" => dv.error_title = Some(val.to_owned()),
-            b"error" => dv.error_message = Some(val.to_owned()),
-            b"showInputMessage" => {
+            "errorTitle" => dv.error_title = Some(val.to_owned()),
+            "error" => dv.error_message = Some(val.to_owned()),
+            "showInputMessage" => {
                 dv.show_input_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
             }
-            b"promptTitle" => dv.prompt_title = Some(val.to_owned()),
-            b"prompt" => dv.prompt = Some(val.to_owned()),
+            "promptTitle" => dv.prompt_title = Some(val.to_owned()),
+            "prompt" => dv.prompt = Some(val.to_owned()),
             _ => {}
         }
     }
@@ -325,14 +323,14 @@ fn parse_cf_rule_attrs(e: &BytesStart<'_>) -> ConditionalFormattingRule {
     };
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         match ln.as_ref() {
-            b"type" => rule.rule_type = val.to_owned(),
-            b"priority" => {
+            "type" => rule.rule_type = val.to_owned(),
+            "priority" => {
                 rule.priority = val.parse::<u32>().unwrap_or(0);
             }
-            b"operator" => rule.operator = Some(val.to_owned()),
-            b"dxfId" => {
+            "operator" => rule.operator = Some(val.to_owned()),
+            "dxfId" => {
                 rule.dxf_id = val.parse::<u32>().ok();
             }
             _ => {}
@@ -352,12 +350,12 @@ fn parse_hyperlink_attrs(e: &BytesStart<'_>) -> Hyperlink {
     };
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         match ln.as_ref() {
-            b"ref" => hl.cell_ref = val.to_owned(),
-            b"location" => hl.location = Some(val.to_owned()),
-            b"display" => hl.display = Some(val.to_owned()),
-            b"tooltip" => hl.tooltip = Some(val.to_owned()),
+            "ref" => hl.cell_ref = val.to_owned(),
+            "location" => hl.location = Some(val.to_owned()),
+            "display" => hl.display = Some(val.to_owned()),
+            "tooltip" => hl.tooltip = Some(val.to_owned()),
             _ => {}
         }
     }
@@ -379,16 +377,16 @@ fn parse_page_setup_attrs(e: &BytesStart<'_>) -> PageSetup {
     };
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         match ln.as_ref() {
-            b"paperSize" => ps.paper_size = val.parse::<u32>().ok(),
-            b"orientation" => ps.orientation = Some(val.to_owned()),
-            b"fitToWidth" => ps.fit_to_width = val.parse::<u32>().ok(),
-            b"fitToHeight" => ps.fit_to_height = val.parse::<u32>().ok(),
-            b"scale" => ps.scale = val.parse::<u32>().ok(),
-            b"firstPageNumber" => ps.first_page_number = val.parse::<u32>().ok(),
-            b"horizontalDpi" => ps.horizontal_dpi = val.parse::<u32>().ok(),
-            b"verticalDpi" => ps.vertical_dpi = val.parse::<u32>().ok(),
+            "paperSize" => ps.paper_size = val.parse::<u32>().ok(),
+            "orientation" => ps.orientation = Some(val.to_owned()),
+            "fitToWidth" => ps.fit_to_width = val.parse::<u32>().ok(),
+            "fitToHeight" => ps.fit_to_height = val.parse::<u32>().ok(),
+            "scale" => ps.scale = val.parse::<u32>().ok(),
+            "firstPageNumber" => ps.first_page_number = val.parse::<u32>().ok(),
+            "horizontalDpi" => ps.horizontal_dpi = val.parse::<u32>().ok(),
+            "verticalDpi" => ps.vertical_dpi = val.parse::<u32>().ok(),
             _ => {}
         }
     }
@@ -414,22 +412,22 @@ fn parse_sheet_protection_attrs(e: &BytesStart<'_>) -> SheetProtection {
     };
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         let as_bool = val == "1" || val.eq_ignore_ascii_case("true");
         match ln.as_ref() {
-            b"sheet" => sp.sheet = as_bool,
-            b"objects" => sp.objects = as_bool,
-            b"scenarios" => sp.scenarios = as_bool,
-            b"password" => sp.password = Some(val.to_owned()),
-            b"formatCells" => sp.format_cells = as_bool,
-            b"formatColumns" => sp.format_columns = as_bool,
-            b"formatRows" => sp.format_rows = as_bool,
-            b"insertColumns" => sp.insert_columns = as_bool,
-            b"insertRows" => sp.insert_rows = as_bool,
-            b"deleteColumns" => sp.delete_columns = as_bool,
-            b"deleteRows" => sp.delete_rows = as_bool,
-            b"sort" => sp.sort = as_bool,
-            b"autoFilter" => sp.auto_filter = as_bool,
+            "sheet" => sp.sheet = as_bool,
+            "objects" => sp.objects = as_bool,
+            "scenarios" => sp.scenarios = as_bool,
+            "password" => sp.password = Some(val.to_owned()),
+            "formatCells" => sp.format_cells = as_bool,
+            "formatColumns" => sp.format_columns = as_bool,
+            "formatRows" => sp.format_rows = as_bool,
+            "insertColumns" => sp.insert_columns = as_bool,
+            "insertRows" => sp.insert_rows = as_bool,
+            "deleteColumns" => sp.delete_columns = as_bool,
+            "deleteRows" => sp.delete_rows = as_bool,
+            "sort" => sp.sort = as_bool,
+            "autoFilter" => sp.auto_filter = as_bool,
             _ => {}
         }
     }
@@ -443,10 +441,10 @@ fn parse_cfvo_attrs(e: &BytesStart<'_>) -> Cfvo {
     let mut cfvo_val: Option<String> = None;
     for attr in e.attributes().flatten() {
         let ln = attr.key.local_name();
-        let v = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let v = attr.value.as_ref();
         match ln.as_ref() {
-            b"type" => cfvo_type = v.to_owned(),
-            b"val" => cfvo_val = Some(v.to_owned()),
+            "type" => cfvo_type = v.to_owned(),
+            "val" => cfvo_val = Some(v.to_owned()),
             _ => {}
         }
     }
@@ -459,10 +457,10 @@ fn parse_header_footer_attrs(e: &BytesStart<'_>) -> HeaderFooter {
     let mut hf = HeaderFooter::default();
     for attr in e.attributes().flatten() {
         match attr.key.as_ref() {
-            b"differentOddEven" => hf.different_odd_even = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
-            b"differentFirst" => hf.different_first = std::str::from_utf8(&attr.value).unwrap_or("0") == "1",
-            b"scaleWithDoc" => hf.scale_with_doc = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
-            b"alignWithMargins" => hf.align_with_margins = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+            "differentOddEven" => hf.different_odd_even = attr.value.as_ref() == "1",
+            "differentFirst" => hf.different_first = attr.value.as_ref() == "1",
+            "scaleWithDoc" => hf.scale_with_doc = attr.value.as_ref() != "0",
+            "alignWithMargins" => hf.align_with_margins = attr.value.as_ref() != "0",
             _ => {}
         }
     }
@@ -475,8 +473,8 @@ fn parse_outline_pr_attrs(e: &BytesStart<'_>) -> OutlineProperties {
     let mut op = OutlineProperties { summary_below: true, summary_right: true };
     for attr in e.attributes().flatten() {
         match attr.key.as_ref() {
-            b"summaryBelow" => op.summary_below = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
-            b"summaryRight" => op.summary_right = std::str::from_utf8(&attr.value).unwrap_or("1") != "0",
+            "summaryBelow" => op.summary_below = attr.value.as_ref() != "0",
+            "summaryRight" => op.summary_right = attr.value.as_ref() != "0",
             _ => {}
         }
     }
@@ -488,12 +486,12 @@ fn parse_outline_pr_attrs(e: &BytesStart<'_>) -> OutlineProperties {
 fn parse_brk_attrs(e: &BytesStart<'_>) -> PageBreak {
     let mut brk = PageBreak { id: 0, min: None, max: None, man: false };
     for attr in e.attributes().flatten() {
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         match attr.key.local_name().as_ref() {
-            b"id" => brk.id = val.parse().unwrap_or(0),
-            b"min" => brk.min = val.parse().ok(),
-            b"max" => brk.max = val.parse().ok(),
-            b"man" => brk.man = val == "1" || val.eq_ignore_ascii_case("true"),
+            "id" => brk.id = val.parse().unwrap_or(0),
+            "min" => brk.min = val.parse().ok(),
+            "max" => brk.max = val.parse().ok(),
+            "man" => brk.man = val == "1" || val.eq_ignore_ascii_case("true"),
             _ => {}
         }
     }
@@ -504,21 +502,21 @@ fn parse_brk_attrs(e: &BytesStart<'_>) -> PageBreak {
 fn parse_sparkline_group_attrs(e: &BytesStart<'_>) -> SparklineGroup {
     let mut group = SparklineGroup::default();
     for attr in e.attributes().flatten() {
-        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+        let val = attr.value.as_ref();
         match attr.key.local_name().as_ref() {
-            b"type" => group.sparkline_type = val.to_owned(),
-            b"displayEmptyCellsAs" => group.display_empty_cells_as = Some(val.to_owned()),
-            b"markers" => group.markers = val == "1" || val.eq_ignore_ascii_case("true"),
-            b"high" => group.high = val == "1" || val.eq_ignore_ascii_case("true"),
-            b"low" => group.low = val == "1" || val.eq_ignore_ascii_case("true"),
-            b"first" => group.first = val == "1" || val.eq_ignore_ascii_case("true"),
-            b"last" => group.last = val == "1" || val.eq_ignore_ascii_case("true"),
-            b"negative" => group.negative = val == "1" || val.eq_ignore_ascii_case("true"),
-            b"displayXAxis" => group.display_x_axis = val == "1" || val.eq_ignore_ascii_case("true"),
-            b"lineWeight" => group.line_weight = val.parse::<f64>().ok(),
-            b"manualMin" => group.manual_min = val.parse::<f64>().ok(),
-            b"manualMax" => group.manual_max = val.parse::<f64>().ok(),
-            b"rightToLeft" => group.right_to_left = val == "1" || val.eq_ignore_ascii_case("true"),
+            "type" => group.sparkline_type = val.to_owned(),
+            "displayEmptyCellsAs" => group.display_empty_cells_as = Some(val.to_owned()),
+            "markers" => group.markers = val == "1" || val.eq_ignore_ascii_case("true"),
+            "high" => group.high = val == "1" || val.eq_ignore_ascii_case("true"),
+            "low" => group.low = val == "1" || val.eq_ignore_ascii_case("true"),
+            "first" => group.first = val == "1" || val.eq_ignore_ascii_case("true"),
+            "last" => group.last = val == "1" || val.eq_ignore_ascii_case("true"),
+            "negative" => group.negative = val == "1" || val.eq_ignore_ascii_case("true"),
+            "displayXAxis" => group.display_x_axis = val == "1" || val.eq_ignore_ascii_case("true"),
+            "lineWeight" => group.line_weight = val.parse::<f64>().ok(),
+            "manualMin" => group.manual_min = val.parse::<f64>().ok(),
+            "manualMax" => group.manual_max = val.parse::<f64>().ok(),
+            "rightToLeft" => group.right_to_left = val == "1" || val.eq_ignore_ascii_case("true"),
             _ => {}
         }
     }
@@ -527,28 +525,28 @@ fn parse_sparkline_group_attrs(e: &BytesStart<'_>) -> SparklineGroup {
 
 /// Extract the value of a single named attribute from a `BytesStart`.
 #[inline]
-fn find_attr_str(e: &BytesStart<'_>, name: &[u8]) -> Option<String> {
+fn find_attr_str(e: &BytesStart<'_>, name: &str) -> Option<String> {
     e.attributes().flatten()
         .find(|a| a.key.local_name().as_ref() == name)
-        .map(|a| std::str::from_utf8(&a.value).unwrap_or_default().to_owned())
+        .map(|a| a.value.into_owned())
 }
 
 /// Parse sparkline color elements (self-closing) from a `BytesStart` into a group.
 #[inline]
-fn apply_sparkline_color(group: &mut SparklineGroup, local: &[u8], e: &BytesStart<'_>) {
+fn apply_sparkline_color(group: &mut SparklineGroup, local: &str, e: &BytesStart<'_>) {
     if let Some(attr) = e.attributes().flatten()
-        .find(|a| a.key.local_name().as_ref() == b"rgb")
+        .find(|a| a.key.local_name().as_ref() == "rgb")
     {
-        let rgb = std::str::from_utf8(&attr.value).unwrap_or_default().to_owned();
+        let rgb = attr.value.into_owned();
         match local {
-            b"colorSeries" => group.color_series = Some(rgb),
-            b"colorNegative" => group.color_negative = Some(rgb),
-            b"colorAxis" => group.color_axis = Some(rgb),
-            b"colorMarkers" => group.color_markers = Some(rgb),
-            b"colorFirst" => group.color_first = Some(rgb),
-            b"colorLast" => group.color_last = Some(rgb),
-            b"colorHigh" => group.color_high = Some(rgb),
-            b"colorLow" => group.color_low = Some(rgb),
+            "colorSeries" => group.color_series = Some(rgb),
+            "colorNegative" => group.color_negative = Some(rgb),
+            "colorAxis" => group.color_axis = Some(rgb),
+            "colorMarkers" => group.color_markers = Some(rgb),
+            "colorFirst" => group.color_first = Some(rgb),
+            "colorLast" => group.color_last = Some(rgb),
+            "colorHigh" => group.color_high = Some(rgb),
+            "colorLow" => group.color_low = Some(rgb),
             _ => {}
         }
     }
@@ -678,29 +676,29 @@ impl WorksheetXml {
                 Ok(Event::Start(ref e)) => {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
-                        (ParseState::Root, b"sheetPr") => {
+                        (ParseState::Root, "sheetPr") => {
                             state = ParseState::SheetPr;
                         }
-                        (ParseState::Root, b"sheetViews") => {
+                        (ParseState::Root, "sheetViews") => {
                             state = ParseState::SheetViews;
                         }
-                        (ParseState::SheetViews, b"sheetView") => {
+                        (ParseState::SheetViews, "sheetView") => {
                             state = ParseState::SheetView;
                             let (sv, has_non_default) = parse_sheet_view_attrs(e);
                             if has_non_default {
                                 sheet_view = Some(sv);
                             }
                         }
-                        (ParseState::SheetView, b"selection") => {
+                        (ParseState::SheetView, "selection") => {
                             pane_selections.push(parse_selection_attrs(e));
                         }
-                        (ParseState::Root, b"cols") => {
+                        (ParseState::Root, "cols") => {
                             state = ParseState::Cols;
                         }
-                        (ParseState::Root, b"sheetData") => {
+                        (ParseState::Root, "sheetData") => {
                             state = ParseState::SheetData;
                         }
-                        (ParseState::SheetData, b"row") => {
+                        (ParseState::SheetData, "row") => {
                             state = ParseState::InRow;
                             let ra = parse_row_attrs(e);
                             cur_row_index = ra.index;
@@ -710,7 +708,7 @@ impl WorksheetXml {
                             cur_row_collapsed = ra.collapsed;
                             cur_row_cells.clear();
                         }
-                        (ParseState::InRow, b"c") => {
+                        (ParseState::InRow, "c") => {
                             state = ParseState::InCell;
                             let ca = parse_cell_attrs(e);
                             cur_cell_ref = ca.reference;
@@ -731,129 +729,129 @@ impl WorksheetXml {
                                 formula_dtr2: None,
                             };
                         }
-                        (ParseState::InCell, b"v") => {
+                        (ParseState::InCell, "v") => {
                             state = ParseState::InCellValue;
                             text_buf.clear();
                         }
-                        (ParseState::InCell, b"f") => {
+                        (ParseState::InCell, "f") => {
                             state = ParseState::InCellFormula;
                             text_buf.clear();
                             parse_formula_attrs(e, &mut cur_formula);
                         }
-                        (ParseState::InCell, b"is") => {
+                        (ParseState::InCell, "is") => {
                             state = ParseState::InInlineStr;
                         }
-                        (ParseState::InInlineStr, b"t") => {
+                        (ParseState::InInlineStr, "t") => {
                             state = ParseState::InInlineStrT;
                             text_buf.clear();
                         }
-                        (ParseState::Root, b"mergeCells") => {
+                        (ParseState::Root, "mergeCells") => {
                             state = ParseState::MergeCells;
                         }
-                        (ParseState::Root, b"dataValidations") => {
+                        (ParseState::Root, "dataValidations") => {
                             state = ParseState::InDataValidations;
                         }
-                        (ParseState::InDataValidations, b"dataValidation") => {
+                        (ParseState::InDataValidations, "dataValidation") => {
                             state = ParseState::InDataValidation;
                             cur_dv = Some(parse_data_validation_attrs(e));
                         }
-                        (ParseState::InDataValidation, b"formula1") => {
+                        (ParseState::InDataValidation, "formula1") => {
                             state = ParseState::InDVFormula1;
                             text_buf.clear();
                         }
-                        (ParseState::InDataValidation, b"formula2") => {
+                        (ParseState::InDataValidation, "formula2") => {
                             state = ParseState::InDVFormula2;
                             text_buf.clear();
                         }
-                        (ParseState::Root, b"conditionalFormatting") => {
+                        (ParseState::Root, "conditionalFormatting") => {
                             state = ParseState::InConditionalFormatting;
                             cur_cf_sqref.clear();
                             cur_cf_rules.clear();
-                            if let Some(val) = find_attr_str(e, b"sqref") {
+                            if let Some(val) = find_attr_str(e, "sqref") {
                                 cur_cf_sqref = val;
                             }
                         }
-                        (ParseState::InConditionalFormatting, b"cfRule") => {
+                        (ParseState::InConditionalFormatting, "cfRule") => {
                             state = ParseState::InCfRule;
                             cur_cf_rule = Some(parse_cf_rule_attrs(e));
                         }
-                        (ParseState::InCfRule, b"formula") => {
+                        (ParseState::InCfRule, "formula") => {
                             state = ParseState::InCfRuleFormula;
                             text_buf.clear();
                         }
-                        (ParseState::InCfRule, b"colorScale") => {
+                        (ParseState::InCfRule, "colorScale") => {
                             state = ParseState::InColorScale;
                             cur_cfvos.clear();
                             cur_cf_colors.clear();
                         }
-                        (ParseState::InCfRule, b"dataBar") => {
+                        (ParseState::InCfRule, "dataBar") => {
                             state = ParseState::InDataBar;
                             cur_cfvos.clear();
                             cur_cf_bar_color.clear();
                         }
-                        (ParseState::InCfRule, b"iconSet") => {
+                        (ParseState::InCfRule, "iconSet") => {
                             state = ParseState::InIconSet;
                             cur_cfvos.clear();
-                            cur_icon_set_type = find_attr_str(e, b"iconSet");
+                            cur_icon_set_type = find_attr_str(e, "iconSet");
                         }
-                        (ParseState::Root, b"hyperlinks") => {
+                        (ParseState::Root, "hyperlinks") => {
                             state = ParseState::InHyperlinks;
                         }
-                        (ParseState::Root, b"autoFilter") => {
+                        (ParseState::Root, "autoFilter") => {
                             state = ParseState::InAutoFilter;
                             cur_af_range.clear();
                             cur_af_columns.clear();
-                            if let Some(val) = find_attr_str(e, b"ref") {
+                            if let Some(val) = find_attr_str(e, "ref") {
                                 cur_af_range = val;
                             }
                         }
-                        (ParseState::InAutoFilter, b"filterColumn") => {
+                        (ParseState::InAutoFilter, "filterColumn") => {
                             state = ParseState::InFilterColumn;
-                            cur_filter_col_id = find_attr_str(e, b"colId")
+                            cur_filter_col_id = find_attr_str(e, "colId")
                                 .and_then(|v| v.parse::<u32>().ok())
                                 .unwrap_or(0);
                             cur_filter_vals.clear();
                             cur_custom_filters = None;
                         }
-                        (ParseState::InFilterColumn, b"filters") => {
+                        (ParseState::InFilterColumn, "filters") => {
                             state = ParseState::InFilters;
                         }
-                        (ParseState::InFilterColumn, b"customFilters") => {
+                        (ParseState::InFilterColumn, "customFilters") => {
                             state = ParseState::InCustomFilters;
-                            cur_custom_filter_and = find_attr_str(e, b"and")
+                            cur_custom_filter_and = find_attr_str(e, "and")
                                 .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
                             cur_custom_filter_items.clear();
                         }
-                        (ParseState::Root, b"headerFooter") => {
+                        (ParseState::Root, "headerFooter") => {
                             header_footer = Some(parse_header_footer_attrs(e));
                             state = ParseState::HeaderFooter;
                         }
-                        (ParseState::HeaderFooter, b"oddHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(0); }
-                        (ParseState::HeaderFooter, b"oddFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(1); }
-                        (ParseState::HeaderFooter, b"evenHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(2); }
-                        (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
-                        (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
-                        (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
+                        (ParseState::HeaderFooter, "oddHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(0); }
+                        (ParseState::HeaderFooter, "oddFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(1); }
+                        (ParseState::HeaderFooter, "evenHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(2); }
+                        (ParseState::HeaderFooter, "evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
+                        (ParseState::HeaderFooter, "firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
+                        (ParseState::HeaderFooter, "firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
 
                         // ---- rowBreaks / colBreaks ----
-                        (ParseState::Root, b"rowBreaks") => {
+                        (ParseState::Root, "rowBreaks") => {
                             page_breaks.get_or_insert_with(PageBreaks::default);
                             state = ParseState::InRowBreaks;
                         }
-                        (ParseState::Root, b"colBreaks") => {
+                        (ParseState::Root, "colBreaks") => {
                             page_breaks.get_or_insert_with(PageBreaks::default);
                             state = ParseState::InColBreaks;
                         }
 
                         // ---- extLst / sparklines ----
-                        (ParseState::Root, b"extLst") => {
+                        (ParseState::Root, "extLst") => {
                             state = ParseState::ExtLst;
                         }
-                        (ParseState::ExtLst, b"ext") => {
+                        (ParseState::ExtLst, "ext") => {
                             let is_sparkline_ext = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"uri")
+                                .find(|a| a.key.local_name().as_ref() == "uri")
                                 .is_some_and(|attr| {
-                                    let uri = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    let uri = attr.value.as_ref();
                                     uri.contains("05C60535")
                                 });
                             if is_sparkline_ext {
@@ -863,25 +861,25 @@ impl WorksheetXml {
                                 state = ParseState::ExtOther(1);
                             }
                         }
-                        (ParseState::ExtSparklines, b"sparklineGroups") => {
+                        (ParseState::ExtSparklines, "sparklineGroups") => {
                             state = ParseState::SparklineGroups;
                         }
-                        (ParseState::SparklineGroups, b"sparklineGroup") => {
+                        (ParseState::SparklineGroups, "sparklineGroup") => {
                             current_sparkline_group = Some(parse_sparkline_group_attrs(e));
                             state = ParseState::SparklineGroup;
                         }
-                        (ParseState::SparklineGroup, b"sparklines") => {
+                        (ParseState::SparklineGroup, "sparklines") => {
                             state = ParseState::Sparklines;
                         }
-                        (ParseState::Sparklines, b"sparkline") => {
+                        (ParseState::Sparklines, "sparkline") => {
                             current_sparkline_formula.clear();
                             current_sparkline_sqref.clear();
                             state = ParseState::SparklineItem;
                         }
-                        (ParseState::SparklineItem, b"f") => {
+                        (ParseState::SparklineItem, "f") => {
                             state = ParseState::SparklineFormula;
                         }
-                        (ParseState::SparklineItem, b"sqref") => {
+                        (ParseState::SparklineItem, "sqref") => {
                             state = ParseState::SparklineSqref;
                         }
                         (ParseState::ExtOther(_), _) => {
@@ -895,44 +893,44 @@ impl WorksheetXml {
                 Ok(Event::Empty(ref e)) => {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
-                        (ParseState::Root, b"dimension") => {
-                            dimension = find_attr_str(e, b"ref");
+                        (ParseState::Root, "dimension") => {
+                            dimension = find_attr_str(e, "ref");
                         }
-                        (ParseState::SheetPr, b"tabColor") => {
-                            tab_color = find_attr_str(e, b"rgb");
+                        (ParseState::SheetPr, "tabColor") => {
+                            tab_color = find_attr_str(e, "rgb");
                         }
-                        (ParseState::SheetPr, b"outlinePr") => {
+                        (ParseState::SheetPr, "outlinePr") => {
                             outline_properties = Some(parse_outline_pr_attrs(e));
                         }
-                        (ParseState::Root, b"autoFilter") => {
+                        (ParseState::Root, "autoFilter") => {
                             auto_filter = Some(AutoFilter {
-                                range: find_attr_str(e, b"ref").unwrap_or_default(),
+                                range: find_attr_str(e, "ref").unwrap_or_default(),
                                 filter_columns: Vec::new(),
                             });
                         }
-                        (ParseState::SheetView, b"pane") => {
+                        (ParseState::SheetView, "pane") => {
                             let (fp, sp) = parse_pane_attrs(e);
                             if fp.is_some() { frozen_pane = fp; }
                             if sp.is_some() { split_pane = sp; }
                         }
-                        (ParseState::SheetView, b"selection") => {
+                        (ParseState::SheetView, "selection") => {
                             pane_selections.push(parse_selection_attrs(e));
                         }
-                        (ParseState::SheetViews, b"sheetView") => {
+                        (ParseState::SheetViews, "sheetView") => {
                             let (sv, has_non_default) = parse_sheet_view_attrs(e);
                             if has_non_default {
                                 sheet_view = Some(sv);
                             }
                         }
-                        (ParseState::Cols, b"col") => {
+                        (ParseState::Cols, "col") => {
                             columns.push(parse_col_element(e));
                         }
-                        (ParseState::MergeCells, b"mergeCell") => {
-                            if let Some(val) = find_attr_str(e, b"ref") {
+                        (ParseState::MergeCells, "mergeCell") => {
+                            if let Some(val) = find_attr_str(e, "ref") {
                                 merge_cells.push(val);
                             }
                         }
-                        (ParseState::InRow, b"c") => {
+                        (ParseState::InRow, "c") => {
                             // Self-closing <c ... /> — cell with no child elements.
                             let ca = parse_cell_attrs(e);
                             cur_row_cells.push(Cell {
@@ -942,7 +940,7 @@ impl WorksheetXml {
                                 ..Default::default()
                             });
                         }
-                        (ParseState::SheetData, b"row") => {
+                        (ParseState::SheetData, "row") => {
                             // Self-closing <row ... /> — empty row.
                             let ra = parse_row_attrs(e);
                             rows.push(Row {
@@ -954,70 +952,70 @@ impl WorksheetXml {
                                 collapsed: ra.collapsed,
                             });
                         }
-                        (ParseState::InCell, b"v") => {
+                        (ParseState::InCell, "v") => {
                             // Empty <v/> — no value.
                         }
-                        (ParseState::InCell, b"f") => {
+                        (ParseState::InCell, "f") => {
                             // Empty <f/> — parse attributes even on self-closing.
                             parse_formula_attrs(e, &mut cur_formula);
                         }
-                        (ParseState::InDataValidations, b"dataValidation") => {
+                        (ParseState::InDataValidations, "dataValidation") => {
                             // Self-closing <dataValidation ... /> with no formula children.
                             data_validations.push(parse_data_validation_attrs(e));
                         }
-                        (ParseState::InConditionalFormatting, b"cfRule") => {
+                        (ParseState::InConditionalFormatting, "cfRule") => {
                             // Self-closing <cfRule ... /> with no formula child.
                             cur_cf_rules.push(parse_cf_rule_attrs(e));
                         }
                         // Hyperlink (self-closing).
-                        (ParseState::InHyperlinks, b"hyperlink") => {
+                        (ParseState::InHyperlinks, "hyperlink") => {
                             hyperlinks.push(parse_hyperlink_attrs(e));
                         }
                         // pageSetup (always self-closing).
-                        (ParseState::Root, b"pageSetup") => {
+                        (ParseState::Root, "pageSetup") => {
                             page_setup = Some(parse_page_setup_attrs(e));
                         }
                         // sheetProtection (always self-closing).
-                        (ParseState::Root, b"sheetProtection") => {
+                        (ParseState::Root, "sheetProtection") => {
                             sheet_protection = Some(parse_sheet_protection_attrs(e));
                         }
                         // brk (page break, always self-closing).
-                        (ParseState::InRowBreaks, b"brk") => {
+                        (ParseState::InRowBreaks, "brk") => {
                             if let Some(ref mut pb) = page_breaks {
                                 pb.row_breaks.push(parse_brk_attrs(e));
                             }
                         }
-                        (ParseState::InColBreaks, b"brk") => {
+                        (ParseState::InColBreaks, "brk") => {
                             if let Some(ref mut pb) = page_breaks {
                                 pb.col_breaks.push(parse_brk_attrs(e));
                             }
                         }
                         // cfvo in colorScale/dataBar/iconSet.
-                        (ParseState::InColorScale | ParseState::InDataBar | ParseState::InIconSet, b"cfvo") => {
+                        (ParseState::InColorScale | ParseState::InDataBar | ParseState::InIconSet, "cfvo") => {
                             cur_cfvos.push(parse_cfvo_attrs(e));
                         }
                         // color in colorScale.
-                        (ParseState::InColorScale, b"color") => {
-                            if let Some(val) = find_attr_str(e, b"rgb") {
+                        (ParseState::InColorScale, "color") => {
+                            if let Some(val) = find_attr_str(e, "rgb") {
                                 cur_cf_colors.push(val);
                             }
                         }
                         // color in dataBar.
-                        (ParseState::InDataBar, b"color") => {
-                            if let Some(val) = find_attr_str(e, b"rgb") {
+                        (ParseState::InDataBar, "color") => {
+                            if let Some(val) = find_attr_str(e, "rgb") {
                                 cur_cf_bar_color = val;
                             }
                         }
                         // filter values.
-                        (ParseState::InFilters, b"filter") => {
-                            if let Some(val) = find_attr_str(e, b"val") {
+                        (ParseState::InFilters, "filter") => {
+                            if let Some(val) = find_attr_str(e, "val") {
                                 cur_filter_vals.push(val);
                             }
                         }
                         // custom filter values (self-closing <customFilter>).
-                        (ParseState::InCustomFilters, b"customFilter") => {
-                            let val = find_attr_str(e, b"val").unwrap_or_default();
-                            let operator = find_attr_str(e, b"operator");
+                        (ParseState::InCustomFilters, "customFilter") => {
+                            let val = find_attr_str(e, "val").unwrap_or_default();
+                            let operator = find_attr_str(e, "operator");
                             cur_custom_filter_items.push(CustomFilter { operator, val });
                         }
                         // Sparkline color elements (self-closing).
@@ -1037,16 +1035,16 @@ impl WorksheetXml {
                         | ParseState::InDVFormula1
                         | ParseState::InDVFormula2
                         | ParseState::InCfRuleFormula => {
-                            text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                            text_buf.push_str(e.as_ref());
                         }
                         ParseState::HeaderFooterChild(_) => {
-                            hf_text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                            hf_text_buf.push_str(e.as_ref());
                         }
                         ParseState::SparklineFormula => {
-                            current_sparkline_formula.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                            current_sparkline_formula.push_str(e.as_ref());
                         }
                         ParseState::SparklineSqref => {
-                            current_sparkline_sqref.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                            current_sparkline_sqref.push_str(e.as_ref());
                         }
                         _ => {}
                     }
@@ -1076,7 +1074,7 @@ impl WorksheetXml {
                 Ok(Event::End(ref e)) => {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
-                        (ParseState::InCellValue, b"v") => {
+                        (ParseState::InCellValue, "v") => {
                             // If this is a SharedString cell and we have the SST,
                             // resolve the index directly instead of storing the raw index.
                             // This avoids an extra pass AND eliminates the intermediate
@@ -1093,20 +1091,20 @@ impl WorksheetXml {
                             cur_cell_value = Some(std::mem::take(&mut text_buf));
                             state = ParseState::InCell;
                         }
-                        (ParseState::InCellFormula, b"f") => {
+                        (ParseState::InCellFormula, "f") => {
                             cur_cell_formula = Some(std::mem::take(&mut text_buf));
                             state = ParseState::InCell;
                         }
-                        (ParseState::InInlineStrT, b"t") => {
+                        (ParseState::InInlineStrT, "t") => {
                             let text = std::mem::take(&mut text_buf);
                             cur_cell_inline_string = Some(text.clone());
                             cur_cell_value = Some(text);
                             state = ParseState::InInlineStr;
                         }
-                        (ParseState::InInlineStr, b"is") => {
+                        (ParseState::InInlineStr, "is") => {
                             state = ParseState::InCell;
                         }
-                        (ParseState::InCell, b"c") => {
+                        (ParseState::InCell, "c") => {
                             cur_row_cells.push(Cell {
                                 reference: std::mem::take(&mut cur_cell_ref),
                                 cell_type: cur_cell_type,
@@ -1127,7 +1125,7 @@ impl WorksheetXml {
                             });
                             state = ParseState::InRow;
                         }
-                        (ParseState::InRow, b"row") => {
+                        (ParseState::InRow, "row") => {
                             rows.push(Row {
                                 index: cur_row_index,
                                 cells: std::mem::take(&mut cur_row_cells),
@@ -1138,85 +1136,85 @@ impl WorksheetXml {
                             });
                             state = ParseState::SheetData;
                         }
-                        (ParseState::SheetData, b"sheetData") => {
+                        (ParseState::SheetData, "sheetData") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::SheetPr, b"sheetPr") => {
+                        (ParseState::SheetPr, "sheetPr") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::SheetView, b"sheetView") => {
+                        (ParseState::SheetView, "sheetView") => {
                             state = ParseState::SheetViews;
                         }
-                        (ParseState::SheetViews, b"sheetViews") => {
+                        (ParseState::SheetViews, "sheetViews") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::Cols, b"cols") => {
+                        (ParseState::Cols, "cols") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::MergeCells, b"mergeCells") => {
+                        (ParseState::MergeCells, "mergeCells") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::InDVFormula1, b"formula1") => {
+                        (ParseState::InDVFormula1, "formula1") => {
                             if let Some(ref mut dv) = cur_dv {
                                 dv.formula1 = Some(std::mem::take(&mut text_buf));
                             }
                             state = ParseState::InDataValidation;
                         }
-                        (ParseState::InDVFormula2, b"formula2") => {
+                        (ParseState::InDVFormula2, "formula2") => {
                             if let Some(ref mut dv) = cur_dv {
                                 dv.formula2 = Some(std::mem::take(&mut text_buf));
                             }
                             state = ParseState::InDataValidation;
                         }
-                        (ParseState::InDataValidation, b"dataValidation") => {
+                        (ParseState::InDataValidation, "dataValidation") => {
                             if let Some(dv) = cur_dv.take() {
                                 data_validations.push(dv);
                             }
                             state = ParseState::InDataValidations;
                         }
-                        (ParseState::InDataValidations, b"dataValidations") => {
+                        (ParseState::InDataValidations, "dataValidations") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::InCfRuleFormula, b"formula") => {
+                        (ParseState::InCfRuleFormula, "formula") => {
                             if let Some(ref mut rule) = cur_cf_rule {
                                 rule.formula = Some(std::mem::take(&mut text_buf));
                             }
                             state = ParseState::InCfRule;
                         }
-                        (ParseState::InCfRule, b"cfRule") => {
+                        (ParseState::InCfRule, "cfRule") => {
                             if let Some(rule) = cur_cf_rule.take() {
                                 cur_cf_rules.push(rule);
                             }
                             state = ParseState::InConditionalFormatting;
                         }
-                        (ParseState::InConditionalFormatting, b"conditionalFormatting") => {
+                        (ParseState::InConditionalFormatting, "conditionalFormatting") => {
                             conditional_formatting.push(ConditionalFormatting {
                                 sqref: std::mem::take(&mut cur_cf_sqref),
                                 rules: std::mem::take(&mut cur_cf_rules),
                             });
                             state = ParseState::Root;
                         }
-                        (ParseState::InHyperlinks, b"hyperlinks") => {
+                        (ParseState::InHyperlinks, "hyperlinks") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::InAutoFilter, b"autoFilter") => {
+                        (ParseState::InAutoFilter, "autoFilter") => {
                             auto_filter = Some(AutoFilter {
                                 range: std::mem::take(&mut cur_af_range),
                                 filter_columns: std::mem::take(&mut cur_af_columns),
                             });
                             state = ParseState::Root;
                         }
-                        (ParseState::InFilters, b"filters") => {
+                        (ParseState::InFilters, "filters") => {
                             state = ParseState::InFilterColumn;
                         }
-                        (ParseState::InCustomFilters, b"customFilters") => {
+                        (ParseState::InCustomFilters, "customFilters") => {
                             cur_custom_filters = Some(CustomFilters {
                                 and_op: cur_custom_filter_and,
                                 filters: std::mem::take(&mut cur_custom_filter_items),
                             });
                             state = ParseState::InFilterColumn;
                         }
-                        (ParseState::InFilterColumn, b"filterColumn") => {
+                        (ParseState::InFilterColumn, "filterColumn") => {
                             cur_af_columns.push(FilterColumn {
                                 col_id: cur_filter_col_id,
                                 filters: std::mem::take(&mut cur_filter_vals),
@@ -1224,7 +1222,7 @@ impl WorksheetXml {
                             });
                             state = ParseState::InAutoFilter;
                         }
-                        (ParseState::InColorScale, b"colorScale") => {
+                        (ParseState::InColorScale, "colorScale") => {
                             if let Some(ref mut rule) = cur_cf_rule {
                                 rule.color_scale = Some(ColorScale {
                                     cfvos: std::mem::take(&mut cur_cfvos),
@@ -1233,7 +1231,7 @@ impl WorksheetXml {
                             }
                             state = ParseState::InCfRule;
                         }
-                        (ParseState::InDataBar, b"dataBar") => {
+                        (ParseState::InDataBar, "dataBar") => {
                             if let Some(ref mut rule) = cur_cf_rule {
                                 rule.data_bar = Some(DataBar {
                                     cfvos: std::mem::take(&mut cur_cfvos),
@@ -1242,7 +1240,7 @@ impl WorksheetXml {
                             }
                             state = ParseState::InCfRule;
                         }
-                        (ParseState::InIconSet, b"iconSet") => {
+                        (ParseState::InIconSet, "iconSet") => {
                             if let Some(ref mut rule) = cur_cf_rule {
                                 rule.icon_set = Some(IconSet {
                                     icon_set_type: cur_icon_set_type.take(),
@@ -1259,47 +1257,47 @@ impl WorksheetXml {
                             }
                             state = ParseState::HeaderFooter;
                         }
-                        (ParseState::HeaderFooter, b"headerFooter") => {
+                        (ParseState::HeaderFooter, "headerFooter") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::InRowBreaks, b"rowBreaks") => {
+                        (ParseState::InRowBreaks, "rowBreaks") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::InColBreaks, b"colBreaks") => {
+                        (ParseState::InColBreaks, "colBreaks") => {
                             state = ParseState::Root;
                         }
 
                         // ---- extLst / sparklines end ----
-                        (ParseState::SparklineFormula, b"f") => {
+                        (ParseState::SparklineFormula, "f") => {
                             state = ParseState::SparklineItem;
                         }
-                        (ParseState::SparklineSqref, b"sqref") => {
+                        (ParseState::SparklineSqref, "sqref") => {
                             state = ParseState::SparklineItem;
                         }
-                        (ParseState::SparklineItem, b"sparkline") => {
+                        (ParseState::SparklineItem, "sparkline") => {
                             current_sparklines.push(Sparkline {
                                 formula: std::mem::take(&mut current_sparkline_formula),
                                 sqref: std::mem::take(&mut current_sparkline_sqref),
                             });
                             state = ParseState::Sparklines;
                         }
-                        (ParseState::Sparklines, b"sparklines") => {
+                        (ParseState::Sparklines, "sparklines") => {
                             state = ParseState::SparklineGroup;
                         }
-                        (ParseState::SparklineGroup, b"sparklineGroup") => {
+                        (ParseState::SparklineGroup, "sparklineGroup") => {
                             if let Some(mut group) = current_sparkline_group.take() {
                                 group.sparklines = std::mem::take(&mut current_sparklines);
                                 sparkline_groups.push(group);
                             }
                             state = ParseState::SparklineGroups;
                         }
-                        (ParseState::SparklineGroups, b"sparklineGroups") => {
+                        (ParseState::SparklineGroups, "sparklineGroups") => {
                             state = ParseState::ExtSparklines;
                         }
-                        (ParseState::ExtSparklines, b"ext") => {
+                        (ParseState::ExtSparklines, "ext") => {
                             state = ParseState::ExtLst;
                         }
-                        (ParseState::ExtLst, b"extLst") => {
+                        (ParseState::ExtLst, "extLst") => {
                             state = ParseState::Root;
                         }
                         (ParseState::ExtOther(depth), _) => {
@@ -1463,26 +1461,26 @@ impl WorksheetXml {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
                         // ---- Sheet properties (metadata) ----
-                        (ParseState::Root, b"sheetPr") => state = ParseState::SheetPr,
+                        (ParseState::Root, "sheetPr") => state = ParseState::SheetPr,
 
                         // ---- Sheet views / pane (metadata) ----
-                        (ParseState::Root, b"sheetViews") => state = ParseState::SheetViews,
-                        (ParseState::SheetViews, b"sheetView") => {
+                        (ParseState::Root, "sheetViews") => state = ParseState::SheetViews,
+                        (ParseState::SheetViews, "sheetView") => {
                             state = ParseState::SheetView;
                             let (sv, has_non_default) = parse_sheet_view_attrs(e);
                             if has_non_default {
                                 sheet_view = Some(sv);
                             }
                         }
-                        (ParseState::SheetView, b"selection") => {
+                        (ParseState::SheetView, "selection") => {
                             pane_selections.push(parse_selection_attrs(e));
                         }
-                        (ParseState::Root, b"cols") => state = ParseState::Cols,
+                        (ParseState::Root, "cols") => state = ParseState::Cols,
 
                         // ---- Sheet data (rows/cells -> streamed to JSON) ----
-                        (ParseState::Root, b"sheetData") => state = ParseState::SheetData,
+                        (ParseState::Root, "sheetData") => state = ParseState::SheetData,
 
-                        (ParseState::SheetData, b"row") => {
+                        (ParseState::SheetData, "row") => {
                             state = ParseState::InRow;
                             let ra = parse_row_attrs(e);
                             cur_row_height = ra.height;
@@ -1499,7 +1497,7 @@ impl WorksheetXml {
                             first_cell = true;
                         }
 
-                        (ParseState::InRow, b"c") => {
+                        (ParseState::InRow, "c") => {
                             state = ParseState::InCell;
                             cur_cell_ref.clear();
                             cur_cell_type = CellType::Number;
@@ -1519,17 +1517,17 @@ impl WorksheetXml {
                             for attr in e.attributes().flatten() {
                                 let ln = attr.key.local_name();
                                 match ln.as_ref() {
-                                    b"r" => {
+                                    "r" => {
                                         cur_cell_ref.push_str(
-                                            std::str::from_utf8(&attr.value).unwrap_or_default(),
+                                            attr.value.as_ref(),
                                         );
                                     }
-                                    b"t" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    "t" => {
+                                        let val = attr.value.as_ref();
                                         cur_cell_type = parse_cell_type_attr(val);
                                     }
-                                    b"s" => {
-                                        let val = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    "s" => {
+                                        let val = attr.value.as_ref();
                                         cur_cell_style = val.parse::<u32>().ok();
                                     }
                                     _ => {}
@@ -1550,130 +1548,130 @@ impl WorksheetXml {
                             }
                         }
 
-                        (ParseState::InCell, b"v") => {
+                        (ParseState::InCell, "v") => {
                             state = ParseState::InCellValue;
                             text_buf.clear();
                         }
-                        (ParseState::InCell, b"f") => {
+                        (ParseState::InCell, "f") => {
                             state = ParseState::InCellFormula;
                             text_buf.clear();
                             parse_formula_attrs(e, &mut cur_formula);
                         }
-                        (ParseState::InCell, b"is") => state = ParseState::InInlineStr,
-                        (ParseState::InInlineStr, b"t") => {
+                        (ParseState::InCell, "is") => state = ParseState::InInlineStr,
+                        (ParseState::InInlineStr, "t") => {
                             state = ParseState::InInlineStrT;
                             text_buf.clear();
                         }
 
                         // ---- Merge cells (metadata) ----
-                        (ParseState::Root, b"mergeCells") => state = ParseState::MergeCells,
+                        (ParseState::Root, "mergeCells") => state = ParseState::MergeCells,
 
                         // ---- Data validations (metadata) ----
-                        (ParseState::Root, b"dataValidations") => state = ParseState::InDataValidations,
-                        (ParseState::InDataValidations, b"dataValidation") => {
+                        (ParseState::Root, "dataValidations") => state = ParseState::InDataValidations,
+                        (ParseState::InDataValidations, "dataValidation") => {
                             state = ParseState::InDataValidation;
                             cur_dv = Some(parse_data_validation_attrs(e));
                         }
-                        (ParseState::InDataValidation, b"formula1") => {
+                        (ParseState::InDataValidation, "formula1") => {
                             state = ParseState::InDVFormula1;
                             text_buf.clear();
                         }
-                        (ParseState::InDataValidation, b"formula2") => {
+                        (ParseState::InDataValidation, "formula2") => {
                             state = ParseState::InDVFormula2;
                             text_buf.clear();
                         }
 
                         // ---- Conditional formatting (metadata) ----
-                        (ParseState::Root, b"conditionalFormatting") => {
+                        (ParseState::Root, "conditionalFormatting") => {
                             state = ParseState::InConditionalFormatting;
                             cur_cf_sqref.clear();
                             cur_cf_rules.clear();
-                            if let Some(val) = find_attr_str(e, b"sqref") {
+                            if let Some(val) = find_attr_str(e, "sqref") {
                                 cur_cf_sqref = val;
                             }
                         }
-                        (ParseState::InConditionalFormatting, b"cfRule") => {
+                        (ParseState::InConditionalFormatting, "cfRule") => {
                             state = ParseState::InCfRule;
                             cur_cf_rule = Some(parse_cf_rule_attrs(e));
                         }
-                        (ParseState::InCfRule, b"formula") => {
+                        (ParseState::InCfRule, "formula") => {
                             state = ParseState::InCfRuleFormula;
                             text_buf.clear();
                         }
-                        (ParseState::InCfRule, b"colorScale") => {
+                        (ParseState::InCfRule, "colorScale") => {
                             state = ParseState::InColorScale;
                             cur_cfvos.clear();
                             cur_cf_colors.clear();
                         }
-                        (ParseState::InCfRule, b"dataBar") => {
+                        (ParseState::InCfRule, "dataBar") => {
                             state = ParseState::InDataBar;
                             cur_cfvos.clear();
                             cur_cf_bar_color.clear();
                         }
-                        (ParseState::InCfRule, b"iconSet") => {
+                        (ParseState::InCfRule, "iconSet") => {
                             state = ParseState::InIconSet;
                             cur_cfvos.clear();
-                            cur_icon_set_type = find_attr_str(e, b"iconSet");
+                            cur_icon_set_type = find_attr_str(e, "iconSet");
                         }
 
                         // ---- Hyperlinks (metadata) ----
-                        (ParseState::Root, b"hyperlinks") => state = ParseState::InHyperlinks,
+                        (ParseState::Root, "hyperlinks") => state = ParseState::InHyperlinks,
 
                         // ---- Auto filter (metadata) ----
-                        (ParseState::Root, b"autoFilter") => {
+                        (ParseState::Root, "autoFilter") => {
                             state = ParseState::InAutoFilter;
                             cur_af_range.clear();
                             cur_af_columns.clear();
-                            if let Some(val) = find_attr_str(e, b"ref") {
+                            if let Some(val) = find_attr_str(e, "ref") {
                                 cur_af_range = val;
                             }
                         }
-                        (ParseState::InAutoFilter, b"filterColumn") => {
+                        (ParseState::InAutoFilter, "filterColumn") => {
                             state = ParseState::InFilterColumn;
-                            cur_filter_col_id = find_attr_str(e, b"colId")
+                            cur_filter_col_id = find_attr_str(e, "colId")
                                 .and_then(|v| v.parse::<u32>().ok())
                                 .unwrap_or(0);
                             cur_filter_vals.clear();
                             cur_custom_filters = None;
                         }
-                        (ParseState::InFilterColumn, b"filters") => state = ParseState::InFilters,
-                        (ParseState::InFilterColumn, b"customFilters") => {
+                        (ParseState::InFilterColumn, "filters") => state = ParseState::InFilters,
+                        (ParseState::InFilterColumn, "customFilters") => {
                             state = ParseState::InCustomFilters;
-                            cur_custom_filter_and = find_attr_str(e, b"and")
+                            cur_custom_filter_and = find_attr_str(e, "and")
                                 .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
                             cur_custom_filter_items.clear();
                         }
 
-                        (ParseState::Root, b"headerFooter") => {
+                        (ParseState::Root, "headerFooter") => {
                             header_footer = Some(parse_header_footer_attrs(e));
                             state = ParseState::HeaderFooter;
                         }
-                        (ParseState::HeaderFooter, b"oddHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(0); }
-                        (ParseState::HeaderFooter, b"oddFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(1); }
-                        (ParseState::HeaderFooter, b"evenHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(2); }
-                        (ParseState::HeaderFooter, b"evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
-                        (ParseState::HeaderFooter, b"firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
-                        (ParseState::HeaderFooter, b"firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
+                        (ParseState::HeaderFooter, "oddHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(0); }
+                        (ParseState::HeaderFooter, "oddFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(1); }
+                        (ParseState::HeaderFooter, "evenHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(2); }
+                        (ParseState::HeaderFooter, "evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
+                        (ParseState::HeaderFooter, "firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
+                        (ParseState::HeaderFooter, "firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
 
                         // ---- rowBreaks / colBreaks ----
-                        (ParseState::Root, b"rowBreaks") => {
+                        (ParseState::Root, "rowBreaks") => {
                             page_breaks.get_or_insert_with(PageBreaks::default);
                             state = ParseState::InRowBreaks;
                         }
-                        (ParseState::Root, b"colBreaks") => {
+                        (ParseState::Root, "colBreaks") => {
                             page_breaks.get_or_insert_with(PageBreaks::default);
                             state = ParseState::InColBreaks;
                         }
 
                         // ---- extLst / sparklines ----
-                        (ParseState::Root, b"extLst") => {
+                        (ParseState::Root, "extLst") => {
                             state = ParseState::ExtLst;
                         }
-                        (ParseState::ExtLst, b"ext") => {
+                        (ParseState::ExtLst, "ext") => {
                             let is_sparkline_ext = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == b"uri")
+                                .find(|a| a.key.local_name().as_ref() == "uri")
                                 .is_some_and(|attr| {
-                                    let uri = std::str::from_utf8(&attr.value).unwrap_or_default();
+                                    let uri = attr.value.as_ref();
                                     uri.contains("05C60535")
                                 });
                             if is_sparkline_ext {
@@ -1682,25 +1680,25 @@ impl WorksheetXml {
                                 state = ParseState::ExtOther(1);
                             }
                         }
-                        (ParseState::ExtSparklines, b"sparklineGroups") => {
+                        (ParseState::ExtSparklines, "sparklineGroups") => {
                             state = ParseState::SparklineGroups;
                         }
-                        (ParseState::SparklineGroups, b"sparklineGroup") => {
+                        (ParseState::SparklineGroups, "sparklineGroup") => {
                             current_sparkline_group = Some(parse_sparkline_group_attrs(e));
                             state = ParseState::SparklineGroup;
                         }
-                        (ParseState::SparklineGroup, b"sparklines") => {
+                        (ParseState::SparklineGroup, "sparklines") => {
                             state = ParseState::Sparklines;
                         }
-                        (ParseState::Sparklines, b"sparkline") => {
+                        (ParseState::Sparklines, "sparkline") => {
                             current_sparkline_formula.clear();
                             current_sparkline_sqref.clear();
                             state = ParseState::SparklineItem;
                         }
-                        (ParseState::SparklineItem, b"f") => {
+                        (ParseState::SparklineItem, "f") => {
                             state = ParseState::SparklineFormula;
                         }
-                        (ParseState::SparklineItem, b"sqref") => {
+                        (ParseState::SparklineItem, "sqref") => {
                             state = ParseState::SparklineSqref;
                         }
                         (ParseState::ExtOther(_), _) => {
@@ -1715,44 +1713,44 @@ impl WorksheetXml {
                 Ok(Event::Empty(ref e)) => {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
-                        (ParseState::Root, b"dimension") => {
-                            dimension = find_attr_str(e, b"ref");
+                        (ParseState::Root, "dimension") => {
+                            dimension = find_attr_str(e, "ref");
                         }
-                        (ParseState::SheetPr, b"tabColor") => {
-                            tab_color = find_attr_str(e, b"rgb");
+                        (ParseState::SheetPr, "tabColor") => {
+                            tab_color = find_attr_str(e, "rgb");
                         }
-                        (ParseState::SheetPr, b"outlinePr") => {
+                        (ParseState::SheetPr, "outlinePr") => {
                             outline_properties = Some(parse_outline_pr_attrs(e));
                         }
-                        (ParseState::Root, b"autoFilter") => {
+                        (ParseState::Root, "autoFilter") => {
                             auto_filter = Some(AutoFilter {
-                                range: find_attr_str(e, b"ref").unwrap_or_default(),
+                                range: find_attr_str(e, "ref").unwrap_or_default(),
                                 filter_columns: Vec::new(),
                             });
                         }
-                        (ParseState::SheetView, b"pane") => {
+                        (ParseState::SheetView, "pane") => {
                             let (fp, sp) = parse_pane_attrs(e);
                             if fp.is_some() { frozen_pane = fp; }
                             if sp.is_some() { split_pane = sp; }
                         }
-                        (ParseState::SheetView, b"selection") => {
+                        (ParseState::SheetView, "selection") => {
                             pane_selections.push(parse_selection_attrs(e));
                         }
-                        (ParseState::SheetViews, b"sheetView") => {
+                        (ParseState::SheetViews, "sheetView") => {
                             // Self-closing <sheetView ... /> — parse attributes.
                             let (sv, has_non_default) = parse_sheet_view_attrs(e);
                             if has_non_default {
                                 sheet_view = Some(sv);
                             }
                         }
-                        (ParseState::Cols, b"col") => columns.push(parse_col_element(e)),
-                        (ParseState::MergeCells, b"mergeCell") => {
-                            if let Some(val) = find_attr_str(e, b"ref") {
+                        (ParseState::Cols, "col") => columns.push(parse_col_element(e)),
+                        (ParseState::MergeCells, "mergeCell") => {
+                            if let Some(val) = find_attr_str(e, "ref") {
                                 merge_cells.push(val);
                             }
                         }
                         // Self-closing <c ... /> — cell with no children.
-                        (ParseState::InRow, b"c") => {
+                        (ParseState::InRow, "c") => {
                             let ca = parse_cell_attrs(e);
                             if !first_cell { out.push(','); }
                             first_cell = false;
@@ -1768,7 +1766,7 @@ impl WorksheetXml {
                             out.push('}');
                         }
                         // Self-closing <row ... /> — empty row.
-                        (ParseState::SheetData, b"row") => {
+                        (ParseState::SheetData, "row") => {
                             let ra = parse_row_attrs(e);
                             if !first_row { out.push(','); }
                             first_row = false;
@@ -1791,57 +1789,57 @@ impl WorksheetXml {
                             }
                             out.push('}');
                         }
-                        (ParseState::InCell, b"v") => { /* Empty <v/> — no value */ }
-                        (ParseState::InCell, b"f") => {
+                        (ParseState::InCell, "v") => { /* Empty <v/> — no value */ }
+                        (ParseState::InCell, "f") => {
                             parse_formula_attrs(e, &mut cur_formula);
                         }
-                        (ParseState::InDataValidations, b"dataValidation") => {
+                        (ParseState::InDataValidations, "dataValidation") => {
                             data_validations.push(parse_data_validation_attrs(e));
                         }
-                        (ParseState::InConditionalFormatting, b"cfRule") => {
+                        (ParseState::InConditionalFormatting, "cfRule") => {
                             cur_cf_rules.push(parse_cf_rule_attrs(e));
                         }
-                        (ParseState::InHyperlinks, b"hyperlink") => {
+                        (ParseState::InHyperlinks, "hyperlink") => {
                             hyperlinks.push(parse_hyperlink_attrs(e));
                         }
-                        (ParseState::Root, b"pageSetup") => {
+                        (ParseState::Root, "pageSetup") => {
                             page_setup = Some(parse_page_setup_attrs(e));
                         }
-                        (ParseState::Root, b"sheetProtection") => {
+                        (ParseState::Root, "sheetProtection") => {
                             sheet_protection = Some(parse_sheet_protection_attrs(e));
                         }
                         // brk (page break, always self-closing).
-                        (ParseState::InRowBreaks, b"brk") => {
+                        (ParseState::InRowBreaks, "brk") => {
                             if let Some(ref mut pb) = page_breaks {
                                 pb.row_breaks.push(parse_brk_attrs(e));
                             }
                         }
-                        (ParseState::InColBreaks, b"brk") => {
+                        (ParseState::InColBreaks, "brk") => {
                             if let Some(ref mut pb) = page_breaks {
                                 pb.col_breaks.push(parse_brk_attrs(e));
                             }
                         }
-                        (ParseState::InColorScale | ParseState::InDataBar | ParseState::InIconSet, b"cfvo") => {
+                        (ParseState::InColorScale | ParseState::InDataBar | ParseState::InIconSet, "cfvo") => {
                             cur_cfvos.push(parse_cfvo_attrs(e));
                         }
-                        (ParseState::InColorScale, b"color") => {
-                            if let Some(val) = find_attr_str(e, b"rgb") {
+                        (ParseState::InColorScale, "color") => {
+                            if let Some(val) = find_attr_str(e, "rgb") {
                                 cur_cf_colors.push(val);
                             }
                         }
-                        (ParseState::InDataBar, b"color") => {
-                            if let Some(val) = find_attr_str(e, b"rgb") {
+                        (ParseState::InDataBar, "color") => {
+                            if let Some(val) = find_attr_str(e, "rgb") {
                                 cur_cf_bar_color = val;
                             }
                         }
-                        (ParseState::InFilters, b"filter") => {
-                            if let Some(val) = find_attr_str(e, b"val") {
+                        (ParseState::InFilters, "filter") => {
+                            if let Some(val) = find_attr_str(e, "val") {
                                 cur_filter_vals.push(val);
                             }
                         }
-                        (ParseState::InCustomFilters, b"customFilter") => {
-                            let val = find_attr_str(e, b"val").unwrap_or_default();
-                            let operator = find_attr_str(e, b"operator");
+                        (ParseState::InCustomFilters, "customFilter") => {
+                            let val = find_attr_str(e, "val").unwrap_or_default();
+                            let operator = find_attr_str(e, "operator");
                             cur_custom_filter_items.push(CustomFilter { operator, val });
                         }
                         // Sparkline color elements (self-closing).
@@ -1862,16 +1860,16 @@ impl WorksheetXml {
                         | ParseState::InDVFormula1
                         | ParseState::InDVFormula2
                         | ParseState::InCfRuleFormula => {
-                            text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                            text_buf.push_str(e.as_ref());
                         }
                         ParseState::HeaderFooterChild(_) => {
-                            hf_text_buf.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                            hf_text_buf.push_str(e.as_ref());
                         }
                         ParseState::SparklineFormula => {
-                            current_sparkline_formula.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                            current_sparkline_formula.push_str(e.as_ref());
                         }
                         ParseState::SparklineSqref => {
-                            current_sparkline_sqref.push_str(std::str::from_utf8(e.as_ref()).unwrap_or_default());
+                            current_sparkline_sqref.push_str(e.as_ref());
                         }
                         _ => {}
                     }
@@ -1903,7 +1901,7 @@ impl WorksheetXml {
                     let local = e.local_name();
                     match (state, local.as_ref()) {
                         // ---- Cell value end -> write JSON directly ----
-                        (ParseState::InCellValue, b"v") => {
+                        (ParseState::InCellValue, "v") => {
                             if cur_cell_type == CellType::SharedString
                                 && let Some(sst_ref) = sst
                                     && let Ok(idx) = text_buf.parse::<usize>()
@@ -1923,7 +1921,7 @@ impl WorksheetXml {
                         }
 
                         // ---- Formula end -> write JSON directly ----
-                        (ParseState::InCellFormula, b"f") => {
+                        (ParseState::InCellFormula, "f") => {
                             out.push_str(",\"formula\":\"");
                             json_escape_to(out, &text_buf);
                             out.push('"');
@@ -1933,7 +1931,7 @@ impl WorksheetXml {
                         }
 
                         // ---- Inline string end -> write both value and inlineString ----
-                        (ParseState::InInlineStrT, b"t") => {
+                        (ParseState::InInlineStrT, "t") => {
                             out.push_str(",\"value\":\"");
                             json_escape_to(out, &text_buf);
                             out.push_str("\",\"inlineString\":\"");
@@ -1942,10 +1940,10 @@ impl WorksheetXml {
                             text_buf.clear();
                             state = ParseState::InInlineStr;
                         }
-                        (ParseState::InInlineStr, b"is") => state = ParseState::InCell,
+                        (ParseState::InInlineStr, "is") => state = ParseState::InCell,
 
                         // ---- Cell end -> close cell JSON object ----
-                        (ParseState::InCell, b"c") => {
+                        (ParseState::InCell, "c") => {
                             // Write formula attributes even if no formula text was present
                             // (happens with self-closing <f/> parsed in Empty handler).
                             if cur_formula.formula_type.is_some()
@@ -1994,7 +1992,7 @@ impl WorksheetXml {
                         }
 
                         // ---- Row end -> close row JSON object ----
-                        (ParseState::InRow, b"row") => {
+                        (ParseState::InRow, "row") => {
                             out.push(']'); // close cells array
                             if let Some(h) = cur_row_height {
                                 out.push_str(",\"height\":");
@@ -2014,71 +2012,71 @@ impl WorksheetXml {
                             state = ParseState::SheetData;
                         }
 
-                        (ParseState::SheetData, b"sheetData") => state = ParseState::Root,
-                        (ParseState::SheetPr, b"sheetPr") => state = ParseState::Root,
-                        (ParseState::SheetView, b"sheetView") => state = ParseState::SheetViews,
-                        (ParseState::SheetViews, b"sheetViews") => state = ParseState::Root,
-                        (ParseState::Cols, b"cols") => state = ParseState::Root,
-                        (ParseState::MergeCells, b"mergeCells") => state = ParseState::Root,
+                        (ParseState::SheetData, "sheetData") => state = ParseState::Root,
+                        (ParseState::SheetPr, "sheetPr") => state = ParseState::Root,
+                        (ParseState::SheetView, "sheetView") => state = ParseState::SheetViews,
+                        (ParseState::SheetViews, "sheetViews") => state = ParseState::Root,
+                        (ParseState::Cols, "cols") => state = ParseState::Root,
+                        (ParseState::MergeCells, "mergeCells") => state = ParseState::Root,
 
                         // ---- Data validation metadata end ----
-                        (ParseState::InDVFormula1, b"formula1") => {
+                        (ParseState::InDVFormula1, "formula1") => {
                             if let Some(ref mut dv) = cur_dv {
                                 dv.formula1 = Some(std::mem::take(&mut text_buf));
                             }
                             state = ParseState::InDataValidation;
                         }
-                        (ParseState::InDVFormula2, b"formula2") => {
+                        (ParseState::InDVFormula2, "formula2") => {
                             if let Some(ref mut dv) = cur_dv {
                                 dv.formula2 = Some(std::mem::take(&mut text_buf));
                             }
                             state = ParseState::InDataValidation;
                         }
-                        (ParseState::InDataValidation, b"dataValidation") => {
+                        (ParseState::InDataValidation, "dataValidation") => {
                             if let Some(dv) = cur_dv.take() {
                                 data_validations.push(dv);
                             }
                             state = ParseState::InDataValidations;
                         }
-                        (ParseState::InDataValidations, b"dataValidations") => state = ParseState::Root,
+                        (ParseState::InDataValidations, "dataValidations") => state = ParseState::Root,
 
                         // ---- Conditional formatting metadata end ----
-                        (ParseState::InCfRuleFormula, b"formula") => {
+                        (ParseState::InCfRuleFormula, "formula") => {
                             if let Some(ref mut rule) = cur_cf_rule {
                                 rule.formula = Some(std::mem::take(&mut text_buf));
                             }
                             state = ParseState::InCfRule;
                         }
-                        (ParseState::InCfRule, b"cfRule") => {
+                        (ParseState::InCfRule, "cfRule") => {
                             if let Some(rule) = cur_cf_rule.take() {
                                 cur_cf_rules.push(rule);
                             }
                             state = ParseState::InConditionalFormatting;
                         }
-                        (ParseState::InConditionalFormatting, b"conditionalFormatting") => {
+                        (ParseState::InConditionalFormatting, "conditionalFormatting") => {
                             conditional_formatting.push(ConditionalFormatting {
                                 sqref: std::mem::take(&mut cur_cf_sqref),
                                 rules: std::mem::take(&mut cur_cf_rules),
                             });
                             state = ParseState::Root;
                         }
-                        (ParseState::InHyperlinks, b"hyperlinks") => state = ParseState::Root,
-                        (ParseState::InAutoFilter, b"autoFilter") => {
+                        (ParseState::InHyperlinks, "hyperlinks") => state = ParseState::Root,
+                        (ParseState::InAutoFilter, "autoFilter") => {
                             auto_filter = Some(AutoFilter {
                                 range: std::mem::take(&mut cur_af_range),
                                 filter_columns: std::mem::take(&mut cur_af_columns),
                             });
                             state = ParseState::Root;
                         }
-                        (ParseState::InFilters, b"filters") => state = ParseState::InFilterColumn,
-                        (ParseState::InCustomFilters, b"customFilters") => {
+                        (ParseState::InFilters, "filters") => state = ParseState::InFilterColumn,
+                        (ParseState::InCustomFilters, "customFilters") => {
                             cur_custom_filters = Some(CustomFilters {
                                 and_op: cur_custom_filter_and,
                                 filters: std::mem::take(&mut cur_custom_filter_items),
                             });
                             state = ParseState::InFilterColumn;
                         }
-                        (ParseState::InFilterColumn, b"filterColumn") => {
+                        (ParseState::InFilterColumn, "filterColumn") => {
                             cur_af_columns.push(FilterColumn {
                                 col_id: cur_filter_col_id,
                                 filters: std::mem::take(&mut cur_filter_vals),
@@ -2086,7 +2084,7 @@ impl WorksheetXml {
                             });
                             state = ParseState::InAutoFilter;
                         }
-                        (ParseState::InColorScale, b"colorScale") => {
+                        (ParseState::InColorScale, "colorScale") => {
                             if let Some(ref mut rule) = cur_cf_rule {
                                 rule.color_scale = Some(ColorScale {
                                     cfvos: std::mem::take(&mut cur_cfvos),
@@ -2095,7 +2093,7 @@ impl WorksheetXml {
                             }
                             state = ParseState::InCfRule;
                         }
-                        (ParseState::InDataBar, b"dataBar") => {
+                        (ParseState::InDataBar, "dataBar") => {
                             if let Some(ref mut rule) = cur_cf_rule {
                                 rule.data_bar = Some(DataBar {
                                     cfvos: std::mem::take(&mut cur_cfvos),
@@ -2104,7 +2102,7 @@ impl WorksheetXml {
                             }
                             state = ParseState::InCfRule;
                         }
-                        (ParseState::InIconSet, b"iconSet") => {
+                        (ParseState::InIconSet, "iconSet") => {
                             if let Some(ref mut rule) = cur_cf_rule {
                                 rule.icon_set = Some(IconSet {
                                     icon_set_type: cur_icon_set_type.take(),
@@ -2121,47 +2119,47 @@ impl WorksheetXml {
                             }
                             state = ParseState::HeaderFooter;
                         }
-                        (ParseState::HeaderFooter, b"headerFooter") => {
+                        (ParseState::HeaderFooter, "headerFooter") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::InRowBreaks, b"rowBreaks") => {
+                        (ParseState::InRowBreaks, "rowBreaks") => {
                             state = ParseState::Root;
                         }
-                        (ParseState::InColBreaks, b"colBreaks") => {
+                        (ParseState::InColBreaks, "colBreaks") => {
                             state = ParseState::Root;
                         }
 
                         // ---- extLst / sparklines end ----
-                        (ParseState::SparklineFormula, b"f") => {
+                        (ParseState::SparklineFormula, "f") => {
                             state = ParseState::SparklineItem;
                         }
-                        (ParseState::SparklineSqref, b"sqref") => {
+                        (ParseState::SparklineSqref, "sqref") => {
                             state = ParseState::SparklineItem;
                         }
-                        (ParseState::SparklineItem, b"sparkline") => {
+                        (ParseState::SparklineItem, "sparkline") => {
                             current_sparklines.push(Sparkline {
                                 formula: std::mem::take(&mut current_sparkline_formula),
                                 sqref: std::mem::take(&mut current_sparkline_sqref),
                             });
                             state = ParseState::Sparklines;
                         }
-                        (ParseState::Sparklines, b"sparklines") => {
+                        (ParseState::Sparklines, "sparklines") => {
                             state = ParseState::SparklineGroup;
                         }
-                        (ParseState::SparklineGroup, b"sparklineGroup") => {
+                        (ParseState::SparklineGroup, "sparklineGroup") => {
                             if let Some(mut group) = current_sparkline_group.take() {
                                 group.sparklines = std::mem::take(&mut current_sparklines);
                                 sparkline_groups.push(group);
                             }
                             state = ParseState::SparklineGroups;
                         }
-                        (ParseState::SparklineGroups, b"sparklineGroups") => {
+                        (ParseState::SparklineGroups, "sparklineGroups") => {
                             state = ParseState::ExtSparklines;
                         }
-                        (ParseState::ExtSparklines, b"ext") => {
+                        (ParseState::ExtSparklines, "ext") => {
                             state = ParseState::ExtLst;
                         }
-                        (ParseState::ExtLst, b"extLst") => {
+                        (ParseState::ExtLst, "extLst") => {
                             state = ParseState::Root;
                         }
                         (ParseState::ExtOther(depth), _) => {
