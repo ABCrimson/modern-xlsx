@@ -8,6 +8,19 @@
 
 ---
 
+## Contents
+
+| Basics | Layout & Structure | Data Features | Advanced |
+|--------|--------------------|---------------|----------|
+| [Quick Start](#quick-start) | [Merged Cells](#merged-cells) | [Data Validation](#data-validation) | [Rich Text](#rich-text) |
+| [Reading and Modifying](#reading-and-modifying) | [Column Widths and Row Heights](#column-widths-and-row-heights) | [Hyperlinks](#hyperlinks) | [Barcode & QR Codes](#barcode--qr-code-generation) |
+| [Styling Cells](#styling-cells) | [Frozen Panes](#frozen-panes) | [Comments](#comments) | [Encryption](#encryption--password-protected-files) |
+| [Formulas](#formulas) | [Auto Filter](#auto-filter) | [Named Ranges](#named-ranges) | [Image Embedding](#image-embedding) |
+| [Cell Reference Utilities](#cell-reference-utilities) | [Page Setup](#page-setup) | [Document Properties](#document-properties) | [Sheet Protection](#sheet-protection) |
+| [Date Handling](#date-handling) | | [Sheet Conversion Utilities](#sheet-conversion-utilities) | |
+
+---
+
 ## Quick Start
 
 ```typescript

@@ -67,6 +67,15 @@ drawTableFromData(wb, ws, data, {
 });
 ```
 
+Accepts every `drawTable` option (except `headers`/`rows`, which are derived from the data) plus:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `headers` | `string[]` | Explicit column order — object keys to include, in order (default: `Object.keys` of the first item) |
+| `headerMap` | `Record<string, string>` | Map object keys to display header labels |
+
+Non-primitive values are stringified; `null`/`undefined` become empty cells.
+
 ## Options
 
 ### Layout
@@ -82,6 +91,8 @@ drawTableFromData(wb, ws, data, {
 | `freezeHeader` | `boolean` | `false` | Freeze the header row |
 | `autoFilter` | `boolean` | `false` | Add filter dropdowns |
 | `wrapText` | `boolean` | `false` | Enable text wrapping |
+| `merges` | `{ row, col, rowSpan?, colSpan? }[]` | — | Cells to merge (0-based, data area) |
+| `cellStyles` | `Record<string, CellStyle>` | — | Per-cell overrides keyed `"row,col"` (0-based, data area) |
 
 ### Styling
 
