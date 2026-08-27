@@ -15,7 +15,7 @@ repository = "https://github.com/ABCrimson/modern-xlsx"
 
 [workspace.dependencies]
 # XML parsing — SAX-style, zero-copy, serde support
-quick-xml = { version = "0.40.1", features = ["serialize"] }
+quick-xml = { version = "0.41.0", features = ["serialize"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
