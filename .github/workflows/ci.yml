@@ -330,7 +330,7 @@ jobs:
         run: cd packages/modern-xlsx && npx -y @cyclonedx/cyclonedx-npm@5.0.0 --omit dev --output-file "${RUNNER_TEMP}/sbom.cdx.json"
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: ${{ runner.temp }}/sbom.cdx.json
