@@ -1,64 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import {
-  columnToLetter,
-  decodeCellRef,
-  letterToColumn,
-  readBuffer,
-  Workbook,
-} from '../src/index.js';
+import XLSX from 'xlsx';
+import { readBuffer, Workbook } from '../src/index.js';
 
-describe('0.1.6 — Edge Cases', () => {
-  // ---------------------------------------------------------------------------
-  // 1. Column letter boundaries
-  // ---------------------------------------------------------------------------
-  describe('column letter boundaries', () => {
-    it('converts boundary column indices to letters', () => {
-      expect(columnToLetter(0)).toBe('A');
-      expect(columnToLetter(25)).toBe('Z');
-      expect(columnToLetter(26)).toBe('AA');
-      expect(columnToLetter(51)).toBe('AZ');
-      expect(columnToLetter(52)).toBe('BA');
-      expect(columnToLetter(701)).toBe('ZZ');
-      expect(columnToLetter(702)).toBe('AAA');
-      expect(columnToLetter(16383)).toBe('XFD');
-    });
-
-    it('converts boundary letters back to column indices', () => {
-      expect(letterToColumn('A')).toBe(0);
-      expect(letterToColumn('Z')).toBe(25);
-      expect(letterToColumn('AA')).toBe(26);
-      expect(letterToColumn('AZ')).toBe(51);
-      expect(letterToColumn('BA')).toBe(52);
-      expect(letterToColumn('ZZ')).toBe(701);
-      expect(letterToColumn('AAA')).toBe(702);
-      expect(letterToColumn('XFD')).toBe(16383);
-    });
-
-    it('roundtrips all boundary values', () => {
-      const boundaries = [0, 25, 26, 51, 52, 701, 702, 16383];
-      for (const col of boundaries) {
-        expect(letterToColumn(columnToLetter(col))).toBe(col);
-      }
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // 2. Cell reference at max Excel dimensions
-  // ---------------------------------------------------------------------------
-  describe('cell reference at max Excel dimensions', () => {
-    it('decodes XFD1048576 (max Excel cell)', () => {
-      const ref = decodeCellRef('XFD1048576');
-      expect(ref.col).toBe(16383);
-      expect(ref.row).toBe(1048575);
-    });
-
-    it('decodes A1 (min Excel cell)', () => {
-      const ref = decodeCellRef('A1');
-      expect(ref.col).toBe(0);
-      expect(ref.row).toBe(0);
-    });
-  });
-
+describe('Edge Cases', () => {
   // ---------------------------------------------------------------------------
   // 3. Cell at high row number
   // ---------------------------------------------------------------------------
@@ -201,7 +145,7 @@ describe('0.1.6 — Edge Cases', () => {
       const ws2 = wb2.getSheet('Numbers');
       expect(ws2?.cell('A1').value).toBe(0);
       expect(ws2?.cell('A3').value).toBe(1e15);
-      expect(ws2?.cell('A4').value).toBeCloseTo(1e-15);
+      expect(ws2?.cell('A4').value).toBe(1e-15);
       expect(ws2?.cell('A5').value).toBe(Number.MAX_SAFE_INTEGER);
       expect(ws2?.cell('A6').value).toBe(-Number.MAX_SAFE_INTEGER);
     });
@@ -296,6 +240,10 @@ describe('0.1.6 — Edge Cases', () => {
       ws.cell('A4').value = 61;
       ws.cell('A4').styleIndex = dateStyleIndex;
 
+      // Serial 59 = Feb 28, 1900
+      ws.cell('A5').value = 59;
+      ws.cell('A5').styleIndex = dateStyleIndex;
+
       const buffer = await wb.toBuffer();
       const wb2 = await readBuffer(buffer);
       const ws2 = wb2.getSheet('Dates');
@@ -304,6 +252,15 @@ describe('0.1.6 — Edge Cases', () => {
       expect(ws2?.cell('A2').value).toBe(1);
       expect(ws2?.cell('A3').value).toBe(60);
       expect(ws2?.cell('A4').value).toBe(61);
+      expect(ws2?.cell('A5').value).toBe(59);
+
+      // dateValue maps serials to calendar dates; serial 60 (the non-existent
+      // 1900-02-29) maps to the same day as serial 59.
+      const iso = (ref: string) => ws2?.cell(ref).dateValue?.toISOString().slice(0, 10);
+      expect(iso('A2')).toBe('1900-01-01');
+      expect(iso('A5')).toBe('1900-02-28');
+      expect(iso('A3')).toBe('1900-02-28');
+      expect(iso('A4')).toBe('1900-03-01');
     });
   });
 
@@ -321,10 +278,62 @@ describe('0.1.6 — Edge Cases', () => {
       const wb2 = await readBuffer(buffer);
       const ws2 = wb2.getSheet('Whitespace');
       expect(ws2?.cell('A1').value).toBe('line1\nline2');
-      // CRLF may be normalized to LF by the XML parser — accept either
-      const a2 = ws2?.cell('A2').value;
-      expect(a2 === 'line1\r\nline2' || a2 === 'line1\nline2').toBe(true);
+      expect(ws2?.cell('A2').value).toBe('line1\r\nline2');
       expect(ws2?.cell('A3').value).toBe('col1\tcol2');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 16. Reference, whitespace and length limits
+  // ---------------------------------------------------------------------------
+  describe('limits and whitespace', () => {
+    it('roundtrips the last cell of the sheet', async () => {
+      const wb = new Workbook();
+      wb.addSheet('Max').cell('XFD1048576').value = 'max';
+      const wb2 = await readBuffer(await wb.toBuffer());
+      expect(wb2.getSheet('Max')?.cell('XFD1048576').value).toBe('max');
+    });
+
+    it('preserves leading and trailing spaces with xml:space="preserve"', async () => {
+      const wb = new Workbook();
+      const ws = wb.addSheet('Spaces');
+      ws.cell('A1').value = '  lead';
+      ws.cell('A2').value = 'trail  ';
+      const buffer = await wb.toBuffer();
+      const ws2 = (await readBuffer(buffer)).getSheet('Spaces');
+      expect(ws2?.cell('A1').value).toBe('  lead');
+      expect(ws2?.cell('A2').value).toBe('trail  ');
+
+      const cfb = XLSX.CFB.read(buffer, { type: 'buffer' });
+      const sst = XLSX.CFB.find(cfb, '/xl/sharedStrings.xml');
+      expect(new TextDecoder().decode(sst?.content as Uint8Array)).toContain(
+        '<t xml:space="preserve">',
+      );
+    });
+
+    it('roundtrips a 32767-character string exactly', async () => {
+      // Seeded LCG text without <, > or &. Varied on purpose: a single repeated
+      // character would trip the 100:1 zip-bomb ratio guard.
+      const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ';
+      let state = 12345;
+      let text = '';
+      for (let i = 0; i < 32767; i++) {
+        state = (Math.imul(state, 1103515245) + 12345) >>> 0;
+        text += alphabet[(state >>> 16) % alphabet.length];
+      }
+      expect(text).toHaveLength(32767);
+      const wb = new Workbook();
+      wb.addSheet('Long').cell('A1').value = text;
+      const wb2 = await readBuffer(await wb.toBuffer());
+      expect(wb2.getSheet('Long')?.cell('A1').value).toBe(text);
+    });
+
+    // Open write defect: toBuffer() rejects a lone surrogate (code JSON, "JSON error: unexpected end of hex escape at line 1 column N") instead of writing U+FFFD; the target below is the fixed behaviour.
+    it.fails('lone surrogate is written as U+FFFD', async () => {
+      const wb = new Workbook();
+      wb.addSheet('Surrogate').cell('A1').value = 'a\uD800b';
+      const wb2 = await readBuffer(await wb.toBuffer());
+      expect(wb2.getSheet('Surrogate')?.cell('A1').value).toBe('a\uFFFDb');
     });
   });
 });

@@ -1,0 +1,11 @@
+{
+  "name": "modern-xlsx-runtimes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test ./bun.test.ts"
+  },
+  "dependencies": {
+    "modern-xlsx": "1.2.1"
+  }
+}

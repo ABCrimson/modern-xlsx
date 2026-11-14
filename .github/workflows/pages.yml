@@ -3,35 +3,59 @@ name: Deploy Documentation
 on:
   push:
     branches: [main, master]
-    paths: ["docs/site/**"]
+    paths:
+      - "docs/site/**"
+      - ".github/workflows/pages.yml"
+      - "packages/modern-xlsx/typedoc.json"
+  # Redeploy after CI finishes on a released tag, so /api/ is rebuilt from the tagged source.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
+env:
+  WASM_PACK_VERSION: 0.15.1
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+  build:
+    # Job level, so runs skipped by the if: guard never join the group and cancel a tag deploy.
+    concurrency:
+      group: pages-build
+      cancel-in-progress: false
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pages: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
 
       - name: Setup Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: wasm-pack@${{ env.WASM_PACK_VERSION }}
+
+      - name: Verify wasm-pack
+        run: test "$(wasm-pack --version)" = "wasm-pack $WASM_PACK_VERSION"
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
           cache: "pnpm"
@@ -39,14 +63,55 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Generate API reference (TypeDoc, isolated TS for TS7 compat)
+      # wasm/ and wasm-lite/ are not tracked; TypeDoc type-checks every src/ file, the lite loader included, against the generated bindings.
+      - name: Build WASM (full + lite)
+        run: pnpm build:wasm && pnpm build:wasm:lite
+
+      # The playground loads the browser bundle built from this same commit, served beside it,
+      # so it never points at an npm version that is not published yet. docs/site/vendor/ is ignored by git.
+      - name: Build the browser bundle for the playground
+        run: |
+          pnpm -C packages/modern-xlsx build
+          mkdir -p docs/site/vendor
+          cp packages/modern-xlsx/dist/modern-xlsx.min.js packages/modern-xlsx/dist/modern-xlsx.min.js.map packages/modern-xlsx/dist/modern-xlsx.wasm docs/site/vendor/
+
+      - name: Write the version into the site
+        run: |
+          version=$(node -p "require('./packages/modern-xlsx/package.json').version")
+          sed -i "s/{{VERSION}}/${version}/g" docs/site/index.html docs/site/playground.html
+          if grep -n '{{VERSION}}' docs/site/*.html; then exit 1; fi
+
+      # favicon.svg, og.png, the marks and the architecture pictures are committed copies of docs/assets/readme/ (the Pages artifact holds only docs/site/).
+      - name: Check the site's brand files match docs/assets/readme
+        run: |
+          for f in favicon.svg og.png mark-light.svg mark-dark.svg architecture-light.svg architecture-dark.svg; do
+            cmp "docs/assets/readme/$f" "docs/site/$f"
+          done
+
+      - name: Generate API reference (TypeDoc 0.28.20 on isolated TypeScript 6.0.3; TS 7 support pending TypeStrong/typedoc#3098)
         run: pnpm -C packages/modern-xlsx docs:api
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: docs/site
 
+  deploy:
+    needs: build
+    # Job level, so runs skipped by the if: guard never join the group and cancel a tag deploy.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

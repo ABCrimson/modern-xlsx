@@ -10,21 +10,21 @@
 
 ## Contents
 
-| Basics | Layout & Structure | Data Features | Advanced |
-|--------|--------------------|---------------|----------|
-| [Quick Start](#quick-start) | [Merged Cells](#merged-cells) | [Data Validation](#data-validation) | [Rich Text](#rich-text) |
-| [Reading and Modifying](#reading-and-modifying) | [Column Widths and Row Heights](#column-widths-and-row-heights) | [Hyperlinks](#hyperlinks) | [Barcode & QR Codes](#barcode--qr-code-generation) |
-| [Styling Cells](#styling-cells) | [Frozen Panes](#frozen-panes) | [Comments](#comments) | [Encryption](#encryption--password-protected-files) |
-| [Formulas](#formulas) | [Auto Filter](#auto-filter) | [Named Ranges](#named-ranges) | [Image Embedding](#image-embedding) |
-| [Cell Reference Utilities](#cell-reference-utilities) | [Page Setup](#page-setup) | [Document Properties](#document-properties) | [Sheet Protection](#sheet-protection) |
-| [Date Handling](#date-handling) | | [Sheet Conversion Utilities](#sheet-conversion-utilities) | |
+| Basics                                                | Layout & Structure                                              | Data Features                                             | Advanced                                            |
+| ----------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------- |
+| [Quick Start](#quick-start)                           | [Merged Cells](#merged-cells)                                   | [Data Validation](#data-validation)                       | [Rich Text](#rich-text)                             |
+| [Reading and Modifying](#reading-and-modifying)       | [Column Widths and Row Heights](#column-widths-and-row-heights) | [Hyperlinks](#hyperlinks)                                 | [Barcode & QR Codes](#barcode--qr-code-generation)  |
+| [Styling Cells](#styling-cells)                       | [Frozen Panes](#frozen-panes)                                   | [Comments](#comments)                                     | [Encryption](#encryption--password-protected-files) |
+| [Formulas](#formulas)                                 | [Auto Filter](#auto-filter)                                     | [Named Ranges](#named-ranges)                             | [Image Embedding](#image-embedding)                 |
+| [Cell Reference Utilities](#cell-reference-utilities) | [Page Setup](#page-setup)                                       | [Document Properties](#document-properties)               | [Sheet Protection](#sheet-protection)               |
+| [Date Handling](#date-handling)                       |                                                                 | [Sheet Conversion Utilities](#sheet-conversion-utilities) |                                                     |
 
 ---
 
 ## Quick Start
 
 ```typescript
-import { initWasm, Workbook, readBuffer } from 'modern-xlsx';
+import { initWasm, Workbook } from 'modern-xlsx';
 
 // Initialize WASM (once per process)
 await initWasm();
@@ -72,7 +72,8 @@ const wb = new Workbook();
 const ws = wb.addSheet('Styled');
 
 // Create a header style
-const headerStyle = wb.createStyle()
+const headerStyle = wb
+  .createStyle()
   .font({ name: 'Arial', size: 14, bold: true, color: 'FFFFFF' })
   .fill({ pattern: 'solid', fgColor: '4472C4' })
   .alignment({ horizontal: 'center', vertical: 'center' })
@@ -198,6 +199,7 @@ ws.addValidation('C2', {
 
 ```typescript
 const ws = wb.addSheet('Links');
+wb.addSheet('Sheet2');
 
 // External URL
 ws.cell('A1').value = 'Visit Example';
@@ -206,12 +208,19 @@ ws.addHyperlink('A1', 'https://example.com', {
   tooltip: 'Opens example.com',
 });
 
-// Internal reference
+// Internal reference to a cell on another sheet
 ws.cell('A2').value = 'Go to Sheet2';
 ws.addHyperlink('A2', 'Sheet2!A1', {
   display: 'Go to Sheet2',
 });
 ```
+
+`addHyperlink` sorts the target by its form. A target that starts with a URI scheme such as
+`https:`, `mailto:` or `file:` is external: the file stores it as a relationship with
+`TargetMode="External"`, and reading the workbook back returns it as the link's `target`.
+Anything else is an internal `location`: a sheet-qualified reference such as `Sheet2!A1`
+(written without a leading `#`), or a same-sheet range such as `A1:B2`. The sheet a
+`location` names must exist for the link to work.
 
 ---
 
@@ -270,8 +279,8 @@ const builder = new RichTextBuilder()
   .colored('Red text', 'FF0000')
   .styled('Custom', { bold: true, italic: true, fontSize: 14, fontName: 'Arial' });
 
-const runs = builder.build();       // RichTextRun[]
-const text = builder.plainText();   // concatenated plain text
+const runs = builder.build(); // RichTextRun[]
+const text = builder.plainText(); // concatenated plain text
 
 // Apply directly to a cell — round-trips through write + read
 const cell = ws.cell('A1');
@@ -338,6 +347,7 @@ ws.autoFilter = 'A1:B3';
 ws.pageSetup = {
   orientation: 'landscape',
   paperSize: 1, // Letter
+  fitToPage: true, // Excel applies fitToWidth/fitToHeight only with this
   fitToWidth: 1,
   fitToHeight: 0,
 };
@@ -359,20 +369,35 @@ ws.pageMargins = {
 ```typescript
 ws.sheetProtection = {
   sheet: true,
-  password: 'secret',
-  objects: false,
-  scenarios: false,
-  formatCells: false,
+  plainPassword: 'secret', // hashed when the workbook is written
+  objects: true,
+  scenarios: true,
+  formatCells: false, // users may format cells, columns and rows
   formatColumns: false,
   formatRows: false,
-  insertColumns: false,
-  insertRows: false,
-  deleteColumns: false,
-  deleteRows: false,
-  sort: false,
-  autoFilter: false,
+  insertColumns: true,
+  insertRows: true,
+  deleteColumns: true,
+  deleteRows: true,
+  sort: true,
+  autoFilter: true,
 };
 ```
+
+Every flag except `sheet` says whether an action is **locked**: `true` blocks it in Excel,
+`false` allows it. Excel enforces the flags only while `sheet` is `true`. The writer emits
+a flag only when it differs from its ECMA-376 default (`objects` and `scenarios` default to
+`false`; `formatCells` through `autoFilter` default to `true`), so the example above writes
+`sheet="1" objects="1" scenarios="1" formatCells="0" formatColumns="0" formatRows="0"` and
+leaves the other flags at their defaults: insertColumns through autoFilter, insertHyperlinks and pivotTables stay locked, and selecting locked or unlocked cells stays allowed.
+
+`plainPassword` is write-only. The writer replaces it with a salted SHA-512 hash
+(`algorithmName`, `hashValue`, `saltValue`, `spinCount`) and a workbook read back carries
+that hash, never the password. The `password` field is different: it holds the legacy
+16-bit hash as four hex digits (`ST_UnsignedShortHex`) exactly as stored in a file, and the
+library writes it unchanged, without hashing anything you put there, unless `plainPassword` is set, in which case the fresh hash replaces it. The `modern-xlsx/lite`
+build writes the legacy `password` hash for `plainPassword` instead, and accepts ASCII
+passwords only.
 
 ---
 
@@ -381,12 +406,12 @@ ws.sheetProtection = {
 ```typescript
 import { columnToLetter, letterToColumn, decodeCellRef, encodeCellRef } from 'modern-xlsx';
 
-columnToLetter(0);   // 'A'
-columnToLetter(26);  // 'AA'
+columnToLetter(0); // 'A'
+columnToLetter(26); // 'AA'
 letterToColumn('A'); // 0
 letterToColumn('AA'); // 26
 
-decodeCellRef('B3');  // { row: 2, col: 1 } (0-based)
+decodeCellRef('B3'); // { row: 2, col: 1 } (0-based)
 encodeCellRef(2, 1); // 'B3'
 ```
 
@@ -403,12 +428,12 @@ dateToSerial({ year: 2026, month: 3, day: 1 }); // 46082
 // Convert serial back to a JS Date (UTC)
 const d = serialToDate(46082);
 d.getUTCFullYear(); // 2026
-d.getUTCMonth();    // 2 (March, 0-based)
-d.getUTCDate();     // 1
+d.getUTCMonth(); // 2 (March, 0-based)
+d.getUTCDate(); // 1
 
 // Check if a format code is a date format
 isDateFormatCode('yyyy-mm-dd'); // true
-isDateFormatCode('#,##0.00');   // false
+isDateFormatCode('#,##0.00'); // false
 ```
 
 ---
@@ -425,7 +450,8 @@ await initWasm();
 const wb = new Workbook();
 wb.addSheet('Labels');
 
-wb.addBarcode('Labels',
+wb.addBarcode(
+  'Labels',
   { fromCol: 1, fromRow: 0, toCol: 5, toRow: 4 },
   'https://example.com/product/12345',
   { type: 'qr', ecLevel: 'M' },
@@ -437,11 +463,10 @@ await wb.toFile('labels.xlsx');
 ### Embed a Code 128 barcode
 
 ```typescript
-wb.addBarcode('Sheet1',
-  { fromCol: 0, fromRow: 0, toCol: 4, toRow: 2 },
-  'SKU-12345',
-  { type: 'code128', showText: true },
-);
+wb.addBarcode('Sheet1', { fromCol: 0, fromRow: 0, toCol: 4, toRow: 2 }, 'SKU-12345', {
+  type: 'code128',
+  showText: true,
+});
 ```
 
 ### Low-level barcode pipeline
@@ -482,6 +507,8 @@ const data = new Uint8Array(await response.arrayBuffer());
 const wb2 = await readBuffer(data, { password: 'secret123' });
 ```
 
+Reading handles both Agile and Standard encryption, including AES-192 keys.
+
 ### Writing Encrypted Files
 
 ```typescript
@@ -501,6 +528,9 @@ await wb.toFile('encrypted.xlsx', { password: 'secret123' });
 const buffer = await wb.toBuffer({ password: 'secret123' });
 ```
 
+Writing uses Agile Encryption with AES-256-CBC, SHA-512 and 100,000 spin rounds, the defaults
+Excel writes. An empty password writes an unencrypted file.
+
 ### Changing File Password
 
 ```typescript
@@ -513,7 +543,7 @@ await wb.toFile('new.xlsx', { password: 'newpass' });
 
 ```typescript
 // Read encrypted file, write without password
-const wb = await readFile('encrypted.xlsx', { password: 'secret' });
+const wb = await readFile('encrypted.xlsx', { password: 'secret123' });
 await wb.toFile('decrypted.xlsx'); // no password = no encryption
 ```
 
@@ -530,7 +560,8 @@ wb.addSheet('Images');
 // Any Uint8Array PNG bytes
 const pngBytes = renderBarcodePNG(encodeQR('Test'), { moduleSize: 4 });
 
-wb.addImage('Images',
+wb.addImage(
+  'Images',
   { fromCol: 0, fromRow: 0, toCol: 4, toRow: 4 },
   pngBytes,
   'png', // format: 'png' | 'jpeg' | 'gif'

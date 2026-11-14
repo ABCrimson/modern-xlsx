@@ -1,0 +1,52 @@
+[
+  {
+    "index": 1,
+    "cells": [
+      {
+        "reference": "A1",
+        "cellType": "number",
+        "value": "1"
+      },
+      {
+        "reference": "B1",
+        "cellType": "number",
+        "value": "2",
+        "formula": "A1*2",
+        "formulaType": "shared",
+        "formulaRef": "B1:B2",
+        "sharedIndex": 0
+      },
+      {
+        "reference": "C1",
+        "cellType": "formulaStr",
+        "value": "a & b",
+        "formula": "IF(A1<1,\"a & b\",0)"
+      },
+      {
+        "reference": "D1",
+        "cellType": "number",
+        "value": "10",
+        "formula": "A1:A2*10",
+        "formulaType": "array",
+        "formulaRef": "D1:D2"
+      }
+    ]
+  },
+  {
+    "index": 2,
+    "cells": [
+      {
+        "reference": "A2",
+        "cellType": "number",
+        "value": "3"
+      },
+      {
+        "reference": "B2",
+        "cellType": "number",
+        "value": "6",
+        "formulaType": "shared",
+        "sharedIndex": 0
+      }
+    ]
+  }
+]

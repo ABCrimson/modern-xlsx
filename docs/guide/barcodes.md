@@ -1,6 +1,6 @@
 # Barcode & QR Code Guide
 
-Generate barcodes and QR codes directly in XLSX files — pure JavaScript, zero external dependencies.
+Generate barcodes and QR codes directly in XLSX files — pure JavaScript, zero external dependencies. The [package README](../../packages/modern-xlsx/README.md#barcodes-and-qr-codes) shows the short form; this guide covers each format and option.
 
 ## Quick Start
 
@@ -25,22 +25,27 @@ wb.addBarcode(
 await wb.toFile('labels.xlsx');
 ```
 
+`toFile` writes through Node.js file access, so it works on Node.js, Bun and Deno. In a browser (or a worker, or the IIFE build) it rejects with a `ModernXlsxError` whose code is `IO_ERROR`; use `toBuffer` or `writeBlob` there.
+
 ## Supported Formats
 
-| Format | Function | Use Case | Capacity (this implementation) |
-|--------|----------|----------|--------------------------------|
-| **QR Code** | `encodeQR()` | URLs, tickets, payments | Versions 1–10: up to 652 digits / 271 bytes at level `L` |
-| **Code 128** | `encodeCode128()` | SKUs, shipping, logistics | ASCII 32–127, any length (scanners prefer ≤48 chars) |
-| **EAN-13** | `encodeEAN13()` | Retail products (international) | 12–13 digits (13th = check digit, validated) |
-| **UPC-A** | `encodeUPCA()` | Retail products (North America) | 11–12 digits (12th = check digit, validated) |
-| **Code 39** | `encodeCode39()` | Military, healthcare, automotive | 43-character set, any length |
-| **PDF417** | `encodePDF417()` | IDs, boarding passes, licenses | Up to 30 columns × 90 rows (configurable) |
-| **Data Matrix** | `encodeDataMatrix()` | Electronics, pharma, small items | Up to 48×48: ~174 ASCII chars / ~348 digits |
-| **ITF-14** | `encodeITF14()` | Carton-level logistics | 13–14 digits (14th = check digit, validated) |
-| **GS1-128** | `encodeGS1128()` | Supply chain (structured data) | Variable — parenthesized AI syntax |
+| Format                         | Function             | Use Case                         | Capacity (this implementation)                                                                                                                                                                    |
+| ------------------------------ | -------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **QR Code**                    | `encodeQR()`         | URLs, tickets, payments          | Versions 1–10: up to 652 digits / 271 bytes at level `L`                                                                                                                                          |
+| **Code 128**                   | `encodeCode128()`    | SKUs, shipping, logistics        | ASCII 32–127 (other characters throw), any length (scanners prefer ≤48 chars); empty input throws                                                                                                 |
+| **EAN-13**                     | `encodeEAN13()`      | Retail products (international)  | 12–13 digits (13th = check digit, validated)                                                                                                                                                      |
+| **UPC-A**                      | `encodeUPCA()`       | Retail products (North America)  | 11–12 digits (12th = check digit, validated)                                                                                                                                                      |
+| **Code 39**                    | `encodeCode39()`     | Military, healthcare, automotive | 43-character set (`0-9`, `A-Z`, `-`, `.`, space, `$`, `/`, `+`, `%`), any length; lowercase letters are upper-cased                                                                               |
+| **PDF417** (experimental)      | `encodePDF417()`     | IDs, boarding passes, licenses   | Up to 30 columns × 90 rows (configurable); about 350 lowercase letters at the default 4 columns and error correction level 2                                                                      |
+| **Data Matrix** (experimental) | `encodeDataMatrix()` | Electronics, pharma, small items | Up to 48×48: 174 ASCII chars / 348 digits                                                                                                                                                         |
+| **ITF-14**                     | `encodeITF14()`      | Carton-level logistics           | 13–14 digits (14th = check digit, validated)                                                                                                                                                      |
+| **GS1-128**                    | `encodeGS1128()`     | Supply chain (structured data)   | Variable — parenthesized AI syntax; fixed-length AIs are length-checked and FNC1 separators are inserted after variable-length elements; malformed AI syntax or a wrong fixed-length value throws |
+
+> [!WARNING]
+> PDF417 and Data Matrix are experimental. Their output is not yet ISO/IEC 15438 (PDF417) or ISO/IEC 16022 (Data Matrix) conformant and may not scan. A conformant encoder is planned for 1.10.0. Do not rely on either format where a scanner must read the symbol.
 
 > [!NOTE]
-> Capacities reflect what this pure-TypeScript implementation encodes, not the full format specs. QR is capped at version 10 (57×57 modules) and Data Matrix at 48×48 — `encodeQR` throws `Data too long for QR versions 1-10` and `encodeDataMatrix` throws `Data Matrix: data too long` beyond those sizes. EAN/UPC/ITF check digits are verified when you supply them and computed when you omit them.
+> Capacities reflect what this pure-TypeScript implementation encodes, not the full format specs. QR is capped at version 10 (57×57 modules) and Data Matrix at 48×48 — `encodeQR` throws `Data too long for QR versions 1-10`, `encodeDataMatrix` throws `Data Matrix: data too long` and `encodePDF417` throws `PDF417: data too long` beyond those sizes. The QR limits are per error correction level; at level `L` they are 652 digits, 395 alphanumeric characters or 271 UTF-8 bytes, and at the default `M` they are 513, 311 and 213. EAN/UPC/ITF check digits are verified when you supply them and computed when you omit them.
 
 ## Which Format Should I Use?
 
@@ -58,13 +63,7 @@ await wb.toFile('labels.xlsx');
 For fine control, use the encoder + renderer pipeline directly:
 
 ```typescript
-import {
-  encodeQR,
-  encodeCode128,
-  renderBarcodePNG,
-  generateDrawingXml,
-  generateDrawingRels,
-} from 'modern-xlsx';
+import { encodeQR, renderBarcodePNG } from 'modern-xlsx';
 
 // 1. Encode data to a boolean matrix
 const matrix = encodeQR('Hello World', { ecLevel: 'H' });
@@ -72,9 +71,9 @@ console.log(`${matrix.width}x${matrix.height} modules`);
 
 // 2. Render to PNG with options
 const png = renderBarcodePNG(matrix, {
-  moduleSize: 6,       // 6px per module
-  quietZone: 4,        // 4-module white border
-  foreground: [0, 0, 0],      // black
+  moduleSize: 6, // 6px per module
+  quietZone: 4, // 4-module white border
+  foreground: [0, 0, 0], // black
   background: [255, 255, 255], // white
   showText: true,
   textValue: 'Hello World',
@@ -90,30 +89,30 @@ const png = renderBarcodePNG(matrix, {
 
 Accepted by `renderBarcodePNG()` — and inherited by `generateBarcode()` / `wb.addBarcode()`:
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `moduleSize` | `number` | `4` | Pixels per barcode module |
-| `quietZone` | `number` | `4` (see note) | Modules of white space around barcode |
-| `foreground` | `number[]` ([R,G,B]) | `[0, 0, 0]` | Barcode color (black) |
-| `background` | `number[]` ([R,G,B]) | `[255, 255, 255]` | Background color (white) |
-| `showText` | `boolean` | `false` | Show human-readable text below |
-| `textValue` | `string` | `''` — nothing drawn | Text to display when `showText` is on |
+| Option       | Type                 | Default              | Description                                                                            |
+| ------------ | -------------------- | -------------------- | -------------------------------------------------------------------------------------- |
+| `moduleSize` | `number`             | `4`                  | Pixels per barcode module (a positive integer, otherwise `RangeError`)                 |
+| `quietZone`  | `number`             | `4` (see note)       | Modules of white space around barcode (a non-negative integer, otherwise `RangeError`) |
+| `foreground` | `number[]` ([R,G,B]) | `[0, 0, 0]`          | Barcode color (black)                                                                  |
+| `background` | `number[]` ([R,G,B]) | `[255, 255, 255]`    | Background color (white)                                                               |
+| `showText`   | `boolean`            | `false`              | Show human-readable text below                                                         |
+| `textValue`  | `string`             | `''` — nothing drawn | Text to display when `showText` is on                                                  |
 
 > [!NOTE]
-> Defaults differ slightly between the two entry points. `renderBarcodePNG()` uses `quietZone: 4` and an empty `textValue` (so `showText: true` draws nothing unless you pass `textValue`). `generateBarcode()` and `wb.addBarcode()` default `textValue` to the encoded value and pick the quiet zone per format: `4` modules for QR/Data Matrix, `10` for the linear formats.
+> Defaults differ slightly between the two entry points. `renderBarcodePNG()` uses `quietZone: 4` and an empty `textValue` (so `showText: true` draws nothing unless you pass `textValue`). `generateBarcode()` and `wb.addBarcode()` default `textValue` to the encoded value and pick the quiet zone per format: `4` modules for QR/Data Matrix, `10` for every other format (the linear formats and PDF417).
 
 ## Generation Options (`DrawBarcodeOptions`)
 
 `generateBarcode()` and `wb.addBarcode()` take everything above plus:
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `type` | `BarcodeType` | required | `'qr'`, `'code128'`, `'ean13'`, `'upca'`, `'code39'`, `'pdf417'`, `'datamatrix'`, `'itf14'`, or `'gs1128'` |
-| `fitWidth` | `number` | — | Auto-size modules to fit this pixel width |
-| `fitHeight` | `number` | — | Auto-size modules to fit this pixel height |
-| `ecLevel` | `'L' \| 'M' \| 'Q' \| 'H'` | `'M'` | QR error correction level (QR only) |
-| `pdf417EcLevel` | `number` | `2` | PDF417 error correction level, clamped to 0–8 |
-| `pdf417Columns` | `number` | `4` | PDF417 data columns, clamped to 1–30 |
+| Option          | Type                       | Default  | Description                                                                                                                                                                              |
+| --------------- | -------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`          | `BarcodeType`              | required | `'qr'`, `'code128'`, `'ean13'`, `'upca'`, `'code39'`, `'pdf417'`, `'datamatrix'`, `'itf14'`, or `'gs1128'`                                                                               |
+| `fitWidth`      | `number`                   | —        | Pixel width to fit: the module size becomes the largest whole number (at least 1) for which the symbol plus quiet zone fits; replaces `moduleSize`. Must be a positive finite number     |
+| `fitHeight`     | `number`                   | —        | Pixel height to fit, resolved like `fitWidth`; the text line drawn by `showText` is not counted, so the image can be taller than `fitHeight`; with both set the smaller module size wins |
+| `ecLevel`       | `'L' \| 'M' \| 'Q' \| 'H'` | `'M'`    | QR error correction level (QR only)                                                                                                                                                      |
+| `pdf417EcLevel` | `number`                   | `2`      | **Experimental.** PDF417 error correction level: truncated to an integer and clamped to 0–8; a non-finite value throws `RangeError`                                                      |
+| `pdf417Columns` | `number`                   | `4`      | **Experimental.** PDF417 data columns: truncated to an integer and clamped to 1–30; a non-finite value throws `RangeError`                                                               |
 
 ## Auto-Sizing
 
@@ -124,8 +123,8 @@ import { generateBarcode } from 'modern-xlsx';
 
 const png = generateBarcode('SKU-12345', {
   type: 'code128',
-  fitWidth: 300,   // fit within 300px wide
-  fitHeight: 100,  // fit within 100px tall
+  fitWidth: 300, // fit within 300px wide
+  fitHeight: 100, // fit within 100px tall
   showText: true,
 });
 ```
@@ -139,21 +138,20 @@ const wb = new Workbook();
 wb.addSheet('Sheet1');
 
 // QR code in cells B2:E5
-wb.addBarcode('Sheet1',
-  { fromCol: 1, fromRow: 1, toCol: 4, toRow: 4 },
-  'https://example.com',
-  { type: 'qr', ecLevel: 'M' },
-);
+wb.addBarcode('Sheet1', { fromCol: 1, fromRow: 1, toCol: 4, toRow: 4 }, 'https://example.com', {
+  type: 'qr',
+  ecLevel: 'M',
+});
 ```
 
 The anchor is an `ImageAnchor` — a two-cell (`twoCellAnchor`) range in 0-based row/column indices, with optional EMU offsets for sub-cell positioning:
 
 ```typescript
 interface ImageAnchor {
-  fromCol: number;   // 0-based start column
-  fromRow: number;   // 0-based start row
-  toCol: number;     // 0-based end column
-  toRow: number;     // 0-based end row
+  fromCol: number; // 0-based start column
+  fromRow: number; // 0-based start row
+  toCol: number; // 0-based end column
+  toRow: number; // 0-based end row
   fromColOff?: number; // EMU offsets within the start/end cells
   fromRowOff?: number;
   toColOff?: number;
@@ -164,6 +162,10 @@ interface ImageAnchor {
 ### Using `addImage()` (raw PNG bytes)
 
 ```typescript
+import { encodeCode128, initWasm, renderBarcodePNG, Workbook } from 'modern-xlsx';
+
+await initWasm();
+
 const wb = new Workbook();
 wb.addSheet('Sheet1');
 
@@ -172,20 +174,17 @@ const matrix = encodeCode128('ITEM-001');
 const png = renderBarcodePNG(matrix, { moduleSize: 3, showText: true, textValue: 'ITEM-001' });
 
 // Embed as image
-wb.addImage('Sheet1',
-  { fromCol: 0, fromRow: 0, toCol: 3, toRow: 2 },
-  png,
-);
+wb.addImage('Sheet1', { fromCol: 0, fromRow: 0, toCol: 3, toRow: 2 }, png);
 ```
 
 ## Error Correction (QR Only)
 
-| Level | Recovery | Best For |
-|-------|----------|----------|
-| `L` (Low) | ~7% | Clean environments, smallest size |
-| `M` (Medium) | ~15% | General purpose (default) |
-| `Q` (Quartile) | ~25% | Industrial, some damage expected |
-| `H` (High) | ~30% | Harsh environments, logos overlaid |
+| Level          | Recovery | Best For                           |
+| -------------- | -------- | ---------------------------------- |
+| `L` (Low)      | ~7%      | Clean environments, smallest size  |
+| `M` (Medium)   | ~15%     | General purpose (default)          |
+| `Q` (Quartile) | ~25%     | Industrial, some damage expected   |
+| `H` (High)     | ~30%     | Harsh environments, logos overlaid |
 
 ```typescript
 encodeQR('data', { ecLevel: 'H' }); // Maximum error correction
@@ -200,10 +199,10 @@ GS1-128 encodes structured data using Application Identifiers (AIs):
 const barcode = encodeGS1128('(01)09501101530003(17)250301(10)LOT123');
 ```
 
-| AI | Description | Example |
-|----|-------------|---------|
-| `01` | GTIN (product ID) | `(01)09501101530003` |
-| `10` | Batch/lot number | `(10)ABC123` |
-| `17` | Expiry date (YYMMDD) | `(17)250301` |
-| `21` | Serial number | `(21)SN12345` |
-| `37` | Quantity | `(37)100` |
+| AI   | Description          | Example              |
+| ---- | -------------------- | -------------------- |
+| `01` | GTIN (product ID)    | `(01)09501101530003` |
+| `10` | Batch/lot number     | `(10)ABC123`         |
+| `17` | Expiry date (YYMMDD) | `(17)250301`         |
+| `21` | Serial number        | `(21)SN12345`        |
+| `37` | Quantity             | `(37)100`            |

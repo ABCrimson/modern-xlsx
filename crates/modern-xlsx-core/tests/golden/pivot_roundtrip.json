@@ -1,0 +1,122 @@
+[
+  [
+    {
+      "name": "P & L",
+      "dataCaption": "Values",
+      "location": {
+        "ref": "D1:E4",
+        "firstHeaderRow": 1,
+        "firstDataRow": 1,
+        "firstDataCol": 1
+      },
+      "pivotFields": [
+        {
+          "axis": "axisRow",
+          "items": [
+            {
+              "x": 0
+            },
+            {
+              "x": 1
+            },
+            {
+              "t": "default"
+            }
+          ],
+          "subtotals": [
+            "sum",
+            "count"
+          ],
+          "compact": false,
+          "outline": true,
+          "defaultSubtotal": false
+        },
+        {
+          "compact": true,
+          "outline": true,
+          "dataField": true
+        }
+      ],
+      "rowFields": [
+        {
+          "x": 0
+        }
+      ],
+      "dataFields": [
+        {
+          "name": "Sum of Amt",
+          "fld": 1,
+          "subtotal": "sum"
+        }
+      ],
+      "pageFields": [
+        {
+          "fld": 0
+        }
+      ],
+      "cacheId": 3
+    }
+  ],
+  [
+    {
+      "cacheId": 3,
+      "source": {
+        "ref": "A1:B3",
+        "sheet": "Q&A"
+      },
+      "fields": [
+        {
+          "name": "Region & Area",
+          "sharedItems": [
+            {
+              "type": "string",
+              "v": "East"
+            },
+            {
+              "type": "string",
+              "v": "West"
+            }
+          ]
+        },
+        {
+          "name": "Amt",
+          "numFmtId": 0,
+          "sharedItemsAttrs": {
+            "containsSemiMixedTypes": false,
+            "containsString": false,
+            "containsNumber": true,
+            "minValue": 1.0,
+            "maxValue": 9.0
+          }
+        }
+      ],
+      "recordCount": 2
+    }
+  ],
+  [
+    {
+      "records": [
+        [
+          {
+            "type": "index",
+            "v": 0
+          },
+          {
+            "type": "number",
+            "v": 1.0
+          }
+        ],
+        [
+          {
+            "type": "index",
+            "v": 1
+          },
+          {
+            "type": "number",
+            "v": 9.0
+          }
+        ]
+      ]
+    }
+  ]
+]

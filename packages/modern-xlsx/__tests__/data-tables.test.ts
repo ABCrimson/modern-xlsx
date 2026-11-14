@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest';
+import type { CellData, RowData } from '../src/index.js';
 import { readBuffer, Workbook } from '../src/index.js';
+
+/** Writes `rows` into a fresh 'Sheet1', round-trips the workbook and returns the cells read back. */
+async function roundTripRows(rows: RowData[]): Promise<CellData[]> {
+  const wb = new Workbook();
+  wb.addSheet('Sheet1');
+  const data = wb.toJSON();
+  const sheet = data.sheets[0];
+  if (!sheet) throw new Error('missing sheet');
+  sheet.worksheet.rows = rows;
+  const wb2 = await readBuffer(await new Workbook(data).toBuffer());
+  return (wb2.toJSON().sheets[0]?.worksheet.rows ?? []).flatMap((r) => r.cells);
+}
 
 describe('Data Tables', () => {
   it('data table formula attributes roundtrip', async () => {
-    const wb = new Workbook();
-    wb.addSheet('Sheet1');
-
-    const data = wb.toJSON();
-    const sheet = data.sheets[0];
-    if (!sheet) throw new Error('missing sheet');
-    sheet.worksheet.rows = [
+    const cells = await roundTripRows([
       {
         index: 1,
         cells: [
@@ -48,17 +55,8 @@ describe('Data Tables', () => {
         height: null,
         hidden: false,
       },
-    ];
-
-    const wb2 = new Workbook(data);
-    const buffer = await wb2.toBuffer();
-    const wb3 = await readBuffer(buffer);
-
-    const readData = wb3.toJSON();
-    const row2 = readData.sheets[0]?.worksheet.rows.find((r) => r.index === 2);
-    expect(row2).toBeDefined();
-
-    const cell = row2?.cells.find((c) => c.reference === 'B2');
+    ]);
+    const cell = cells.find((c) => c.reference === 'B2');
     expect(cell).toBeDefined();
     expect(cell?.formulaType).toBe('dataTable');
     expect(cell?.formulaR1).toBe('B1');
@@ -66,13 +64,7 @@ describe('Data Tables', () => {
   });
 
   it('2D data table roundtrip with dtr flags', async () => {
-    const wb = new Workbook();
-    wb.addSheet('Sheet1');
-
-    const data = wb.toJSON();
-    const sheet = data.sheets[0];
-    if (!sheet) throw new Error('missing sheet');
-    sheet.worksheet.rows = [
+    const cells = await roundTripRows([
       {
         index: 2,
         cells: [
@@ -92,20 +84,13 @@ describe('Data Tables', () => {
         height: null,
         hidden: false,
       },
-    ];
-
-    const wb2 = new Workbook(data);
-    const buffer = await wb2.toBuffer();
-    const wb3 = await readBuffer(buffer);
-
-    const readData = wb3.toJSON();
-    const row2 = readData.sheets[0]?.worksheet.rows.find((r) => r.index === 2);
-    const cell = row2?.cells.find((c) => c.reference === 'B2');
+    ]);
+    const cell = cells.find((c) => c.reference === 'B2');
     expect(cell).toBeDefined();
     expect(cell?.formulaDt2d).toBe(true);
     expect(cell?.formulaDtr1).toBe(true);
-    // formulaDtr2 was not set — should be absent or falsy
-    expect(cell?.formulaDtr2).toBeFalsy();
+    // formulaDtr2 was not set — should be absent
+    expect(cell?.formulaDtr2).toBeUndefined();
   });
 
   it('normal formula has no data table attributes', async () => {
@@ -123,19 +108,13 @@ describe('Data Tables', () => {
     expect(a1).toBeDefined();
     expect(a1?.formula).toBe('SUM(B1:B10)');
     // Normal formulas should not have data table attributes
-    expect(a1?.formulaR1).toBeFalsy();
-    expect(a1?.formulaR2).toBeFalsy();
-    expect(a1?.formulaDt2d).toBeFalsy();
+    expect(a1?.formulaR1).toBeUndefined();
+    expect(a1?.formulaR2).toBeUndefined();
+    expect(a1?.formulaDt2d).toBeUndefined();
   });
 
   it('data table with only r1 (1D table)', async () => {
-    const wb = new Workbook();
-    wb.addSheet('Sheet1');
-
-    const data = wb.toJSON();
-    const sheet = data.sheets[0];
-    if (!sheet) throw new Error('missing sheet');
-    sheet.worksheet.rows = [
+    const cells = await roundTripRows([
       {
         index: 1,
         cells: [
@@ -152,21 +131,14 @@ describe('Data Tables', () => {
         height: null,
         hidden: false,
       },
-    ];
-
-    const wb2 = new Workbook(data);
-    const buffer = await wb2.toBuffer();
-    const wb3 = await readBuffer(buffer);
-
-    const readData = wb3.toJSON();
-    const row1 = readData.sheets[0]?.worksheet.rows.find((r) => r.index === 1);
-    const cell = row1?.cells.find((c) => c.reference === 'A1');
+    ]);
+    const cell = cells.find((c) => c.reference === 'A1');
     expect(cell).toBeDefined();
     expect(cell?.formulaType).toBe('dataTable');
     expect(cell?.formulaR1).toBe('C1');
     // r2 was not set
-    expect(cell?.formulaR2).toBeFalsy();
-    expect(cell?.formulaDt2d).toBeFalsy();
+    expect(cell?.formulaR2).toBeUndefined();
+    expect(cell?.formulaDt2d).toBeUndefined();
   });
 
   it('preserved entries survive roundtrip (external links)', async () => {

@@ -5,7 +5,7 @@
  * without blocking the UI. The WASM module is initialized inside the
  * worker on first use.
  *
- * Build as a separate entry: `dist/modern-xlsx.worker.js`
+ * Built as a separate entry, `dist/modern-xlsx.worker.js` (see `tsdown.config.ts`).
  */
 
 import init, {
@@ -14,25 +14,34 @@ import init, {
   write as _wasmWriteJson,
   writeWithPassword as _wasmWriteWithPasswordJson,
 } from '../wasm/modern_xlsx_wasm.js';
+import { isError, ModernXlsxError, WASM_INIT_FAILED } from './model/errors.js';
 
 let initPromise: Promise<void> | null = null;
 
 function ensureInit(wasmUrl?: string): Promise<void> {
-  initPromise ??= init(wasmUrl ? new URL(wasmUrl) : undefined).then(
+  initPromise ??= init({
+    module_or_path: wasmUrl
+      ? new URL(wasmUrl, globalThis.location.href)
+      : new URL('modern-xlsx.wasm', import.meta.url),
+  }).then(
     () => {},
     (err) => {
       initPromise = null;
-      throw err;
+      throw new ModernXlsxError(WASM_INIT_FAILED, isError(err) ? err.message : String(err), {
+        cause: err,
+      });
     },
   );
   return initPromise;
 }
 
+/** A message from the main thread: `id` pairs it with its {@link WorkerResponse}. */
 export type WorkerRequest =
   | { id: number; type: 'init'; wasmUrl?: string }
   | { id: number; type: 'read'; data: Uint8Array; wasmUrl?: string; password?: string }
   | { id: number; type: 'write'; json: string; wasmUrl?: string; password?: string };
 
+/** The worker's reply to the request with the same `id`: a result or an error message. */
 export type WorkerResponse =
   | { id: number; type: 'result'; data?: Uint8Array; json?: string }
   | { id: number; type: 'error'; error: string };
@@ -50,7 +59,12 @@ _self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
     const response: WorkerResponse = {
       id: msg.id,
       type: 'error',
-      error: err instanceof Error ? err.message : String(err),
+      error:
+        err instanceof ModernXlsxError
+          ? `[${err.code}] ${err.message}`
+          : isError(err)
+            ? err.message
+            : String(err),
     };
     _self.postMessage(response);
   });

@@ -1,0 +1,33 @@
+{
+  "strings": [
+    "x2 and more",
+    "plain"
+  ],
+  "richRuns": [
+    [
+      {
+        "text": "x",
+        "bold": false,
+        "fontName": "Aptos",
+        "fontSize": 11.0,
+        "family": 2,
+        "charset": 204,
+        "scheme": "minor",
+        "colorSpec": {
+          "theme": 1
+        }
+      },
+      {
+        "text": "2",
+        "underline": true,
+        "color": "FFFF0000",
+        "vertAlign": "superscript",
+        "underlineStyle": "double"
+      },
+      {
+        "text": " and more"
+      }
+    ],
+    null
+  ]
+}

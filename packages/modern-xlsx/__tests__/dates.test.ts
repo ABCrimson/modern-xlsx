@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { dateToSerial, isDateFormatCode, isDateFormatId, serialToDate } from '../src/dates.js';
+import {
+  dateToSerial,
+  isDateFormatCode,
+  isDateFormatId,
+  serialToDate,
+} from '../src/format/dates.js';
+import { getBuiltinFormat } from '../src/format/format-cell.js';
 
 describe('dateToSerial', () => {
   it('converts Jan 1, 1900 (serial 1)', () => {
@@ -112,5 +118,84 @@ describe('isDateFormatCode', () => {
 
   it('ignores escaped characters', () => {
     expect(isDateFormatCode('\\y#,##0')).toBe(false);
+  });
+});
+
+describe('isDateFormatCode bracket directives', () => {
+  it.each([
+    '[Red]#,##0',
+    '#,##0.00;[Red](#,##0.00)',
+    '[Cyan]0',
+    '[White]0',
+    '[Red]0.00',
+    '0.0E+00',
+    '[Color10]0',
+    '[<-5]0',
+    '[Red',
+  ])('is not a date: %s', (code) => {
+    expect(isDateFormatCode(code)).toBe(false);
+  });
+
+  it('is not a date for built-ins 38 and 40', () => {
+    expect(isDateFormatCode(getBuiltinFormat(38) as string)).toBe(false);
+    expect(isDateFormatCode(getBuiltinFormat(40) as string)).toBe(false);
+  });
+
+  it.each(['[h]:mm', '[hh]:mm', '[mm]:ss', '[ss]', '[$-409]m/d/yyyy'])('is a date: %s', (code) => {
+    expect(isDateFormatCode(code)).toBe(true);
+  });
+
+  it('skips pad and fill characters', () => {
+    expect(isDateFormatCode('0_d')).toBe(false);
+    expect(isDateFormatCode('0*d')).toBe(false);
+  });
+});
+
+describe('serialToDate millisecond rounding', () => {
+  it('rounds float error to whole seconds', () => {
+    expect(serialToDate(45000 + 7 / 86400).toISOString()).toBe('2023-03-15T00:00:07.000Z');
+    expect(serialToDate(1000 + 7 / 86400, 'date1904').getUTCMilliseconds()).toBe(0);
+    expect(serialToDate(45000 + 7 / 86400, 'date1904').toISOString()).toBe(
+      '2027-03-16T00:00:07.000Z',
+    );
+  });
+
+  it('has zero milliseconds for every second of a day', () => {
+    for (let s = 0; s < 86400; s++) {
+      expect(serialToDate(45000 + s / 86400).getUTCMilliseconds()).toBe(0);
+    }
+  });
+});
+
+describe('dates edge cases', () => {
+  it('converts small and fractional serials', () => {
+    expect(serialToDate(0.5).toISOString()).toBe('1899-12-31T12:00:00.000Z');
+    expect(serialToDate(0).toISOString()).toBe('1899-12-31T00:00:00.000Z');
+    expect(serialToDate(45000.5).toISOString()).toBe('2023-03-15T12:00:00.000Z');
+  });
+
+  it('returns NaN for an invalid Date', () => {
+    expect(dateToSerial(new Date(Number.NaN))).toBeNaN();
+  });
+
+  it('matches the built-in date format id set', () => {
+    const ids = new Set([
+      ...Array.from({ length: 9 }, (_, i) => 14 + i),
+      ...Array.from({ length: 10 }, (_, i) => 27 + i),
+      45,
+      46,
+      47,
+      ...Array.from({ length: 9 }, (_, i) => 50 + i),
+    ]);
+    for (let n = 0; n <= 200; n++) {
+      expect(isDateFormatId(n)).toBe(ids.has(n));
+    }
+  });
+
+  it('does not remap years 0-99 to 19xx', () => {
+    const expected = dateToSerial(new Date('0050-01-01T00:00:00Z'));
+    expect(dateToSerial({ year: 50, month: 1, day: 1 })).toBe(expected);
+    expect(expected).not.toBe(dateToSerial(new Date('1950-01-01T00:00:00Z')));
+    expect(expected).not.toBe(18264);
   });
 });

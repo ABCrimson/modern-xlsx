@@ -5,7 +5,8 @@
  */
 
 import type { BarcodeMatrix } from './common.js';
-import { at, createGrid, setCell } from './common.js';
+import { at } from './common.js';
+import { barsToMatrix } from './linear.js';
 
 // ---------------------------------------------------------------------------
 // ITF-14 Encoder (Interleaved 2 of 5)
@@ -30,22 +31,32 @@ function itfChk(d: number[]): number {
   return (10 - (s % 10)) % 10;
 }
 
-export function encodeITF14(data: string): BarcodeMatrix {
-  let digits: number[];
+/** The 14 digits of the symbol: the 13 given plus the computed check digit, or the 14 verified. */
+function itf14Digits(data: string): number[] {
+  if (!/^\d+$/.test(data)) throw new Error('ITF-14: data must contain only digits 0-9');
+  const digits = [...data].map(Number);
   if (data.length === 13) {
-    digits = [...data].map(Number);
     digits.push(itfChk(digits));
   } else if (data.length === 14) {
-    digits = [...data].map(Number);
-    const exp = itfChk(digits.slice(0, 13));
+    const exp = itfChk(digits);
     if (at(digits, 13) !== exp)
       throw new Error(`ITF-14: invalid check digit (expected ${exp}, got ${at(digits, 13)})`);
   } else {
     throw new Error('ITF-14: data must be 13 or 14 digits');
   }
-  if (digits.some((d) => d < 0 || d > 9 || !Number.isFinite(d))) {
-    throw new Error('ITF-14: data must contain only digits 0-9');
-  }
+  return digits;
+}
+
+/**
+ * Encode an ITF-14 symbol from 13 digits (the check digit is computed) or 14 digits (the supplied
+ * check digit is verified).
+ *
+ * @param data - 13 or 14 ASCII digits.
+ * @returns The symbol matrix (60 rows), without quiet zone.
+ * @throws {Error} If `data` is not 13 or 14 ASCII digits, or the supplied check digit is wrong.
+ */
+export function encodeITF14(data: string): BarcodeMatrix {
+  const digits = itf14Digits(data);
 
   const bars: boolean[] = [true, false, true, false]; // start
   for (let i = 0; i < digits.length; i += 2) {
@@ -58,9 +69,5 @@ export function encodeITF14(data: string): BarcodeMatrix {
   }
   bars.push(true, true, false, true); // stop
 
-  const w = bars.length;
-  const bh = 60;
-  const modules = createGrid(bh, w, false);
-  for (let r = 0; r < bh; r++) for (let c = 0; c < w; c++) setCell(modules, r, c, at(bars, c));
-  return { width: w, height: bh, modules };
+  return barsToMatrix(bars);
 }

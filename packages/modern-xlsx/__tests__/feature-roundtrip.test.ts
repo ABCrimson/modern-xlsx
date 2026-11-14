@@ -1,7 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { assert, describe, expect, it } from 'vitest';
 import { RichTextBuilder, readBuffer, Workbook } from '../src/index.js';
 
-describe('0.1.2 — Feature Roundtrip Tests', () => {
+/** Element `index` of `items`, narrowed with `assert.isDefined` (noUncheckedIndexedAccess). */
+function at<T>(items: readonly T[] | undefined, index: number): T {
+  const item = items?.[index];
+  assert.isDefined(item);
+  return item;
+}
+
+describe('Feature Roundtrip Tests', () => {
   // ---------------------------------------------------------------------------
   // 1. ColorScale with 2 stops
   // ---------------------------------------------------------------------------
@@ -11,7 +18,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     ws.cell('A1').value = 1;
 
     const data = wb.toJSON();
-    data.sheets[0].worksheet.conditionalFormatting = [
+    at(data.sheets, 0).worksheet.conditionalFormatting = [
       {
         sqref: 'A1:A10',
         rules: [
@@ -26,7 +33,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
                 { cfvoType: 'min', val: null },
                 { cfvoType: 'max', val: null },
               ],
-              colors: ['FF0000', '00FF00'],
+              colors: ['FFFF0000', 'FF00FF00'],
             },
             dataBar: null,
             iconSet: null,
@@ -38,31 +45,78 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
     const data2 = wb2.toJSON();
-    const cf = data2.sheets[0].worksheet.conditionalFormatting;
+    const cf = at(data2.sheets, 0).worksheet.conditionalFormatting;
 
     expect(cf).toBeDefined();
     expect(cf).toHaveLength(1);
-    expect(cf?.[0].sqref).toBe('A1:A10');
-    expect(cf?.[0].rules).toHaveLength(1);
+    expect(at(cf, 0).sqref).toBe('A1:A10');
+    expect(at(cf, 0).rules).toHaveLength(1);
 
-    const rule = cf?.[0].rules[0];
-    expect(rule.ruleType).toBe('colorScale');
-    expect(rule.priority).toBe(1);
-    // Serde omits None fields; reader may return null or undefined for absent values
-    expect(rule.operator ?? null).toBeNull();
-    expect(rule.formula ?? null).toBeNull();
-    expect(rule.dxfId ?? null).toBeNull();
+    // The reader omits absent fields (serde skips None), so the keys are not present at all.
+    expect(at(at(cf, 0).rules, 0)).toStrictEqual({
+      ruleType: 'colorScale',
+      priority: 1,
+      colorScale: {
+        cfvos: [{ cfvoType: 'min' }, { cfvoType: 'max' }],
+        colors: ['FFFF0000', 'FF00FF00'],
+      },
+    });
+  });
 
-    expect(rule.colorScale).toBeDefined();
-    expect(rule.colorScale?.cfvos).toHaveLength(2);
-    expect(rule.colorScale?.cfvos[0].cfvoType).toBe('min');
-    expect(rule.colorScale?.cfvos[0].val ?? null).toBeNull();
-    expect(rule.colorScale?.cfvos[1].cfvoType).toBe('max');
-    expect(rule.colorScale?.cfvos[1].val ?? null).toBeNull();
-    expect(rule.colorScale?.colors).toEqual(['FF0000', '00FF00']);
+  it('cellIs and expression rules keep their dxfId and formulas, and the dxf survives', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('CF');
+    ws.cell('A1').value = 1;
 
-    expect(rule.dataBar ?? null).toBeNull();
-    expect(rule.iconSet ?? null).toBeNull();
+    const data = wb.toJSON();
+    data.styles.dxfs = [
+      {
+        font: {
+          name: null,
+          size: null,
+          bold: true,
+          italic: false,
+          underline: false,
+          strike: false,
+          color: 'FFFF0000',
+        },
+      },
+    ];
+    at(data.sheets, 0).worksheet.conditionalFormatting = [
+      {
+        sqref: 'A1:A10',
+        rules: [
+          { ruleType: 'cellIs', priority: 1, operator: 'greaterThan', formula: '5', dxfId: 0 },
+          {
+            ruleType: 'expression',
+            priority: 2,
+            operator: null,
+            formula: 'MOD(ROW(),2)=0',
+            dxfId: 0,
+          },
+        ],
+      },
+    ];
+
+    const wb2 = await readBuffer(await wb.toBuffer());
+    const data2 = wb2.toJSON();
+    const rules = at(at(data2.sheets, 0).worksheet.conditionalFormatting, 0).rules;
+
+    expect(rules).toHaveLength(2);
+    expect(rules[0]).toStrictEqual({
+      ruleType: 'cellIs',
+      priority: 1,
+      operator: 'greaterThan',
+      formula: '5',
+      dxfId: 0,
+    });
+    expect(rules[1]).toStrictEqual({
+      ruleType: 'expression',
+      priority: 2,
+      formula: 'MOD(ROW(),2)=0',
+      dxfId: 0,
+    });
+    expect(data2.styles.dxfs).toStrictEqual(data.styles.dxfs);
   });
 
   // ---------------------------------------------------------------------------
@@ -74,7 +128,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     ws.cell('A1').value = 1;
 
     const data = wb.toJSON();
-    data.sheets[0].worksheet.conditionalFormatting = [
+    at(data.sheets, 0).worksheet.conditionalFormatting = [
       {
         sqref: 'B1:B20',
         rules: [
@@ -90,7 +144,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
                 { cfvoType: 'percentile', val: '50' },
                 { cfvoType: 'max', val: null },
               ],
-              colors: ['FF0000', 'FFFF00', '00FF00'],
+              colors: ['FFFF0000', 'FFFFFF00', 'FF00FF00'],
             },
             dataBar: null,
             iconSet: null,
@@ -102,23 +156,23 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
     const data2 = wb2.toJSON();
-    const cf = data2.sheets[0].worksheet.conditionalFormatting;
+    const cf = at(data2.sheets, 0).worksheet.conditionalFormatting;
 
     expect(cf).toBeDefined();
     expect(cf).toHaveLength(1);
-    expect(cf?.[0].sqref).toBe('B1:B20');
+    expect(at(cf, 0).sqref).toBe('B1:B20');
 
-    const rule = cf?.[0].rules[0];
+    const rule = at(at(cf, 0).rules, 0);
     expect(rule.ruleType).toBe('colorScale');
     expect(rule.colorScale).toBeDefined();
     expect(rule.colorScale?.cfvos).toHaveLength(3);
-    expect(rule.colorScale?.cfvos[0].cfvoType).toBe('min');
-    expect(rule.colorScale?.cfvos[0].val ?? null).toBeNull();
-    expect(rule.colorScale?.cfvos[1].cfvoType).toBe('percentile');
-    expect(rule.colorScale?.cfvos[1].val).toBe('50');
-    expect(rule.colorScale?.cfvos[2].cfvoType).toBe('max');
-    expect(rule.colorScale?.cfvos[2].val ?? null).toBeNull();
-    expect(rule.colorScale?.colors).toEqual(['FF0000', 'FFFF00', '00FF00']);
+    expect(at(rule.colorScale?.cfvos, 0).cfvoType).toBe('min');
+    expect(at(rule.colorScale?.cfvos, 0).val ?? null).toBeNull();
+    expect(at(rule.colorScale?.cfvos, 1).cfvoType).toBe('percentile');
+    expect(at(rule.colorScale?.cfvos, 1).val).toBe('50');
+    expect(at(rule.colorScale?.cfvos, 2).cfvoType).toBe('max');
+    expect(at(rule.colorScale?.cfvos, 2).val ?? null).toBeNull();
+    expect(rule.colorScale?.colors).toEqual(['FFFF0000', 'FFFFFF00', 'FF00FF00']);
   });
 
   // ---------------------------------------------------------------------------
@@ -130,7 +184,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     ws.cell('A1').value = 10;
 
     const data = wb.toJSON();
-    data.sheets[0].worksheet.conditionalFormatting = [
+    at(data.sheets, 0).worksheet.conditionalFormatting = [
       {
         sqref: 'A1:A10',
         rules: [
@@ -146,7 +200,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
                 { cfvoType: 'min', val: null },
                 { cfvoType: 'max', val: null },
               ],
-              color: '638EC6',
+              color: 'FF638EC6',
             },
             iconSet: null,
           },
@@ -157,13 +211,13 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
     const data2 = wb2.toJSON();
-    const cf = data2.sheets[0].worksheet.conditionalFormatting;
+    const cf = at(data2.sheets, 0).worksheet.conditionalFormatting;
 
     expect(cf).toBeDefined();
     expect(cf).toHaveLength(1);
-    expect(cf?.[0].sqref).toBe('A1:A10');
+    expect(at(cf, 0).sqref).toBe('A1:A10');
 
-    const rule = cf?.[0].rules[0];
+    const rule = at(at(cf, 0).rules, 0);
     expect(rule.ruleType).toBe('dataBar');
     expect(rule.priority).toBe(1);
     expect(rule.colorScale ?? null).toBeNull();
@@ -171,11 +225,11 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
 
     expect(rule.dataBar).toBeDefined();
     expect(rule.dataBar?.cfvos).toHaveLength(2);
-    expect(rule.dataBar?.cfvos[0].cfvoType).toBe('min');
-    expect(rule.dataBar?.cfvos[0].val ?? null).toBeNull();
-    expect(rule.dataBar?.cfvos[1].cfvoType).toBe('max');
-    expect(rule.dataBar?.cfvos[1].val ?? null).toBeNull();
-    expect(rule.dataBar?.color).toBe('638EC6');
+    expect(at(rule.dataBar?.cfvos, 0).cfvoType).toBe('min');
+    expect(at(rule.dataBar?.cfvos, 0).val ?? null).toBeNull();
+    expect(at(rule.dataBar?.cfvos, 1).cfvoType).toBe('max');
+    expect(at(rule.dataBar?.cfvos, 1).val ?? null).toBeNull();
+    expect(rule.dataBar?.color).toBe('FF638EC6');
   });
 
   // ---------------------------------------------------------------------------
@@ -187,7 +241,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     ws.cell('A1').value = 50;
 
     const data = wb.toJSON();
-    data.sheets[0].worksheet.conditionalFormatting = [
+    at(data.sheets, 0).worksheet.conditionalFormatting = [
       {
         sqref: 'A1:A10',
         rules: [
@@ -215,13 +269,13 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
     const data2 = wb2.toJSON();
-    const cf = data2.sheets[0].worksheet.conditionalFormatting;
+    const cf = at(data2.sheets, 0).worksheet.conditionalFormatting;
 
     expect(cf).toBeDefined();
     expect(cf).toHaveLength(1);
-    expect(cf?.[0].sqref).toBe('A1:A10');
+    expect(at(cf, 0).sqref).toBe('A1:A10');
 
-    const rule = cf?.[0].rules[0];
+    const rule = at(at(cf, 0).rules, 0);
     expect(rule.ruleType).toBe('iconSet');
     expect(rule.priority).toBe(1);
     expect(rule.colorScale ?? null).toBeNull();
@@ -230,12 +284,12 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     expect(rule.iconSet).toBeDefined();
     expect(rule.iconSet?.iconSetType).toBe('3TrafficLights1');
     expect(rule.iconSet?.cfvos).toHaveLength(3);
-    expect(rule.iconSet?.cfvos[0].cfvoType).toBe('percent');
-    expect(rule.iconSet?.cfvos[0].val).toBe('0');
-    expect(rule.iconSet?.cfvos[1].cfvoType).toBe('percent');
-    expect(rule.iconSet?.cfvos[1].val).toBe('33');
-    expect(rule.iconSet?.cfvos[2].cfvoType).toBe('percent');
-    expect(rule.iconSet?.cfvos[2].val).toBe('67');
+    expect(at(rule.iconSet?.cfvos, 0).cfvoType).toBe('percent');
+    expect(at(rule.iconSet?.cfvos, 0).val).toBe('0');
+    expect(at(rule.iconSet?.cfvos, 1).cfvoType).toBe('percent');
+    expect(at(rule.iconSet?.cfvos, 1).val).toBe('33');
+    expect(at(rule.iconSet?.cfvos, 2).cfvoType).toBe('percent');
+    expect(at(rule.iconSet?.cfvos, 2).val).toBe('67');
   });
 
   // ---------------------------------------------------------------------------
@@ -262,39 +316,21 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
   it('rich text runs are preserved in shared strings data', async () => {
     const wb = new Workbook();
     const ws = wb.addSheet('RichText');
-    ws.cell('A1').value = 'Hello World';
 
-    const runs = new RichTextBuilder().bold('Hello ').colored('World', 'FF0000').build();
+    const runs = new RichTextBuilder().bold('Hello ').colored('World', 'FFFF0000').build();
+    ws.cell('A1').richText = runs;
+    expect(ws.cell('A1').value).toBe('Hello World');
 
-    // Verify the builder produced the expected runs
-    expect(runs).toHaveLength(2);
-    expect(runs[0].text).toBe('Hello ');
-    expect(runs[0].bold).toBe(true);
-    expect(runs[1].text).toBe('World');
-    expect(runs[1].color).toBe('FF0000');
+    const wb2 = await readBuffer(await wb.toBuffer());
 
-    // Inject rich runs into the workbook data for the SST
-    const data = wb.toJSON();
-    data.sharedStrings = {
-      strings: ['Hello World'],
-      richRuns: [runs],
-    };
-    // Set the cell to reference SST index 0
-    data.sheets[0].worksheet.rows[0].cells[0].cellType = 'sharedString';
-    data.sheets[0].worksheet.rows[0].cells[0].value = 'Hello World';
-
-    const buffer = await wb.toBuffer();
-    const wb2 = await readBuffer(buffer);
-    const data2 = wb2.toJSON();
-
-    // Verify the string content roundtripped
-    expect(data2.sharedStrings).toBeDefined();
-    expect(data2.sharedStrings?.strings).toContain('Hello World');
-
-    // Verify the cell value is accessible
-    const ws2 = wb2.getSheet('RichText');
-    expect(ws2).toBeDefined();
-    expect(ws2?.cell('A1').value).toBe('Hello World');
+    // The runs reach the shared string table; the colour is read back as written (ARGB).
+    expect(wb2.toJSON().sharedStrings?.richRuns?.[0]).toEqual([
+      { text: 'Hello ', bold: true },
+      { text: 'World', color: 'FFFF0000' },
+    ]);
+    const cell2 = wb2.getSheet('RichText')?.cell('A1');
+    expect(cell2?.richText).toEqual(runs);
+    expect(cell2?.value).toBe('Hello World');
   });
 
   // ---------------------------------------------------------------------------
@@ -308,9 +344,9 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
 
     // Verify the comment was added before roundtrip
     expect(ws.comments).toHaveLength(1);
-    expect(ws.comments[0].cellRef).toBe('A1');
-    expect(ws.comments[0].author).toBe('Author');
-    expect(ws.comments[0].text).toBe('This is a comment');
+    expect(at(ws.comments, 0).cellRef).toBe('A1');
+    expect(at(ws.comments, 0).author).toBe('Author');
+    expect(at(ws.comments, 0).text).toBe('This is a comment');
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
@@ -318,9 +354,9 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
 
     expect(ws2).toBeDefined();
     expect(ws2?.comments).toHaveLength(1);
-    expect(ws2?.comments[0].cellRef).toBe('A1');
-    expect(ws2?.comments[0].author).toBe('Author');
-    expect(ws2?.comments[0].text).toBe('This is a comment');
+    expect(at(ws2?.comments, 0).cellRef).toBe('A1');
+    expect(at(ws2?.comments, 0).author).toBe('Author');
+    expect(at(ws2?.comments, 0).text).toBe('This is a comment');
   });
 
   // ---------------------------------------------------------------------------
@@ -377,10 +413,10 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
 
     // Verify before roundtrip
     expect(ws.hyperlinks).toHaveLength(1);
-    expect(ws.hyperlinks[0].cellRef).toBe('A1');
-    expect(ws.hyperlinks[0].location).toBe('https://example.com');
-    expect(ws.hyperlinks[0].display).toBe('Example');
-    expect(ws.hyperlinks[0].tooltip).toBe('Click here');
+    expect(at(ws.hyperlinks, 0).cellRef).toBe('A1');
+    expect(at(ws.hyperlinks, 0).target).toBe('https://example.com');
+    expect(at(ws.hyperlinks, 0).display).toBe('Example');
+    expect(at(ws.hyperlinks, 0).tooltip).toBe('Click here');
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
@@ -389,9 +425,9 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     expect(ws2).toBeDefined();
     expect(ws2?.hyperlinks).toHaveLength(1);
 
-    const link = ws2?.hyperlinks[0];
+    const link = at(ws2?.hyperlinks, 0);
     expect(link.cellRef).toBe('A1');
-    expect(link.location).toBe('https://example.com');
+    expect(link.target).toBe('https://example.com');
     expect(link.display).toBe('Example');
     expect(link.tooltip).toBe('Click here');
   });
@@ -412,9 +448,9 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
 
     // Verify before roundtrip
     expect(ws1.hyperlinks).toHaveLength(1);
-    expect(ws1.hyperlinks[0].cellRef).toBe('B1');
-    expect(ws1.hyperlinks[0].location).toBe('Sheet2!A1');
-    expect(ws1.hyperlinks[0].display).toBe('Go to Sheet2');
+    expect(at(ws1.hyperlinks, 0).cellRef).toBe('B1');
+    expect(at(ws1.hyperlinks, 0).location).toBe('Sheet2!A1');
+    expect(at(ws1.hyperlinks, 0).display).toBe('Go to Sheet2');
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
@@ -423,7 +459,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     expect(ws1Read).toBeDefined();
     expect(ws1Read?.hyperlinks).toHaveLength(1);
 
-    const link = ws1Read?.hyperlinks[0];
+    const link = at(ws1Read?.hyperlinks, 0);
     expect(link.cellRef).toBe('B1');
     expect(link.location).toBe('Sheet2!A1');
     expect(link.display).toBe('Go to Sheet2');
@@ -438,7 +474,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     ws.cell('A1').value = 5;
 
     const data = wb.toJSON();
-    data.sheets[0].worksheet.conditionalFormatting = [
+    at(data.sheets, 0).worksheet.conditionalFormatting = [
       {
         sqref: 'A1:A10',
         rules: [
@@ -453,7 +489,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
                 { cfvoType: 'min', val: null },
                 { cfvoType: 'max', val: null },
               ],
-              colors: ['FF0000', '00FF00'],
+              colors: ['FFFF0000', 'FF00FF00'],
             },
             dataBar: null,
             iconSet: null,
@@ -470,7 +506,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
                 { cfvoType: 'min', val: null },
                 { cfvoType: 'max', val: null },
               ],
-              color: '638EC6',
+              color: 'FF638EC6',
             },
             iconSet: null,
           },
@@ -481,29 +517,29 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
     const data2 = wb2.toJSON();
-    const cf = data2.sheets[0].worksheet.conditionalFormatting;
+    const cf = at(data2.sheets, 0).worksheet.conditionalFormatting;
 
     expect(cf).toBeDefined();
     expect(cf).toHaveLength(1);
-    expect(cf?.[0].sqref).toBe('A1:A10');
-    expect(cf?.[0].rules).toHaveLength(2);
+    expect(at(cf, 0).sqref).toBe('A1:A10');
+    expect(at(cf, 0).rules).toHaveLength(2);
 
     // First rule: colorScale
-    const rule1 = cf?.[0].rules[0];
+    const rule1 = at(at(cf, 0).rules, 0);
     expect(rule1.ruleType).toBe('colorScale');
     expect(rule1.priority).toBe(1);
     expect(rule1.colorScale).toBeDefined();
     expect(rule1.colorScale?.cfvos).toHaveLength(2);
-    expect(rule1.colorScale?.colors).toEqual(['FF0000', '00FF00']);
+    expect(rule1.colorScale?.colors).toEqual(['FFFF0000', 'FF00FF00']);
     expect(rule1.dataBar ?? null).toBeNull();
     expect(rule1.iconSet ?? null).toBeNull();
 
     // Second rule: dataBar
-    const rule2 = cf?.[0].rules[1];
+    const rule2 = at(at(cf, 0).rules, 1);
     expect(rule2.ruleType).toBe('dataBar');
     expect(rule2.priority).toBe(2);
     expect(rule2.dataBar).toBeDefined();
-    expect(rule2.dataBar?.color).toBe('638EC6');
+    expect(rule2.dataBar?.color).toBe('FF638EC6');
     expect(rule2.dataBar?.cfvos).toHaveLength(2);
     expect(rule2.colorScale ?? null).toBeNull();
     expect(rule2.iconSet ?? null).toBeNull();
@@ -519,7 +555,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     ws.cell('C1').value = 2;
 
     const data = wb.toJSON();
-    data.sheets[0].worksheet.conditionalFormatting = [
+    at(data.sheets, 0).worksheet.conditionalFormatting = [
       {
         sqref: 'A1:A10',
         rules: [
@@ -534,7 +570,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
                 { cfvoType: 'min', val: null },
                 { cfvoType: 'max', val: null },
               ],
-              colors: ['0000FF', 'FF0000'],
+              colors: ['FF0000FF', 'FFFF0000'],
             },
             dataBar: null,
             iconSet: null,
@@ -568,7 +604,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
     const data2 = wb2.toJSON();
-    const cf = data2.sheets[0].worksheet.conditionalFormatting;
+    const cf = at(data2.sheets, 0).worksheet.conditionalFormatting;
 
     expect(cf).toBeDefined();
     expect(cf).toHaveLength(2);
@@ -577,18 +613,18 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     const entry1 = cf?.find((e) => e.sqref === 'A1:A10');
     expect(entry1).toBeDefined();
     expect(entry1?.rules).toHaveLength(1);
-    expect(entry1?.rules[0].ruleType).toBe('colorScale');
-    expect(entry1?.rules[0].colorScale).toBeDefined();
-    expect(entry1?.rules[0].colorScale?.colors).toEqual(['0000FF', 'FF0000']);
+    expect(at(entry1?.rules, 0).ruleType).toBe('colorScale');
+    expect(at(entry1?.rules, 0).colorScale).toBeDefined();
+    expect(at(entry1?.rules, 0).colorScale?.colors).toEqual(['FF0000FF', 'FFFF0000']);
 
     // Second entry: iconSet on C1:C20
     const entry2 = cf?.find((e) => e.sqref === 'C1:C20');
     expect(entry2).toBeDefined();
     expect(entry2?.rules).toHaveLength(1);
-    expect(entry2?.rules[0].ruleType).toBe('iconSet');
-    expect(entry2?.rules[0].iconSet).toBeDefined();
-    expect(entry2?.rules[0].iconSet?.iconSetType).toBe('3TrafficLights1');
-    expect(entry2?.rules[0].iconSet?.cfvos).toHaveLength(3);
+    expect(at(entry2?.rules, 0).ruleType).toBe('iconSet');
+    expect(at(entry2?.rules, 0).iconSet).toBeDefined();
+    expect(at(entry2?.rules, 0).iconSet?.iconSetType).toBe('3TrafficLights1');
+    expect(at(entry2?.rules, 0).iconSet?.cfvos).toHaveLength(3);
   });
 
   // ---------------------------------------------------------------------------
@@ -601,7 +637,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     expect(wb.themeColors).toBeNull();
   });
 
-  it('themeColors remains null after roundtrip of a created workbook', async () => {
+  it('a created workbook reads back the generated Office theme colors', async () => {
     const wb = new Workbook();
     const ws = wb.addSheet('Sheet1');
     ws.cell('A1').value = 'test';
@@ -609,7 +645,7 @@ describe('0.1.2 — Feature Roundtrip Tests', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
 
-    // Since we don't generate theme XML on write, themeColors should be null
-    expect(wb2.themeColors).toBeNull();
+    // The writer generates xl/theme/theme1.xml (Office theme) when none is preserved.
+    expect(wb2.themeColors?.accent1).toBe('4472C4');
   });
 });

@@ -57,7 +57,7 @@ describe('extended cell operations', () => {
     it('reads builtin format by id', () => {
       const wb = new Workbook();
       const ws = wb.addSheet('S');
-      // numFmtId=14 is builtin 'm/d/yy'
+      // numFmtId=14 is builtin 'mm-dd-yy'
       wb.styles.cellXfs.push({
         numFmtId: 14,
         fontId: 0,

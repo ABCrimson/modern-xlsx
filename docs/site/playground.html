@@ -4,33 +4,51 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Playground — modern-xlsx</title>
-  <meta name="description" content="Interactive playground for modern-xlsx. Create and download Excel files directly in your browser.">
-  <meta name="theme-color" content="#0a0a0a">
+  <meta name="description" content="Build, read and download Excel .xlsx files in your browser with modern-xlsx, or open one of your own. Files never leave the tab.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0a0a">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://abcrimson.github.io/modern-xlsx/playground.html">
+  <meta property="og:site_name" content="modern-xlsx">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Playground — modern-xlsx">
+  <meta property="og:description" content="Build, read and download Excel .xlsx files in your browser with modern-xlsx, or open one of your own. Files never leave the tab.">
+  <meta property="og:url" content="https://abcrimson.github.io/modern-xlsx/playground.html">
+  <meta property="og:image" content="https://abcrimson.github.io/modern-xlsx/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="modern-xlsx: read and write .xlsx from JavaScript and TypeScript. A spreadsheet grid with cell A1 holding Hello and B1 holding 42.">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* One token set for both themes: light-dark() picks the value for the visitor's color scheme.
+       The accent is the brand crimson of docs/assets/readme/ (#C8102E light, #FF6B7A dark); links keep their own blue. */
     :root {
-      --bg: #0a0a0a;
-      --surface: #111111;
-      --surface-2: #1a1a1a;
-      --surface-3: #0d0d0d;
-      --border: #222222;
-      --border-hover: #333333;
-      --border-focus: #3b82f6;
-      --text: #e5e5e5;
-      --text-muted: #888888;
-      --text-dim: #555555;
-      --accent: #3b82f6;
-      --accent-dim: #1d4ed8;
-      --green: #22c55e;
-      --green-dim: #15803d;
-      --amber: #f59e0b;
-      --red: #ef4444;
-      --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      color-scheme: light dark;
+      --bg: light-dark(#ffffff, #0a0a0a);
+      --surface: light-dark(#f8fafc, #111111);
+      --surface-2: light-dark(#eef2f7, #1a1a1a);
+      --surface-3: light-dark(#f1f5f9, #0d0d0d);
+      --border: light-dark(#e2e8f0, #222222);
+      --border-hover: light-dark(#cbd5e1, #333333);
+      --text: light-dark(#18181b, #e5e5e5);
+      --text-muted: light-dark(#52525b, #a1a1aa);
+      --text-dim: light-dark(#5f5f69, #8f8f8f);
+      --accent: light-dark(#c8102e, #ff6b7a);
+      --link: light-dark(#1d4ed8, #60a5fa);
+      --button: light-dark(#c8102e, #ff6b7a);
+      --button-hover: light-dark(#a50d26, #ff8d98);
+      --on-accent: light-dark(#ffffff, #0a0a0a);
+      --green: light-dark(#15803d, #22c55e);
+      --amber: light-dark(#b45309, #f59e0b);
+      --red: light-dark(#b91c1c, #ef4444);
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Menlo, monospace;
       --radius: 12px;
       --radius-sm: 8px;
     }
@@ -47,17 +65,32 @@
       flex-direction: column;
     }
 
-    a { color: var(--accent); text-decoration: none; }
+    a { color: var(--link); text-decoration: none; }
     a:hover { text-decoration: underline; }
+
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    #editor, #output, code, kbd { font-variant-ligatures: none; }
+
+    .skip-link {
+      position: absolute; inset-inline-start: 1rem; inset-block-start: -3rem; z-index: 200;
+      padding: 0.5rem 1rem; border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    }
+    .skip-link:focus { inset-block-start: 0.5rem; }
+
+    .i { inline-size: 14px; block-size: 14px; flex: none; }
 
     /* --- NAV --- */
     nav {
-      background: rgba(10, 10, 10, 0.85);
+      background: color-mix(in srgb, var(--bg) 85%, transparent);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border);
       padding: 0 1.5rem;
-      flex-shrink: 0;
     }
+
+    /* The banner and footer landmarks keep their height; the playground between them takes the rest. */
+    body > :is(header, footer) { flex-shrink: 0; }
 
     nav .inner {
       max-width: 100%;
@@ -67,14 +100,20 @@
       height: 48px;
     }
 
-    nav .left { display: flex; align-items: center; gap: 1rem; }
+    nav .left { display: flex; align-items: center; gap: 0.75rem; }
 
     nav .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
       font-weight: 700;
       font-size: 1rem;
       color: var(--text);
       letter-spacing: -0.02em;
+      white-space: nowrap;
     }
+
+    nav .logo:hover { text-decoration: none; }
 
     nav .sep { color: var(--text-dim); }
 
@@ -83,6 +122,17 @@
       color: var(--text-muted);
       font-weight: 500;
     }
+
+    nav .version {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 0.2em;
+    }
+
+    nav .version:hover { color: var(--text); }
 
     nav .links { display: flex; gap: 1rem; align-items: center; }
 
@@ -105,6 +155,7 @@
       border-radius: 100px;
       background: var(--surface);
       border: 1px solid var(--border);
+      white-space: nowrap;
     }
 
     .status .dot {
@@ -113,12 +164,12 @@
       background: var(--text-dim);
     }
 
-    .status.ready .dot { background: var(--green); }
-    .status.ready { color: var(--green); border-color: var(--green-dim); }
+    .status.ready .dot { background: var(--accent); }
+    .status.ready { color: var(--text); }
     .status.loading .dot { background: var(--amber); animation: pulse 1s infinite; }
     .status.loading { color: var(--amber); }
-    .status.error .dot { background: var(--red); }
-    .status.error { color: var(--red); }
+    /* A failed load shows an icon and its words, so it never reads as the crimson accent alone. */
+    .status.error { color: var(--red); border-color: currentColor; }
 
     @keyframes pulse {
       0%, 100% { opacity: 1; }
@@ -145,6 +196,8 @@
       background: var(--surface);
     }
 
+    .toolbar label { font-size: 0.8rem; color: var(--text-muted); }
+
     .toolbar select {
       background: var(--surface-2);
       border: 1px solid var(--border);
@@ -154,10 +207,9 @@
       font-size: 0.8rem;
       padding: 0.35rem 0.75rem;
       cursor: pointer;
-      outline: none;
     }
 
-    .toolbar select:focus { border-color: var(--border-focus); }
+    .toolbar select:hover { border-color: var(--border-hover); }
 
     .btn {
       display: inline-flex;
@@ -168,19 +220,15 @@
       font-size: 0.8rem;
       font-weight: 600;
       font-family: var(--font);
-      border: none;
+      border: 1px solid transparent;
       cursor: pointer;
-      transition: all 0.15s;
+      transition: background-color 0.15s, border-color 0.15s;
     }
 
-    .btn-run {
-      background: var(--green);
-      color: #000;
-    }
+    .btn-primary { background: var(--button); color: var(--on-accent); border-color: var(--button); }
+    .btn-primary:hover { background: var(--button-hover); border-color: var(--button-hover); }
 
-    .btn-run:hover { background: var(--green-dim); color: white; }
-
-    .btn-run:disabled {
+    .btn:disabled {
       opacity: 0.4;
       cursor: not-allowed;
     }
@@ -236,8 +284,6 @@
       flex-shrink: 0;
     }
 
-    .panel-header .icon { font-size: 0.85rem; }
-
     #editor {
       flex: 1;
       width: 100%;
@@ -254,9 +300,22 @@
       overflow: auto;
     }
 
-    #editor::selection { background: rgba(59, 130, 246, 0.3); }
+    #editor::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+    #editor:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
     /* --- OUTPUT --- */
+    .intro {
+      padding: 0.75rem 1rem 0;
+      background: var(--bg);
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      line-height: 1.8;
+      flex-shrink: 0;
+    }
+
+    .intro strong { color: var(--text-muted); }
+
     #output {
       flex: 1;
       overflow: auto;
@@ -267,12 +326,15 @@
       line-height: 1.8;
     }
 
-    .log-line { padding: 0.1rem 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+    /* overflow-wrap: a stack trace URL wraps instead of widening the page on a phone. */
+    .log-line { padding: 0.1rem 0; border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, transparent); overflow-wrap: anywhere; }
     .log-line.info { color: var(--text); }
     .log-line.warn { color: var(--amber); }
     .log-line.error { color: var(--red); }
     .log-line.success { color: var(--green); }
     .log-line .time { color: var(--text-dim); margin-right: 0.75rem; font-size: 0.7rem; }
+    /* Errors and warnings carry an icon as well as their colour. */
+    .log-line .i { inline-size: 12px; block-size: 12px; margin-inline-end: 0.4rem; vertical-align: -1px; }
 
     .download-link {
       display: inline-flex;
@@ -280,101 +342,175 @@
       gap: 0.4rem;
       margin-top: 0.5rem;
       padding: 0.4rem 0.8rem;
-      background: var(--accent-dim);
-      color: white;
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
       border-radius: 6px;
+      font-family: var(--font);
       font-size: 0.8rem;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: background-color 0.15s;
     }
 
-    .download-link:hover { background: var(--accent); text-decoration: none; }
+    .download-link:hover { border-color: var(--border-hover); text-decoration: none; }
 
-    .welcome {
+    /* A worksheet rendered by preview(): its first populated row is the header. */
+    .preview {
+      margin-block: 0.75rem;
+      inline-size: fit-content;
+      max-inline-size: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    .preview table { border-collapse: collapse; font-family: var(--font); font-size: 0.8rem; }
+    .preview :is(td, th) { border: 1px solid var(--border); padding: 0.25rem 0.6rem; white-space: nowrap; text-align: start; }
+    .preview th { background: var(--surface); font-weight: 600; }
+
+    /* --- FOOTER --- */
+    footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.25rem 2rem;
+      flex-wrap: wrap;
+      padding: 0.5rem 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.75rem;
       color: var(--text-dim);
-      font-size: 0.8rem;
-      line-height: 1.8;
     }
 
-    .welcome strong { color: var(--text-muted); }
+    footer .links { display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; }
+    footer .links a { color: var(--text-muted); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .status.loading .dot { animation: none; }
+      .btn, nav .links a, .download-link { transition: none; }
+    }
 
     /* --- RESPONSIVE --- */
     @media (max-width: 768px) {
-      .playground {
-        grid-template-columns: 1fr;
-        grid-template-rows: auto 1fr 1fr;
-      }
+      html, body { height: auto; }
+      nav { padding-inline: 1rem; }
+      nav .inner { height: auto; min-block-size: 48px; flex-wrap: wrap; gap: 0 1rem; padding-block: 0.25rem; }
+      nav .links { flex-wrap: wrap; gap: 0 1rem; }
+      nav .logo, nav .version, nav .links a { display: inline-flex; align-items: center; min-block-size: 44px; }
+      .playground { grid-template-columns: 1fr; grid-template-rows: auto; }
       .panel { border-right: none; border-bottom: 1px solid var(--border); }
+      .toolbar { flex-wrap: wrap; }
+      .toolbar .spacer, .toolbar .hint { display: none; }
+      .btn, .toolbar select, .download-link { min-block-size: 44px; }
+      footer { padding-inline: 1rem; flex-direction: column; align-items: flex-start; }
+      footer .links a { display: inline-flex; align-items: center; min-block-size: 44px; }
+      #editor { min-block-size: 22rem; }
+      #output { min-block-size: 16rem; }
     }
   </style>
 </head>
 <body>
+<!--
+  Icons: Lucide (lucide-static 1.72.0). ISC License. Copyright (c) 2026 Lucide Icons and Contributors.
+  Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+  https://lucide.dev/license
+  The code, circle-alert, triangle-alert and download icons are derived from the Feather project. The MIT License (MIT). Copyright (c) 2013-present Cole Bemis.
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" style="position:absolute;inline-size:0;block-size:0;overflow:hidden">
+  <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
+  <symbol id="i-folder-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></symbol>
+  <symbol id="i-circle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
+  <symbol id="i-triangle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+</svg>
 
-<nav>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header>
+<nav aria-label="Primary">
   <div class="inner">
     <div class="left">
-      <a href="." class="logo" style="text-decoration:none">modern-xlsx</a>
-      <span class="sep">/</span>
-      <span class="page-title">Playground</span>
+      <a href="./" class="logo"><img src="favicon.svg" width="18" height="18" alt="">modern-xlsx</a>
+      <span class="sep" aria-hidden="true">/</span>
+      <h1 class="page-title">Playground</h1>
+      <!-- The version is written from packages/modern-xlsx/package.json by .github/workflows/pages.yml at deploy time. -->
+      <a class="version" href="https://github.com/ABCrimson/modern-xlsx/blob/master/packages/modern-xlsx/CHANGELOG.md" title="Changelog">v{{VERSION}}</a>
     </div>
     <div class="links">
-      <span id="wasm-status" class="status loading">
+      <span id="wasm-status" class="status loading" role="status">
         <span class="dot"></span>
-        Loading WASM...
+        Loading WebAssembly…
       </span>
-      <a href=".">Docs</a>
+      <a href="./">Docs</a>
+      <a href="api/">API reference</a>
       <a href="https://github.com/ABCrimson/modern-xlsx">GitHub</a>
     </div>
   </div>
 </nav>
+</header>
 
-<div class="playground">
-  <!-- Toolbar -->
+<main class="playground" id="main">
   <div class="toolbar">
-    <label for="examples" style="font-size:0.8rem;color:var(--text-muted)">Example:</label>
+    <label for="examples">Example:</label>
     <select id="examples">
-      <option value="hello">Hello World</option>
-      <option value="styled">Styled Workbook</option>
-      <option value="read">Read & Inspect</option>
-      <option value="batch">Batch Data (1K Rows)</option>
-      <option value="json">JSON to Sheet</option>
-      <option value="formulas">Formulas & Dates</option>
-      <option value="barcodes">Barcodes & QR Codes</option>
+      <option value="hello">Hello world</option>
+      <option value="styled">Styled workbook</option>
+      <option value="read">Read and inspect</option>
+      <option value="batch">Batch data (1,000 rows)</option>
+      <option value="json">JSON to sheet</option>
+      <option value="formulas">Formulas and dates</option>
+      <option value="barcodes">Barcodes and QR codes</option>
     </select>
-    <button id="run-btn" class="btn btn-run" disabled>Run</button>
-    <button id="clear-btn" class="btn btn-secondary">Clear</button>
+    <button type="button" id="run-btn" class="btn btn-primary" disabled><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Run</button>
+    <button type="button" id="open-btn" class="btn btn-secondary" disabled><svg class="i" aria-hidden="true"><use href="#i-folder-open"/></svg>Open .xlsx…</button>
+    <input type="file" id="open-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+    <button type="button" id="clear-btn" class="btn btn-secondary">Clear</button>
     <span class="spacer"></span>
-    <span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run</span>
+    <span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run · <kbd>Esc</kbd> then <kbd>Tab</kbd> leaves the editor</span>
   </div>
 
-  <!-- Editor panel -->
   <div class="panel">
-    <div class="panel-header"><span class="icon">&#9998;</span> Code</div>
-    <textarea id="editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+    <div class="panel-header"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg> Code</div>
+    <textarea id="editor" aria-label="Code" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
   </div>
 
-  <!-- Output panel -->
   <div class="panel">
-    <div class="panel-header"><span class="icon">&#9654;</span> Output</div>
-    <div id="output">
-      <div class="welcome">
-        <strong>Welcome to the modern-xlsx playground!</strong><br>
-        Select an example from the dropdown, or write your own code.<br>
-        Press <strong>Run</strong> or <strong>Ctrl+Enter</strong> to execute.<br><br>
-        The full <code>ModernXlsx</code> API is available globally.<br>
-        Use <code>download(blob, filename)</code> to download files.
-      </div>
+    <div class="panel-header"><svg class="i" aria-hidden="true"><use href="#i-table"/></svg> Output</div>
+    <div class="intro">
+      <strong>Try modern-xlsx in your browser.</strong>
+      The Hello world example runs as soon as the library loads. Press <strong>Run</strong> (or Ctrl+Enter) to build an example
+      and download it, pick another example, or choose <strong>Open .xlsx…</strong> to read one of your own files.
+      Files are read in this tab and never uploaded.
+      Every export is available on the global <code>ModernXlsx</code>; your code also gets <code>log(text)</code>,
+      <code>preview(worksheet)</code> and <code>download(blob, filename)</code>.
     </div>
+    <div id="output" role="log" aria-live="polite" aria-label="Output"></div>
   </div>
-</div>
+</main>
 
-<!-- Load modern-xlsx IIFE bundle from jsDelivr CDN -->
-<script src="https://cdn.jsdelivr.net/npm/modern-xlsx@1.2.0/dist/modern-xlsx.min.js"></script>
+<footer>
+  <div>MIT License &copy; 2026 Albert Badalov</div>
+  <div class="links">
+    <a href="./">Docs</a>
+    <a href="api/">API reference</a>
+    <a href="https://github.com/ABCrimson/modern-xlsx/blob/master/packages/modern-xlsx/CHANGELOG.md">Changelog</a>
+    <a href="https://github.com/ABCrimson/modern-xlsx/security/policy">Security</a>
+    <a href="https://github.com/ABCrimson/modern-xlsx">GitHub</a>
+    <a href="https://www.npmjs.com/package/modern-xlsx">npm</a>
+    <a href="https://github.com/ABCrimson/modern-xlsx/issues">Issues</a>
+  </div>
+</footer>
+
+<!-- modern-xlsx IIFE bundle, built from this commit by .github/workflows/pages.yml; modern-xlsx.wasm sits beside it. -->
+<script src="vendor/modern-xlsx.min.js"></script>
 <script>
 (async () => {
   const statusEl = document.getElementById('wasm-status');
   const runBtn = document.getElementById('run-btn');
+  const openBtn = document.getElementById('open-btn');
+  const fileInput = document.getElementById('open-file');
   const clearBtn = document.getElementById('clear-btn');
   const editor = document.getElementById('editor');
   const output = document.getElementById('output');
@@ -393,6 +529,7 @@ ws.cell('B2').value = true;
 
 log('Created workbook with 4 cells');
 log('Sheet: ' + ws.name);
+preview(ws);
 
 const blob = ModernXlsx.writeBlob(wb);
 log('File size: ' + (blob.size / 1024).toFixed(1) + ' KB');
@@ -453,11 +590,12 @@ ws.setColumnWidth(1, 15);
 for (let i = 2; i <= 6; i++) ws.setColumnWidth(i, 12);
 
 log('Created styled sales report');
+preview(ws);
 const blob = ModernXlsx.writeBlob(wb);
 log('File size: ' + (blob.size / 1024).toFixed(1) + ' KB');
 download(blob, 'sales-report.xlsx');`,
 
-    read: `// Read a file: drop an .xlsx file on this page, or use a generated one
+    read: `// Read a file: this example writes a workbook, then reads it back
 const wb = new ModernXlsx.Workbook();
 const ws = wb.addSheet('Demo');
 ws.cell('A1').value = 'Name';
@@ -483,7 +621,8 @@ log('A2 = ' + ws2?.cell('A2').value);
 log('B2 = ' + ws2?.cell('B2').value);
 log('A3 = ' + ws2?.cell('A3').value);
 log('B3 = ' + ws2?.cell('B3').value);
-log('Round-trip successful!', 'success');`,
+log('Round-trip successful!', 'success');
+if (ws2) preview(ws2);`,
 
     batch: `// Build a 1000-row sheet using cell API
 const t0 = performance.now();
@@ -524,18 +663,7 @@ const employees = [
 const wb = new ModernXlsx.Workbook();
 const ws = wb.addSheet('Employees');
 
-// Write headers
-const keys = Object.keys(employees[0]);
-keys.forEach((k, i) => {
-  ws.cell(ModernXlsx.encodeCellRef(0, i)).value = k;
-});
-
-// Write data rows
-employees.forEach((emp, ri) => {
-  keys.forEach((k, ci) => {
-    ws.cell(ModernXlsx.encodeCellRef(ri + 1, ci)).value = emp[k];
-  });
-});
+ModernXlsx.sheetAddJson(ws, employees);
 
 log('Converted ' + employees.length + ' records to sheet');
 
@@ -543,6 +671,7 @@ log('Converted ' + employees.length + ' records to sheet');
 const json = ModernXlsx.sheetToJson(ws);
 log('Round-trip JSON: ' + json.length + ' rows');
 json.forEach(row => log('  ' + JSON.stringify(row)));
+preview(ws);
 
 const blob = ModernXlsx.writeBlob(wb);
 download(blob, 'employees.xlsx');`,
@@ -611,6 +740,7 @@ ws.setColumnWidth(3, 12);
 ws.setColumnWidth(4, 14);
 
 log('Created invoice with formulas and date');
+preview(ws);
 const blob = ModernXlsx.writeBlob(wb);
 download(blob, 'invoice.xlsx');`,
 
@@ -667,62 +797,183 @@ download(blob, 'labels.xlsx');`,
       + '.' + String(d.getMilliseconds()).padStart(3, '0');
   }
 
+  // A decorative icon from the sprite above; the words beside it say what it means.
+  function icon(name) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'i');
+    svg.setAttribute('aria-hidden', 'true');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', `#i-${name}`);
+    svg.append(use);
+    return svg;
+  }
+
+  const levelIcons = { error: 'circle-alert', warn: 'triangle-alert' };
+
   function appendLog(msg, level = 'info') {
     const line = document.createElement('div');
-    line.className = 'log-line ' + level;
-    line.innerHTML = '<span class="time">' + timestamp() + '</span>' + escapeHtml(String(msg));
+    line.className = `log-line ${level}`;
+    const time = document.createElement('span');
+    time.className = 'time';
+    time.textContent = timestamp();
+    line.append(time);
+    if (levelIcons[level]) line.append(icon(levelIcons[level]));
+    line.append(String(msg));
     output.appendChild(line);
     output.scrollTop = output.scrollHeight;
   }
 
-  function escapeHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function clearOutput() {
+    output.replaceChildren();
   }
 
-  function clearOutput() {
-    output.innerHTML = '';
+  // The phone layout (the 768px breakpoint of the stylesheet) stacks the output panel below the
+  // editor, so a result can land below the fold: bring the newest line into view, without a
+  // smooth scroll for visitors who prefer reduced motion. The desktop layout never moves the page.
+  const narrowLayout = matchMedia('(max-width: 768px)');
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+
+  function revealNewest() {
+    if (!narrowLayout.matches) return;
+    output.lastElementChild?.scrollIntoView({
+      block: 'nearest',
+      behavior: reducedMotion.matches ? 'auto' : 'smooth',
+    });
+  }
+
+  function setStatus(state, text, title) {
+    statusEl.className = `status ${state}`;
+    statusEl.title = title;
+    // A failed load shows an icon in place of the dot.
+    const mark =
+      state === 'error'
+        ? icon('circle-alert')
+        : Object.assign(document.createElement('span'), { className: 'dot' });
+    statusEl.replaceChildren(mark, text);
   }
 
   // Exposed to user code
-  window.log = function(msg, level) { appendLog(msg, level || 'info'); };
-  window.download = function(blob, filename) {
+  window.log = (msg, level) => { appendLog(msg, level || 'info'); };
+  window.download = (blob, filename) => {
+    const name = filename || 'output.xlsx';
     const url = URL.createObjectURL(blob);
     const el = document.createElement('a');
     el.className = 'download-link';
     el.href = url;
-    el.download = filename || 'output.xlsx';
-    el.textContent = 'Download ' + (filename || 'output.xlsx') + ' (' + (blob.size / 1024).toFixed(1) + ' KB)';
+    el.download = name;
+    el.append(icon('download'), `Download ${name} (${(blob.size / 1024).toFixed(1)} KB)`);
     el.onclick = () => setTimeout(() => URL.revokeObjectURL(url), 1000);
     output.appendChild(el);
     output.scrollTop = output.scrollHeight;
-    appendLog('File ready for download: ' + (filename || 'output.xlsx'), 'success');
+    appendLog(`File ready for download: ${name}`, 'success');
   };
 
-  // --- Init WASM ---
-  try {
-    await ModernXlsx.initWasm();
-    statusEl.className = 'status ready';
-    statusEl.innerHTML = '<span class="dot"></span>WASM Ready';
-    runBtn.disabled = false;
-    appendLog('WASM initialized (' + (typeof ModernXlsx.VERSION !== 'undefined' ? 'v' + ModernXlsx.VERSION : 'OK') + ')', 'success');
-  } catch (err) {
-    statusEl.className = 'status error';
-    statusEl.innerHTML = '<span class="dot"></span>WASM Error';
-    appendLog('Failed to initialize WASM: ' + err.message, 'error');
-    appendLog('Trying to load from a local path...', 'warn');
-    // Fallback: try loading from relative path (for local development)
-    try {
-      await ModernXlsx.initWasm('https://cdn.jsdelivr.net/npm/modern-xlsx@1.2.0/dist/modern-xlsx.wasm');
-      statusEl.className = 'status ready';
-      statusEl.innerHTML = '<span class="dot"></span>WASM Ready (local)';
-      runBtn.disabled = false;
-      appendLog('WASM initialized from local path', 'success');
-    } catch (err2) {
-      appendLog('Local fallback also failed: ' + err2.message, 'error');
-    }
+  // A number as Excel shows it: through the cell's number format, or General when it has none.
+  // formatCell reads the serial in opts.dateSystem: dateValue holds the workbook's 1900 or 1904
+  // date, so a cell whose date turns back into its own value in 1904 serials is a 1904 cell.
+  function numberText(cell) {
+    const date = cell.dateValue;
+    const dateSystem =
+      date && Math.abs(ModernXlsx.dateToSerial(date, 'date1904') - cell.value) < 1
+        ? 'date1904'
+        : 'date1900';
+    return ModernXlsx.formatCell(cell.value, cell.numberFormat ?? 'General', { dateSystem });
   }
 
+  // A cell's text as Excel shows it on the sheet: numbers formatted, TRUE or FALSE, and the
+  // formula of a formula cell that holds no cached value.
+  function displayText(cell) {
+    const { value, formula } = cell;
+    if (formula && value == null) return `=${formula.replace(/^=/, '')}`;
+    if (typeof value === 'number') return numberText(cell);
+    if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+    return String(value ?? '');
+  }
+
+  // Each populated cell's display text by 'row:col' (0-based), and the column count.
+  function previewGrid(ws) {
+    const grid = new Map();
+    let width = 0;
+    for (const row of ws.rows) {
+      // A copy: ws.cell() may sort the row's cells in place.
+      for (const data of [...row.cells]) {
+        const { row: r, col } = ModernXlsx.decodeCellRef(data.reference);
+        grid.set(`${r}:${col}`, displayText(ws.cell(data.reference)));
+        width = Math.max(width, col + 1);
+      }
+    }
+    return { grid, width };
+  }
+
+  // A table of rows first..first+span-1 and columns 0..columns-1 (0-based); the first row is the
+  // header row. An empty cell of that row is a td: an empty th would be a header that names nothing.
+  function previewTable(grid, columns, first, span) {
+    const table = document.createElement('table');
+    const head = table.createTHead();
+    const body = table.createTBody();
+    for (let r = first; r < first + span; r++) {
+      const tr = (r === first ? head : body).insertRow();
+      for (let col = 0; col < columns; col++) {
+        const text = grid.get(`${r}:${col}`) ?? '';
+        const cell = document.createElement(r === first && text !== '' ? 'th' : 'td');
+        cell.textContent = text;
+        tr.append(cell);
+      }
+    }
+    return table;
+  }
+
+  // With the default row limit (maxRows 1000) a preview builds at most this many table cells: a sheet
+  // whose rows times columns would pass it shows its first PREVIEW_COLUMNS columns, so a sheet that
+  // spans A1:XFD300 never freezes the tab.
+  const PREVIEW_CELLS = 100_000;
+  const PREVIEW_COLUMNS = 50;
+
+  // Render a worksheet as a table in the output panel, from the first populated row (the header)
+  // to the last. Cell text goes in through textContent, so a visitor's own file cannot inject markup.
+  window.preview = (ws, maxRows = 1000) => {
+    const indexes = ws.rows.map((row) => row.index);
+    const first = indexes.reduce((a, b) => Math.min(a, b), Number.POSITIVE_INFINITY);
+    const last = indexes.reduce((a, b) => Math.max(a, b), 0);
+    const span = indexes.length === 0 ? 0 : last - first + 1;
+    if (span > maxRows) {
+      appendLog(`Preview skipped: the sheet spans ${span} rows, and the preview shows up to ${maxRows}.`, 'warn');
+      return;
+    }
+    const { grid, width } = previewGrid(ws);
+    const columns = span * width > PREVIEW_CELLS ? Math.min(width, PREVIEW_COLUMNS) : width;
+    if (columns < width) appendLog(`Preview shows the first ${columns} of ${width} columns.`, 'warn');
+    const box = document.createElement('div');
+    box.className = 'preview';
+    box.append(previewTable(grid, columns, first - 1, span));
+    output.appendChild(box);
+    output.scrollTop = output.scrollHeight;
+  };
+
+  // Open a local .xlsx: it is read in this tab and never uploaded.
+  openBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    clearOutput();
+    try {
+      const wb = await ModernXlsx.readBuffer(new Uint8Array(await file.arrayBuffer()));
+      appendLog(`${file.name}: ${wb.sheetNames.length} sheet(s): ${wb.sheetNames.join(', ')}`, 'success');
+      const first = wb.getSheet(wb.sheetNames[0]);
+      if (first) {
+        appendLog(`First sheet: ${first.name}`);
+        window.preview(first);
+      }
+    } catch (err) {
+      appendLog(`Could not read ${file.name}: ${err.message}`, 'error');
+    } finally {
+      fileInput.value = '';
+      revealNewest();
+    }
+  });
+
   // --- Load example ---
+  // The editor shows the Hello example, and the menu works, while the WebAssembly module loads.
   function loadExample(name) {
     editor.value = examples[name] || '';
   }
@@ -731,50 +982,94 @@ download(blob, 'labels.xlsx');`,
     loadExample(examplesSelect.value);
   });
 
-  // Load default example
   loadExample('hello');
 
+  // --- Init WASM ---
+  try {
+    await ModernXlsx.initWasm();
+    setStatus('ready', 'Ready', 'WebAssembly module loaded');
+    runBtn.disabled = false;
+    openBtn.disabled = false;
+    appendLog(`modern-xlsx v${ModernXlsx.VERSION} loaded`, 'success');
+  } catch (err) {
+    setStatus('error', 'Failed to load', 'The WebAssembly module did not load');
+    appendLog(`Failed to load modern-xlsx: ${err.message}`, 'error');
+    appendLog('The script or its WASM file could not be loaded. Reload the page to try again.', 'warn');
+  }
+
   // --- Run code ---
-  async function runCode() {
-    clearOutput();
+  // new Function puts two header lines before the body, and the async wrapper below adds two
+  // more, so line 1 of the visitor's code is line 5 of the function.
+  const WRAPPER_LINES = 4;
+
+  // The line and column of the visitor's own code where an error was thrown: the first stack
+  // frame inside the new Function body (Chromium '<anonymous>:L:C', Firefox '> Function:L:C').
+  function codeLine(err) {
+    const frame = /(?:<anonymous>|> Function):(\d+):(\d+)/.exec(String(err?.stack ?? ''));
+    if (!frame) return null;
+    const line = Number(frame[1]) - WRAPPER_LINES;
+    return line >= 1 ? `at line ${line}, column ${frame[2]} of your code` : null;
+  }
+
+  // A run the visitor starts clears the output first and brings its result into view on a phone;
+  // the start-up run of the Hello example (byVisitor false) does neither.
+  async function runCode(byVisitor = true) {
+    if (byVisitor) clearOutput();
     const code = editor.value;
     const t0 = performance.now();
     appendLog('Executing...', 'info');
 
     try {
       // Wrap in async function so await works
-      const fn = new Function('ModernXlsx', 'log', 'download',
-        '"use strict";\nreturn (async () => {\n' + code + '\n})();');
-      await fn(ModernXlsx, window.log, window.download);
+      const fn = new Function('ModernXlsx', 'log', 'download', 'preview',
+        `"use strict";\nreturn (async () => {\n${code}\n})();`);
+      await fn(ModernXlsx, window.log, window.download, window.preview);
       const elapsed = (performance.now() - t0).toFixed(1);
-      appendLog('Done in ' + elapsed + 'ms', 'success');
+      appendLog(`Done in ${elapsed}ms`, 'success');
     } catch (err) {
-      appendLog('Error: ' + err.message, 'error');
-      if (err.stack) {
-        const stackLines = err.stack.split('\n').slice(1, 4).join('\n');
-        appendLog(stackLines, 'error');
-      }
+      appendLog(`Error: ${err instanceof Error ? err.message : String(err)}`, 'error');
+      const where = codeLine(err);
+      if (where) appendLog(where, 'error');
     }
+    if (byVisitor) revealNewest();
   }
 
-  runBtn.addEventListener('click', runCode);
+  runBtn.addEventListener('click', () => runCode());
   clearBtn.addEventListener('click', clearOutput);
 
-  // Ctrl+Enter to run
+  // Editor keys: Ctrl/Cmd+Enter runs, Tab indents. Shift+Tab, or Esc then Tab, moves focus
+  // out of the editor so keyboard users are never trapped (WCAG 2.1.2).
+  let tabEscapes = false;
   editor.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      tabEscapes = true;
+      return;
+    }
+    if (e.key === 'Tab' && (tabEscapes || e.shiftKey)) {
+      // Shift+Tab, or Tab after Esc: let the browser move focus.
+      tabEscapes = false;
+      return;
+    }
+    tabEscapes = false;
+    // Ctrl+Enter to run
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
-      runCode();
+      if (!runBtn.disabled) runCode();
     }
     // Tab inserts 2 spaces
     if (e.key === 'Tab') {
       e.preventDefault();
       const start = editor.selectionStart;
       const end = editor.selectionEnd;
-      editor.value = editor.value.substring(0, start) + '  ' + editor.value.substring(end);
+      editor.value = `${editor.value.substring(0, start)}  ${editor.value.substring(end)}`;
       editor.selectionStart = editor.selectionEnd = start + 2;
     }
   });
+
+  // First run: once the library is ready, build and preview the Hello example without clearing
+  // the load line above or moving a phone's page past the editor, but only while the editor
+  // still holds it untouched. Anything the visitor typed or picked during the load stays as it is.
+  if (!runBtn.disabled && editor.value === examples.hello) await runCode(false);
 })();
 </script>
 

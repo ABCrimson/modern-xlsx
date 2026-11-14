@@ -6,66 +6,82 @@ members = [
 ]
 
 [workspace.package]
-# Rust crate version — independent from the npm package version (1.2.1)
+# Rust crate version, independent of the npm package version (see packages/modern-xlsx/package.json); the WASM `version()` export returns it.
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.96.0"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/ABCrimson/modern-xlsx"
 
 [workspace.dependencies]
-# XML parsing — SAX-style, zero-copy, serde support
-quick-xml = { version = "0.42.0", features = ["serialize"] }
+# XML parsing and writing: the pull-style Reader, Writer and event types
+quick-xml = "=0.42.0"
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "=1.0.229", features = ["derive"] }
 
-# ZIP archive — v8 with pure-Rust deflate (zopfli write + flate2/zlib-rs read)
-zip = { version = "8.6", default-features = false, features = ["deflate"] }
+# ZIP archive: Deflate through flate2 on zlib-rs for reads and writes (the writers use level 6; zopfli is not compiled)
+zip = { version = "=9.5.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 # Date/time without std::time
-chrono = { version = "0.4", default-features = false, features = ["serde"] }
+chrono = { version = "=0.4.45", default-features = false }
 
 # Error handling
-thiserror = "2.0"
+thiserror = "=2.0.21"
 
-# JSON serialization (golden file tests + JSON export)
-serde_json = "1.0"
+# JSON: the WASM JSON bridge, read_xlsx_json, the JSON error conversion and the golden-file tests
+serde_json = "=1.0.154"
+
+# Optional data-parallel sheet parsing: `parallel` feature, native builds only (the WASM crate never enables it)
+rayon = "=1.12.0"
 
 # Logging facade (zero-cost when no backend configured)
-log = "0.4"
+log = "=0.4.35"
 
 # Zero-alloc integer formatting for XML output
-itoa = "1.0"
+itoa = "=1.0.19"
 
-# Zero-alloc float formatting for XML/JSON output
-ryu = "1.0"
+# Float formatting (zmij, the formatter serde_json uses)
+zmij = "=1.0.23"
 
 # WASM bindings
-wasm-bindgen = "0.2.127"
-js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "console", "Performance"] }
+wasm-bindgen = "=0.2.130"
+js-sys = "=0.3.107"
+web-sys = { version = "=0.3.107", features = ["Blob", "BlobPropertyBag"] }
 # Readable Rust panic messages in the browser console (debug builds only)
-console_error_panic_hook = "0.1"
+console_error_panic_hook = "=0.1.7"
 
-# Cryptography — ECMA-376 Agile + Standard Encryption (RustCrypto 0.11/0.13/0.9 generation)
-digest = { version = "0.11", features = ["alloc"] }
-sha2 = "0.11"
-sha1 = "0.11"
-zeroize = { version = "1.9", features = ["derive"] }
-aes = "0.9"
-cbc = { version = "0.2", features = ["alloc"] }
-hmac = "0.13"
-constant_time_eq = "0.5"
-getrandom = { version = "0.4", features = ["wasm_js"] }
+# Cryptography: ECMA-376 Agile Encryption (read and write) and Standard Encryption (read only), on the RustCrypto crates
+digest = { version = "=0.11.3", features = ["alloc"] }
+sha2 = "=0.11.1"
+sha1 = "=0.11.0"
+zeroize = { version = "=1.9.1", features = ["derive"] }
+aes = "=0.9.4"
+cbc = { version = "=0.2.1", features = ["alloc"] }
+hmac = "=0.13.0"
+constant_time_eq = "=0.6.1"
+getrandom = { version = "=0.4.3", features = ["wasm_js"] }
 
 # Dev
-wasm-bindgen-test = "0.3"
-pretty_assertions = "1.4"
-proptest = "1"
+wasm-bindgen-test = "=0.3.80"
+pretty_assertions = "=1.4.1"
+proptest = "=1.12.0"
+# Independent MS-CFB reader/writer: builds conformant compound files for the OLE2 reader tests
+cfb = "=0.16.0"
+# Cargo-flavoured SemVer parser: the wasm bridge test asserts version() parses
+semver = "=1.0.28"
+# Benchmarks only (crates/modern-xlsx-core/benches); plotters and rayon stay off
+criterion = { version = "=0.8.2", default-features = false }
+# Test-only allocation counter (peak-memory bounds in hostile_inputs.rs)
+peak_alloc = "=0.3.0"
+
+[workspace.lints.rust]
+# No unsafe code anywhere in the workspace.
+unsafe_code = "forbid"
+unused_qualifications = "warn"
 
 [workspace.lints.clippy]
-# Bleeding-edge: opt into the pedantic group, allowing the subjective / domain-noisy
+# Opt into the pedantic group, allowing the subjective / domain-noisy
 # lints (this is a numeric/OOXML codebase: casts and exact float compares are intentional).
 pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
@@ -76,6 +92,8 @@ too_many_lines = "allow"
 similar_names = "allow"
 struct_excessive_bools = "allow"
 module_name_repetitions = "allow"
+# Restriction: one module layout (self-named x.rs plus x/, no x/mod.rs).
+mod_module_files = "warn"
 cast_possible_truncation = "allow"
 cast_precision_loss = "allow"
 cast_sign_loss = "allow"
@@ -87,7 +105,7 @@ assigning_clones = "allow"
 unreadable_literal = "allow"
 case_sensitive_file_extension_comparisons = "allow"
 match_wildcard_for_single_variants = "allow"
-# New in clippy 1.99: `assert!(x.is_empty())` in tests is idiomatic; the suggested
+# `assert!(x.is_empty())` in tests is idiomatic; the suggested
 # `assert_eq!(x, [] as [T; 0])` rewrite is noisier than the failure it improves.
 assert_is_empty = "allow"
 needless_continue = "allow"
@@ -96,13 +114,30 @@ trivially_copy_pass_by_ref = "allow"
 needless_pass_by_value = "allow"
 items_after_statements = "allow"
 unused_self = "allow"
-manual_let_else = "allow"
 ref_option = "allow"
 default_trait_access = "allow"
+# Suppressions must be #[expect(lint, reason = "...")] so a stale one fails the build.
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
+# Debug and test builds optimize SHA-2: the Agile KDF runs Excel's 100,000 SHA-512 rounds,
+# which take about 0.6 s unoptimized and break the 1 s bounds of tests/hostile_inputs.rs on a busy host.
+[profile.dev.package.sha2]
+opt-level = 3
 
 [profile.release]
+# Speed over size, measured 2026-11-12 (docs/perf-size.md): opt-level "s" cut the full WASM 11.5% gzip but
+# slowed the read/write benchmarks 7.6% (geometric mean, worst case 14.6%), past the 5%/3% adoption bar.
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-strip = true
+# "debuginfo" keeps the target_features custom section: wasm-bindgen stops warning and
+# wasm-opt reads the enabled features (the wasm32-unknown-unknown defaults of the pinned rustc)
+# itself, then drops names and debug sections.
+strip = "debuginfo"
 panic = "abort"
+# No trim-paths key here: the MSRV Cargo (1.96, ci.yml msrv job) rejects it as an unstabilized feature
+# in Cargo.toml and in a Cargo config file alike (the pinned nightly and beta 1.101 accept it). The release
+# WASM builds (root package.json build:wasm and build:wasm:lite, ci.yml build-wasm) pass
+# --config "profile.release.trim-paths='all'" on the pinned nightly instead, so the .wasm carries no
+# host paths.

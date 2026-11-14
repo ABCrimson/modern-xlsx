@@ -3,42 +3,62 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>modern-xlsx — High-Performance XLSX for JavaScript</title>
-  <meta name="description" content="Read and write Excel files with full styling, encryption, and validation support, powered by Rust + WASM. Free and open source.">
-  <meta name="theme-color" content="#0a0a0a">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
-  <meta property="og:title" content="modern-xlsx — High-Performance XLSX for JavaScript">
-  <meta property="og:description" content="Read and write Excel files with full styling, barcodes, and validation — powered by Rust + WASM. Free and open source.">
+  <title>modern-xlsx — Read and write Excel .xlsx in JavaScript</title>
+  <meta name="description" content="Read, write, style and encrypt Excel .xlsx files in JavaScript and TypeScript, with a Rust core compiled to WebAssembly. MIT licensed.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0a0a">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://abcrimson.github.io/modern-xlsx/">
+  <meta property="og:site_name" content="modern-xlsx">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://abcrimson.github.io/modern-xlsx">
+  <meta property="og:title" content="modern-xlsx — Read and write Excel .xlsx in JavaScript">
+  <meta property="og:description" content="Read, write, style and encrypt Excel .xlsx files in JavaScript and TypeScript, with a Rust core compiled to WebAssembly. MIT licensed.">
+  <meta property="og:url" content="https://abcrimson.github.io/modern-xlsx/">
+  <meta property="og:image" content="https://abcrimson.github.io/modern-xlsx/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="modern-xlsx: read and write .xlsx from JavaScript and TypeScript. A spreadsheet grid with cell A1 holding Hello and B1 holding 42.">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* One token set for both themes: light-dark() picks the value for the visitor's color scheme.
+       The accent is the brand crimson of docs/assets/readme/ (#C8102E light, #FF6B7A dark); links keep their own blue. */
     :root {
-      --bg: #0a0a0a;
-      --surface: #111111;
-      --surface-2: #1a1a1a;
-      --border: #222222;
-      --border-hover: #333333;
-      --text: #e5e5e5;
-      --text-muted: #888888;
-      --text-dim: #555555;
-      --accent: #3b82f6;
-      --accent-dim: #1d4ed8;
-      --green: #22c55e;
-      --green-dim: #15803d;
-      --amber: #f59e0b;
-      --red: #ef4444;
-      --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      color-scheme: light dark;
+      --bg: light-dark(#ffffff, #0a0a0a);
+      --surface: light-dark(#f8fafc, #111111);
+      --surface-2: light-dark(#eef2f7, #1a1a1a);
+      --border: light-dark(#e2e8f0, #222222);
+      --border-hover: light-dark(#cbd5e1, #333333);
+      --text: light-dark(#18181b, #e5e5e5);
+      --text-muted: light-dark(#52525b, #a1a1aa);
+      --text-dim: light-dark(#5f5f69, #8f8f8f);
+      --accent: light-dark(#c8102e, #ff6b7a);
+      --link: light-dark(#1d4ed8, #60a5fa);
+      --button: light-dark(#c8102e, #ff6b7a);
+      --button-hover: light-dark(#a50d26, #ff8d98);
+      --on-accent: light-dark(#ffffff, #0a0a0a);
+      --green: light-dark(#15803d, #22c55e);
+      --amber: light-dark(#b45309, #f59e0b);
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Menlo, monospace;
       --radius: 12px;
       --radius-sm: 8px;
     }
 
-    html { scroll-behavior: smooth; }
+    @media (prefers-reduced-motion: no-preference) {
+      html { scroll-behavior: smooth; }
+    }
+
+    /* An in-page link scrolls its target to just below the sticky header (56 px and its 1 px border);
+       a heading or code block that is a target itself keeps a gap above it as well. */
+    html { scroll-padding-block-start: 57px; }
+    main :is(h2, pre)[id] { scroll-margin-block-start: 1.5rem; }
 
     body {
       font-family: var(--font);
@@ -48,15 +68,40 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    a { color: var(--accent); text-decoration: none; }
+    a { color: var(--link); text-decoration: none; }
     a:hover { text-decoration: underline; }
+    /* Links inside running text carry an underline, not only a colour (WCAG 1.4.1). */
+    :where(p, td, li) a { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.2em; }
+
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    h1, h2, h3 { text-wrap: balance; }
+    pre, code, kbd { font-variant-ligatures: none; }
+
+    .visually-hidden {
+      position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden;
+      clip-path: inset(50%); white-space: nowrap;
+    }
+
+    .skip-link {
+      position: absolute; inset-inline-start: 1rem; inset-block-start: -3rem; z-index: 200;
+      padding: 0.5rem 1rem; border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    }
+    .skip-link:focus { inset-block-start: 0.5rem; }
+
+    .i { inline-size: 20px; block-size: 20px; flex: none; }
 
     /* --- NAV --- */
-    nav {
+    /* The banner landmark holds the nav and stays at the top of the viewport. */
+    body > header {
       position: sticky;
-      top: 0;
+      inset-block-start: 0;
       z-index: 100;
-      background: rgba(10, 10, 10, 0.85);
+    }
+
+    nav {
+      background: color-mix(in srgb, var(--bg) 85%, transparent);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border);
       padding: 0 2rem;
@@ -72,11 +117,16 @@
     }
 
     nav .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
       font-weight: 700;
       font-size: 1.1rem;
       color: var(--text);
       letter-spacing: -0.02em;
     }
+
+    nav .logo:hover { text-decoration: none; }
 
     nav .links { display: flex; gap: 1.5rem; }
 
@@ -93,9 +143,12 @@
     .hero {
       max-width: 1200px;
       margin: 0 auto;
-      padding: 6rem 2rem 4rem;
+      padding: 5rem 2rem 4rem;
       text-align: center;
     }
+
+    .hero .mark { display: block; margin: 0 auto 1.5rem; }
+    .hero .mark img { display: block; margin-inline: auto; }
 
     .hero .badge {
       display: inline-flex;
@@ -110,10 +163,13 @@
       margin-bottom: 2rem;
     }
 
+    .hero .badge:hover { border-color: var(--border-hover); color: var(--text); text-decoration: none; }
+    .hero .badge .version { font-family: var(--mono); color: var(--text); }
+
     .hero .badge .dot {
       width: 6px; height: 6px;
       border-radius: 50%;
-      background: var(--green);
+      background: var(--accent);
     }
 
     .hero h1 {
@@ -124,12 +180,7 @@
       margin-bottom: 1.5rem;
     }
 
-    .hero h1 .gradient {
-      background: linear-gradient(135deg, var(--accent), #818cf8, #c084fc);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
+    .hero h1 .accent { color: var(--accent); }
 
     .hero .subtitle {
       font-size: 1.15rem;
@@ -151,20 +202,17 @@
       align-items: center;
       gap: 0.5rem;
       padding: 0.7rem 1.5rem;
+      min-block-size: 44px;
       border-radius: var(--radius-sm);
       font-size: 0.9rem;
       font-weight: 600;
-      border: none;
+      border: 1px solid transparent;
       cursor: pointer;
-      transition: all 0.15s;
+      transition: background-color 0.15s, border-color 0.15s;
     }
 
-    .btn-primary {
-      background: var(--accent);
-      color: white;
-    }
-
-    .btn-primary:hover { background: var(--accent-dim); text-decoration: none; }
+    .btn-primary { background: var(--button); color: var(--on-accent); border-color: var(--button); }
+    .btn-primary:hover { background: var(--button-hover); border-color: var(--button-hover); text-decoration: none; }
 
     .btn-secondary {
       background: var(--surface);
@@ -174,23 +222,43 @@
 
     .btn-secondary:hover { border-color: var(--border-hover); text-decoration: none; }
 
+    .copy {
+      flex: none;
+      font: inherit;
+      font-family: var(--font);
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 0.25rem 0.6rem;
+      min-block-size: 32px;
+      min-inline-size: 4.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface-2);
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    .copy:hover { color: var(--text); border-color: var(--border-hover); }
+
     /* --- INSTALL BAR --- */
     .install {
       max-width: 480px;
       margin: 2rem auto 0;
       display: flex;
       align-items: center;
+      gap: 0.5rem;
+      text-align: start;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      padding: 0.6rem 1rem;
+      padding: 0.5rem 0.5rem 0.5rem 1rem;
       font-family: var(--mono);
       font-size: 0.85rem;
       color: var(--text-muted);
     }
 
     .install code { flex: 1; color: var(--text); }
-    .install .prefix { color: var(--text-dim); margin-right: 0.5rem; }
+    .install .prefix { color: var(--text-dim); }
 
     /* --- STATS --- */
     .stats {
@@ -199,6 +267,8 @@
       padding: 0 2rem;
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      /* Every row of cards as tall as the tallest, so the cards match when they wrap to two rows. */
+      grid-auto-rows: 1fr;
       gap: 1rem;
     }
 
@@ -215,11 +285,9 @@
       font-weight: 700;
       letter-spacing: -0.03em;
       margin-bottom: 0.25rem;
+      white-space: nowrap;
+      color: var(--text);
     }
-
-    .stat .number.fast { color: var(--green); }
-    .stat .number.small { color: var(--accent); }
-    .stat .number.zero { color: var(--amber); }
 
     .stat .label {
       font-size: 0.8rem;
@@ -229,20 +297,20 @@
     }
 
     /* --- SECTIONS --- */
-    section {
+    main > section {
       max-width: 1200px;
       margin: 0 auto;
       padding: 4rem 2rem;
     }
 
-    section h2 {
+    main > section h2 {
       font-size: 1.75rem;
       font-weight: 700;
       letter-spacing: -0.03em;
       margin-bottom: 0.5rem;
     }
 
-    section .section-sub {
+    main > section .section-sub {
       color: var(--text-muted);
       margin-bottom: 2.5rem;
       font-size: 1rem;
@@ -269,8 +337,8 @@
       width: 36px; height: 36px;
       border-radius: var(--radius-sm);
       background: var(--surface-2);
+      color: var(--text);
       display: flex; align-items: center; justify-content: center;
-      font-size: 1.1rem;
       margin-bottom: 1rem;
     }
 
@@ -297,44 +365,48 @@
     .code-block .header {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 0.5rem;
-      padding: 0.75rem 1rem;
+      padding: 0.5rem 0.5rem 0.5rem 1rem;
       border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
       font-size: 0.8rem;
       color: var(--text-muted);
     }
 
-    .code-block .header .dots {
-      display: flex; gap: 6px;
-    }
-
-    .code-block .header .dots span {
-      width: 10px; height: 10px;
-      border-radius: 50%;
-      background: var(--surface-2);
-    }
+    /* The code scrolls inside its own keyboard-focusable region, under the header. */
+    .code-scroll { overflow-x: auto; }
+    .code-scroll:focus-visible { outline-offset: -2px; }
 
     .code-block pre {
       padding: 1.25rem;
-      overflow-x: auto;
       font-family: var(--mono);
       font-size: 0.85rem;
       line-height: 1.7;
       color: var(--text);
     }
 
-    .code-block pre .kw { color: #c084fc; }
-    .code-block pre .fn { color: #60a5fa; }
-    .code-block pre .str { color: #34d399; }
-    .code-block pre .num { color: #fbbf24; }
+    .code-block pre .kw { color: light-dark(#7c3aed, #c084fc); }
+    .code-block pre .fn { color: light-dark(#1d4ed8, #60a5fa); }
+    .code-block pre .str { color: light-dark(#047857, #34d399); }
+    .code-block pre .num { color: light-dark(#b45309, #fbbf24); }
     .code-block pre .cmt { color: var(--text-dim); }
-    .code-block pre .typ { color: #818cf8; }
+    .code-block pre .typ { color: light-dark(#4338ca, #818cf8); }
 
-    /* --- COMPARISON TABLE --- */
+    /* --- TABLES --- */
+    /* Each table scrolls inside its own keyboard-focusable region (a named <section>); the first column stays in view. */
     .table-wrap {
+      /* Positioned, so the visually hidden cell text is clipped by this scroller, not the page. */
+      position: relative;
       overflow-x: auto;
       border: 1px solid var(--border);
       border-radius: var(--radius);
+      /* Scroll cue: a shadow shows on each side that has more columns to scroll to. */
+      background:
+        linear-gradient(to right, var(--bg) 30%, transparent) left / 2.5rem 100% no-repeat local,
+        linear-gradient(to left, var(--bg) 30%, transparent) right / 2.5rem 100% no-repeat local,
+        radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--text) 30%, transparent), transparent) left / 1rem 100% no-repeat scroll,
+        radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--text) 30%, transparent), transparent) right / 1rem 100% no-repeat scroll;
     }
 
     table {
@@ -342,6 +414,8 @@
       border-collapse: collapse;
       font-size: 0.875rem;
     }
+
+    #comparison table { min-inline-size: 44rem; }
 
     th, td { padding: 0.75rem 1rem; text-align: left; }
 
@@ -358,281 +432,282 @@
     td { border-bottom: 1px solid var(--border); }
     tr:last-child td { border-bottom: none; }
 
+    .table-wrap :is(th, td):first-child { position: sticky; inset-inline-start: 0; z-index: 1; background: var(--bg); }
+    .table-wrap th:first-child { background: var(--surface); }
+
     td.yes { color: var(--green); font-weight: 600; }
     td.no { color: var(--text-dim); }
     td.paid { color: var(--amber); }
-    td.fast { color: var(--green); font-weight: 600; }
 
-    /* --- BENCHMARK TABLE --- */
-    .bench-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
-    .bench-label { width: 140px; font-size: 0.875rem; color: var(--text-muted); flex-shrink: 0; }
-    .bench-bars { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .scroll-hint { display: none; }
 
-    .bench-bar {
-      height: 28px;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      padding: 0 0.75rem;
-      font-size: 0.75rem;
-      font-weight: 600;
-      font-family: var(--mono);
-      color: white;
-      min-width: 60px;
+    .table-note { color: var(--text-muted); font-size: 0.875rem; margin-top: 1rem; }
+
+    /* --- ARCHITECTURE --- */
+    /* The picture of docs/assets/readme/, drawn 960x1040 with labels of at least 30 units: shown at most
+       640 px wide (labels of 20 px), and on a phone across the viewport less 16 px gutters (11 px at 390 px). */
+    .arch-picture { display: block; }
+    .arch-picture .arch-img { display: block; inline-size: 100%; max-inline-size: 640px; block-size: auto; margin-inline: auto; }
+
+    .arch-note {
+      margin-top: 1.5rem;
+      max-inline-size: 72ch;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.8;
     }
-
-    .bench-bar.ours { background: linear-gradient(90deg, var(--accent), #818cf8); }
-    .bench-bar.theirs { background: var(--surface-2); color: var(--text-dim); }
-
-    /* --- ARCH DIAGRAM --- */
-    .arch {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 2.5rem;
-      text-align: center;
-      font-family: var(--mono);
-      font-size: 0.85rem;
-      line-height: 2;
-    }
-
-    .arch .layer {
-      display: inline-block;
-      padding: 0.5rem 2rem;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      margin: 0.25rem;
-      background: var(--surface-2);
-    }
-
-    .arch .layer.ts { border-color: #3b82f6; color: #60a5fa; }
-    .arch .layer.wasm { border-color: #a855f7; color: #c084fc; }
-    .arch .layer.rust { border-color: #f97316; color: #fb923c; }
-    .arch .arrow { color: var(--text-dim); display: block; }
 
     /* --- FOOTER --- */
+    /* The border lines up with the 1200 px content box of the sections above. */
     footer {
-      max-width: 1200px;
+      inline-size: min(1200px - 4rem, 100% - 4rem);
       margin: 0 auto;
-      padding: 3rem 2rem;
+      padding: 3rem 0;
       border-top: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 1rem 2rem;
+      flex-wrap: wrap;
       font-size: 0.8rem;
       color: var(--text-dim);
     }
 
-    footer .links { display: flex; gap: 1.5rem; }
+    footer .links { display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; }
     footer .links a { color: var(--text-muted); }
+
+    /* The page has no animations, these are its only transitions, and smooth scrolling is set only under no-preference. */
+    @media (prefers-reduced-motion: reduce) {
+      nav .links a, .btn, .feature { transition: none; }
+    }
 
     /* --- RESPONSIVE --- */
     @media (max-width: 640px) {
-      .hero { padding: 4rem 1.5rem 3rem; }
-      section { padding: 3rem 1.5rem; }
-      .stats { grid-template-columns: repeat(2, 1fr); }
+      .hero { padding: 3rem 1.5rem 3rem; }
+      main > section { padding: 3rem 1.5rem; }
+      .stats { grid-template-columns: repeat(2, 1fr); padding: 0 1.5rem; }
       .features { grid-template-columns: 1fr; }
-      .bench-label { width: 100px; }
-      footer { flex-direction: column; gap: 1rem; }
+      .arch-picture { margin-inline: -0.5rem; }
+      footer { inline-size: calc(100% - 3rem); flex-direction: column; align-items: flex-start; }
+      footer .links a { display: inline-flex; align-items: center; min-block-size: 44px; }
+      html { scroll-padding-block-start: 0; }
+      body > header { position: static; }
+      nav { padding: 0 1rem; }
+      nav .inner { height: auto; min-height: 56px; flex-wrap: wrap; gap: 0 1rem; padding-block: 0.25rem; }
+      nav .links { flex-wrap: wrap; gap: 0 1rem; }
+      nav .logo, nav .links a { display: inline-flex; align-items: center; min-block-size: 44px; }
+      .copy, .hero .badge { min-block-size: 44px; }
+      .scroll-hint { display: block; margin-block-end: 0.75rem; font-size: 0.8rem; color: var(--text-muted); }
     }
   </style>
 </head>
 <body>
+<!--
+  Icons: Lucide (lucide-static 1.72.0). ISC License. Copyright (c) 2026 Lucide Icons and Contributors.
+  Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+  https://lucide.dev/license
+  The calendar, hash and link icons are derived from the Feather project. The MIT License (MIT). Copyright (c) 2013-present Cole Bemis.
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" style="position:absolute;inline-size:0;block-size:0;overflow:hidden">
+  <symbol id="i-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></symbol>
+  <symbol id="i-chart-column" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v2"/><path d="M12 2v2"/><path d="M17 20v2"/><path d="M17 2v2"/><path d="M2 12h2"/><path d="M2 17h2"/><path d="M2 7h2"/><path d="M20 12h2"/><path d="M20 17h2"/><path d="M20 7h2"/><path d="M7 20v2"/><path d="M7 2v2"/><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+  <symbol id="i-list-checks" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/></symbol>
+  <symbol id="i-list-end" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 5H3"/><path d="M16 12H3"/><path d="M9 19H3"/><path d="m16 16-3 3 3 3"/><path d="M21 5v12a2 2 0 0 1-2 2h-6"/></symbol>
+  <symbol id="i-lock-keyhole" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="16" r="1"/><rect x="3" y="10" width="18" height="12" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></symbol>
+  <symbol id="i-message-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><polyline points="3.29 7 12 12 20.71 7"/><path d="m7.5 4.27 9 5.15"/></symbol>
+  <symbol id="i-paintbrush" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14.622 17.897-10.68-2.913"/><path d="M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z"/><path d="M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+  <symbol id="i-printer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></symbol>
+  <symbol id="i-qr-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="i-sigma" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 7V5a1 1 0 0 0-1-1H6.5a.5.5 0 0 0-.4.8l4.5 6a2 2 0 0 1 0 2.4l-4.5 6a.5.5 0 0 0 .4.8H17a1 1 0 0 0 1-1v-2"/></symbol>
+  <symbol id="i-snowflake" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 20-1.25-2.5L6 18"/><path d="M10 4 8.75 6.5 6 6"/><path d="m14 20 1.25-2.5L18 18"/><path d="m14 4 1.25 2.5L18 6"/><path d="m17 21-3-6h-4"/><path d="m17 3-3 6 1.5 3"/><path d="M2 12h6.5L10 9"/><path d="m20 10-1.5 2 1.5 2"/><path d="M22 12h-6.5L14 15"/><path d="m4 10 1.5 2L4 14"/><path d="m7 21 3-6-1.5-3"/><path d="m7 3 3 6h4"/></symbol>
+  <symbol id="i-table-properties" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M21 9H3"/><path d="M21 15H3"/></symbol>
+</svg>
 
-<!-- NAV -->
-<nav>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header>
+<nav aria-label="Primary">
   <div class="inner">
-    <div class="logo">modern-xlsx</div>
+    <a class="logo" href="./"><img src="favicon.svg" width="20" height="20" alt="">modern-xlsx</a>
     <div class="links">
       <a href="#features">Features</a>
-      <a href="#performance">Performance</a>
-      <a href="#quickstart">Quick Start</a>
-      <a href="#api">API</a>
+      <a href="#quickstart">Quick start</a>
+      <a href="#api">API overview</a>
+      <a href="api/">API reference</a>
       <a href="playground.html">Playground</a>
       <a href="https://github.com/ABCrimson/modern-xlsx">GitHub</a>
     </div>
   </div>
 </nav>
+</header>
 
-<!-- HERO -->
+<main id="main">
 <div class="hero">
-  <div class="badge">
+  <picture class="mark">
+    <source media="(prefers-color-scheme: dark)" srcset="mark-dark.svg">
+    <img src="mark-light.svg" width="64" height="64" alt="">
+  </picture>
+  <!-- The version is written from packages/modern-xlsx/package.json by .github/workflows/pages.yml at deploy time. -->
+  <a class="badge" href="https://github.com/ABCrimson/modern-xlsx/blob/master/packages/modern-xlsx/CHANGELOG.md">
     <span class="dot"></span>
-    v1.2.0 — MIT Licensed
-  </div>
+    <span class="version">v{{VERSION}}</span>
+    <span>What's new: the changelog</span>
+  </a>
   <h1>
     Excel files,<br>
-    <span class="gradient">handled right.</span>
+    <span class="accent">handled right.</span>
   </h1>
   <p class="subtitle">
-    High-performance XLSX read/write for JavaScript and TypeScript. Full styling, validation,
-    and formatting &mdash; powered by Rust + WASM. Everything SheetJS Pro charges for, free and open source.
+    Read, write, style and encrypt Excel .xlsx files in JavaScript and TypeScript, with a Rust core
+    compiled to WebAssembly.
   </p>
   <div class="actions">
-    <a href="#quickstart" class="btn btn-primary">Get Started</a>
+    <a href="#quickstart" class="btn btn-primary">Get started</a>
+    <a href="playground.html" class="btn btn-secondary">Try the playground</a>
     <a href="https://github.com/ABCrimson/modern-xlsx" class="btn btn-secondary">View on GitHub</a>
   </div>
   <div class="install">
-    <span class="prefix">$</span>
+    <span class="prefix" aria-hidden="true">$</span>
     <code>npm install modern-xlsx</code>
+    <button type="button" class="copy" data-copy="npm install modern-xlsx" aria-label="Copy the install command">Copy</button>
   </div>
 </div>
 
-<!-- STATS -->
 <div class="stats">
   <div class="stat">
-    <div class="number fast">4.2x</div>
-    <div class="label">Faster reads vs SheetJS</div>
-  </div>
-  <div class="stat">
-    <div class="number small">~646 KB</div>
-    <div class="label">WASM size (gzipped)</div>
-  </div>
-  <div class="stat">
-    <div class="number zero">0</div>
+    <div class="number">0</div>
     <div class="label">Runtime dependencies</div>
   </div>
   <div class="stat">
-    <div class="number" style="color: var(--text)">1,731</div>
-    <div class="label">Tests (Rust + TypeScript)</div>
+    <div class="number">MIT</div>
+    <div class="label">License</div>
+  </div>
+  <div class="stat">
+    <div class="number">TS</div>
+    <div class="label">Type definitions bundled</div>
+  </div>
+  <div class="stat">
+    <div class="number">5</div>
+    <div class="label">Runtimes tested in CI</div>
   </div>
 </div>
 
-<!-- FEATURES -->
 <section id="features">
   <h2>Features</h2>
-  <p class="section-sub">Everything you need for production XLSX handling, without the paywall.</p>
+  <p class="section-sub">What the library reads and writes, all under the MIT license.</p>
   <div class="features">
     <div class="feature">
-      <div class="icon">&#9998;</div>
-      <h3>Cell Styling</h3>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-paintbrush"/></svg></div>
+      <h3>Cell styling</h3>
       <p>Fonts, fills, borders, alignment, text rotation, shrink-to-fit. Fluent builder API produces style indices for any cell.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#9783;</div>
-      <h3>Number Formats</h3>
-      <p>Built-in Excel format codes plus custom formats. Dates, currency, percentages, scientific notation — all rendered correctly.</p>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-hash"/></svg></div>
+      <h3>Number formats</h3>
+      <p>Built-in Excel format codes plus custom formats. <code>formatCell()</code> turns a value and a format code into display text for dates, currency, percentages and scientific notation.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#10003;</div>
-      <h3>Data Validation</h3>
-      <p>List, whole number, decimal, date, time, text length, and custom formula validators with error messages.</p>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-list-checks"/></svg></div>
+      <h3>Data validation</h3>
+      <p>List, whole number, decimal, date, time, text length and custom formula rules, with input prompts and error messages.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#9881;</div>
-      <h3>Conditional Formatting</h3>
-      <p>Color scales, data bars, icon sets, and formula-based rules. Read and write preserving all OOXML attributes.</p>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-palette"/></svg></div>
+      <h3>Conditional formatting</h3>
+      <p>Color scales, data bars, icon sets and formula-based rules, read and written.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#9974;</div>
-      <h3>Frozen Panes</h3>
-      <p>Freeze rows, columns, or both. Maintains scroll position for large worksheets.</p>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-chart-column"/></svg></div>
+      <h3>Charts</h3>
+      <p>Ten chart types (bar, column, line, pie, doughnut, scatter, area, radar, bubble and stock) built with the fluent <code>ChartBuilder</code>. Other chart XML is kept verbatim.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#128279;</div>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-qr-code"/></svg></div>
+      <h3>Images and barcodes</h3>
+      <p><code>addImage</code> embeds PNG, JPEG and GIF images; <code>addBarcode</code> draws QR, Code 128, EAN-13, UPC-A, Code 39, ITF-14 and GS1-128 symbols into the sheet.</p>
+    </div>
+    <div class="feature">
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-table-properties"/></svg></div>
+      <h3>Pivot tables</h3>
+      <p>Read and write pivot tables. <code>PivotTableBuilder</code> builds the definition; Excel computes the table's values when it opens the file.</p>
+    </div>
+    <div class="feature">
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-sigma"/></svg></div>
+      <h3>Formula engine</h3>
+      <p>Evaluate formulas in memory with 54 built-in Excel functions, following Excel's semantics for type coercion, error propagation and operators.</p>
+    </div>
+    <div class="feature">
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-list-end"/></svg></div>
+      <h3>Streaming writer</h3>
+      <p><code>StreamingXlsxWriter</code> writes rows one at a time without building a <code>Workbook</code> first. It holds the compressed output in memory until <code>finish()</code> returns it.</p>
+    </div>
+    <div class="feature">
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-snowflake"/></svg></div>
+      <h3>Frozen panes</h3>
+      <p>Freeze rows, columns or both with <code>frozenPane</code>, or set split panes with <code>splitPane</code>.</p>
+    </div>
+    <div class="feature">
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg></div>
       <h3>Hyperlinks</h3>
-      <p>Internal sheet links, external URLs, email links — with display text and tooltips.</p>
+      <p>Internal sheet links, external URLs and mailto links, with display text and tooltips.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#128172;</div>
-      <h3>Comments & Notes</h3>
-      <p>Add, read, and remove cell comments with author attribution.</p>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-message-square"/></svg></div>
+      <h3>Comments and notes</h3>
+      <p>Add, read and remove cell comments with an author. Threaded comments are read and written too.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#128274;</div>
-      <h3>Sheet Protection</h3>
-      <p>Protect worksheets with granular permissions — lock formatting, insertion, deletion, sorting, and filtering independently.</p>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg></div>
+      <h3>Sheet protection</h3>
+      <p>Protect a worksheet through its <code>sheetProtection</code> settings, and lock the workbook structure or windows through <code>Workbook.protection</code>.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#128272;</div>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-lock-keyhole"/></svg></div>
       <h3>Encryption</h3>
-      <p>Read and write password-protected XLSX files. ECMA-376 Agile Encryption with AES-256 and SHA-512.</p>
+      <p>Open and save password-protected .xlsx files (full build). Writes ECMA-376 Agile Encryption with AES-256, SHA-512 and 100,000 spin rounds; reads Agile and Standard Encryption.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#128196;</div>
-      <h3>Page Setup</h3>
-      <p>Paper size, orientation, margins, headers, footers — full print configuration.</p>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-printer"/></svg></div>
+      <h3>Page setup</h3>
+      <p>Paper size, orientation, print scale, margins, headers and footers, and page breaks.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#128338;</div>
-      <h3>Temporal API</h3>
-      <p>First-class support for the Temporal API alongside classic Date objects. Future-proof date handling.</p>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-calendar"/></svg></div>
+      <h3>Dates and Temporal</h3>
+      <p><code>dateToSerial()</code> takes a <code>Date</code> or a <code>TemporalLike</code>: a <code>Temporal.PlainDate</code>, a <code>Temporal.PlainDateTime</code> or any object with <code>year</code>, <code>month</code> and <code>day</code>. <code>serialToDate()</code> returns a <code>Date</code>.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#9889;</div>
-      <h3>WASM Performance</h3>
-      <p>Rust core compiled to WASM. ZIP decompression and XML parsing run at near-native speed inside the WASM sandbox.</p>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-cpu"/></svg></div>
+      <h3>Rust and WebAssembly core</h3>
+      <p>The Rust core, compiled to WebAssembly, does the ZIP compression and decompression and the SAX-style XML parsing. The <code>modern-xlsx/lite</code> build leaves encryption out for a smaller binary.</p>
     </div>
     <div class="feature">
-      <div class="icon">&#128230;</div>
+      <div class="icon" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-package"/></svg></div>
       <h3>Tree-shakable ESM</h3>
-      <p>Pure ESM with zero runtime dependencies. Import only what you need — bundlers eliminate the rest.</p>
+      <p>The <code>modern-xlsx</code> and <code>modern-xlsx/lite</code> entries are ES modules with <code>"sideEffects": false</code> and no runtime dependencies, so bundlers can drop unused JavaScript exports. The WASM binary is loaded whole.</p>
     </div>
   </div>
 </section>
 
-<!-- PERFORMANCE -->
-<section id="performance">
-  <h2>Performance</h2>
-  <p class="section-sub">modern-xlsx vs SheetJS CE (xlsx 0.20.3), Node 26, single thread. Indicative and hardware-dependent.</p>
-
-  <div class="bench-row">
-    <div class="bench-label">Read 100K</div>
-    <div class="bench-bars">
-      <div class="bench-bar ours" style="width: 24%">494 ms</div>
-      <div class="bench-bar theirs" style="width: 100%">2,072 ms</div>
-    </div>
-  </div>
-
-  <div class="bench-row">
-    <div class="bench-label">Write 10K</div>
-    <div class="bench-bars">
-      <div class="bench-bar ours" style="width: 100%">180 ms</div>
-      <div class="bench-bar theirs" style="width: 88%">159 ms</div>
-    </div>
-  </div>
-
-  <div class="bench-row">
-    <div class="bench-label">Write 100K (batch)</div>
-    <div class="bench-bars">
-      <div class="bench-bar ours" style="width: 17%">260 ms</div>
-      <div class="bench-bar theirs" style="width: 100%">1,504 ms</div>
-    </div>
-  </div>
-
-  <div class="bench-row">
-    <div class="bench-label">aoaToSheet 50K</div>
-    <div class="bench-bars">
-      <div class="bench-bar ours" style="width: 59%">57 ms</div>
-      <div class="bench-bar theirs" style="width: 100%">96 ms</div>
-    </div>
-  </div>
-
-  <div class="bench-row">
-    <div class="bench-label">Read 10K</div>
-    <div class="bench-bars">
-      <div class="bench-bar ours" style="width: 29%">52 ms</div>
-      <div class="bench-bar theirs" style="width: 100%">177 ms</div>
-    </div>
-  </div>
-
-  <div style="display: flex; gap: 2rem; margin-top: 1rem; font-size: 0.8rem; color: var(--text-muted);">
-    <div><span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: linear-gradient(90deg, var(--accent), #818cf8); vertical-align: middle; margin-right: 0.4rem;"></span>modern-xlsx</div>
-    <div><span style="display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: var(--surface-2); vertical-align: middle; margin-right: 0.4rem;"></span>SheetJS CE</div>
-  </div>
-</section>
-
-<!-- QUICK START -->
 <section id="quickstart">
-  <h2>Quick Start</h2>
-  <p class="section-sub">Create a styled spreadsheet in under 30 lines.</p>
+  <h2>Quick start</h2>
+  <p class="section-sub">Create a styled spreadsheet, save it and read it back in Node.js.</p>
 
   <div class="code-block">
     <div class="header">
-      <div class="dots"><span></span><span></span><span></span></div>
-      example.ts
+      <span>example.mjs (Node)</span>
+      <button type="button" class="copy" data-copy-from="quickstart-code" aria-label="Copy the example code">Copy</button>
     </div>
-<pre><span class="kw">import</span> { initWasm, Workbook, readFile } <span class="kw">from</span> <span class="str">'modern-xlsx'</span>;
+  <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region needs a keyboard stop so keyboard users can scroll it (WCAG 2.1.1, axe scrollable-region-focusable) -->
+  <section class="code-scroll" tabindex="0" aria-label="example.mjs">
+<pre id="quickstart-code"><span class="kw">import</span> { initWasm, Workbook, readFile } <span class="kw">from</span> <span class="str">'modern-xlsx'</span>;
 
 <span class="kw">await</span> <span class="fn">initWasm</span>();
 
@@ -663,21 +738,22 @@ ws.<span class="fn">cell</span>(<span class="str">'B2'</span>).styleIndex = curr
 
 <span class="kw">await</span> wb.<span class="fn">toFile</span>(<span class="str">'sales.xlsx'</span>);
 
-<span class="cmt">// Read an existing file</span>
-<span class="kw">const</span> existing = <span class="kw">await</span> <span class="fn">readFile</span>(<span class="str">'report.xlsx'</span>);
-console.<span class="fn">log</span>(existing.<span class="fn">getSheet</span>(<span class="str">'Sheet1'</span>)?.<span class="fn">cell</span>(<span class="str">'A1'</span>).value);</pre>
+<span class="cmt">// Read the file back</span>
+<span class="kw">const</span> saved = <span class="kw">await</span> <span class="fn">readFile</span>(<span class="str">'sales.xlsx'</span>);
+console.<span class="fn">log</span>(saved.<span class="fn">getSheet</span>(<span class="str">'Sales'</span>)?.<span class="fn">cell</span>(<span class="str">'A1'</span>).value); <span class="cmt">// 'Product'</span></pre>
+    </section>
   </div>
 </section>
 
-<!-- API OVERVIEW -->
 <section id="api">
-  <h2>API Reference</h2>
-  <p class="section-sub">Full documentation available in the <a href="https://github.com/ABCrimson/modern-xlsx/blob/main/packages/modern-xlsx/README.md">package README</a>.</p>
+  <h2 id="api-title">API overview</h2>
+  <p class="section-sub">Full documentation: the <a href="https://github.com/ABCrimson/modern-xlsx/blob/master/packages/modern-xlsx/README.md">package README</a> and the generated <a href="api/">API reference</a>.</p>
 
-  <div class="table-wrap">
+  <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region needs a keyboard stop so keyboard users can scroll it (WCAG 2.1.1, axe scrollable-region-focusable) -->
+  <section class="table-wrap" tabindex="0" aria-labelledby="api-title">
     <table>
       <thead>
-        <tr><th>Category</th><th>Functions / Classes</th></tr>
+        <tr><th>Category</th><th>Functions and classes</th></tr>
       </thead>
       <tbody>
         <tr>
@@ -686,7 +762,7 @@ console.<span class="fn">log</span>(existing.<span class="fn">getSheet</span>(<s
         </tr>
         <tr>
           <td>I/O</td>
-          <td><code>readFile()</code> &middot; <code>readBuffer()</code> &middot; <code>toFile()</code> &middot; <code>toBuffer()</code> &middot; <code>writeBlob()</code></td>
+          <td><code>readFile()</code> &middot; <code>readBuffer()</code> &middot; <code>wb.toFile()</code> &middot; <code>wb.toBuffer()</code> &middot; <code>writeBlob()</code></td>
         </tr>
         <tr>
           <td>Styles</td>
@@ -705,84 +781,105 @@ console.<span class="fn">log</span>(existing.<span class="fn">getSheet</span>(<s
           <td><code>formatCell()</code> &middot; <code>getBuiltinFormat()</code></td>
         </tr>
         <tr>
-          <td>Cell Refs</td>
+          <td>Cell references</td>
           <td><code>encodeCellRef()</code> &middot; <code>decodeCellRef()</code> &middot; <code>encodeRange()</code> &middot; <code>decodeRange()</code></td>
         </tr>
         <tr>
-          <td>Rich Text</td>
+          <td>Rich text</td>
           <td><code>RichTextBuilder</code> — <code>.text()</code> <code>.bold()</code> <code>.italic()</code> <code>.styled()</code> <code>.build()</code></td>
         </tr>
       </tbody>
     </table>
-  </div>
+  </section>
 </section>
 
-<!-- ARCHITECTURE -->
 <section id="architecture">
   <h2>Architecture</h2>
-  <p class="section-sub">Hybrid Rust + TypeScript design for maximum performance and developer experience.</p>
+  <p class="section-sub">A TypeScript API over a Rust core compiled to WebAssembly.</p>
 
-  <div class="arch">
-    <div class="layer ts">TypeScript API</div>
-    <div class="layer ts">Workbook &middot; Worksheet &middot; Cell &middot; StyleBuilder</div>
-    <div class="arrow">&darr; JSON &darr;</div>
-    <div class="layer wasm">wasm-bindgen Bridge</div>
-    <div class="arrow">&darr;</div>
-    <div class="layer rust">Rust Core &mdash; OOXML Parser &amp; Writer</div>
-    <div class="layer rust">quick-xml (SAX) &middot; zip (deflate) &middot; SharedStringTable</div>
-  </div>
+  <!-- architecture-light.svg and architecture-dark.svg are committed copies of docs/assets/readme/, as is architecture-alt.txt's text below. -->
+  <picture class="arch-picture">
+    <source media="(prefers-color-scheme: dark)" srcset="architecture-dark.svg" width="960" height="1040">
+    <img class="arch-img" src="architecture-light.svg" width="960" height="1040" loading="lazy" decoding="async" alt="Architecture of modern-xlsx in three layers: the TypeScript API (the modern-xlsx package), the WASM boundary built with wasm-bindgen, and the Rust core (the modern-xlsx-core crate). Read path: readBuffer, or readFile which loads the bytes and calls readBuffer, passes the bytes to the WASM read(data, limits). The Rust core detects whether the file is ZIP or OLE2, unzips it within the ZIP limits, SAX-parses each part with quick-xml and streams a JSON string of at most maxJsonLength bytes back across the boundary, where JSON.parse turns it into a Workbook. Write path: Workbook.toBuffer() passes JSON.stringify output to the WASM write(json); the Rust core decodes it with serde_json into WorkbookData, writes the parts with the shared string table built inline, zips them with Deflate at level 6 and returns a Uint8Array. Encryption is a Cargo feature in the full build only, not in /lite: it gates the WASM exports readWithPassword and writeWithPassword, which decrypt and encrypt as listed.">
+  </picture>
 
-  <div style="margin-top: 1.5rem; font-size: 0.875rem; color: var(--text-muted); line-height: 1.8;">
-    Data crosses the WASM boundary as JSON strings &mdash; 8&ndash;13x faster than <code>serde_wasm_bindgen</code>
-    for large workbooks (100K+ rows). The Rust core handles ZIP compression, SAX-style XML parsing,
-    shared string table construction, and style resolution. The writer builds the SST inline during
-    XML generation, avoiding a full worksheet clone.
-  </div>
+  <p class="arch-note">
+    Workbook data crosses the WASM boundary as JSON strings. The Rust core handles ZIP compression
+    and decompression, SAX-style XML parsing and the shared string table (SST). On write it collects
+    every shared-string cell into the SST first, then replaces each one's text with its SST index
+    while it writes each sheet's XML, without cloning the worksheet. Inline-string cells stay inline.
+  </p>
 </section>
 
-<!-- COMPARISON -->
 <section id="comparison">
-  <h2>Comparison</h2>
-  <p class="section-sub">How modern-xlsx stacks up against SheetJS Community and Pro editions.</p>
+  <h2 id="comparison-title">Comparison</h2>
+  <p class="section-sub">modern-xlsx next to SheetJS Community Edition 0.20.3 and SheetJS Pro. Competitor facts as of 2026-11-11, from docs.sheetjs.com, sheetjs.com/pro, the npm registry and the SheetJS CDN. The longer comparison is in <a href="https://github.com/ABCrimson/modern-xlsx/blob/master/docs/FEATURE-COMPARISON.md">FEATURE-COMPARISON.md</a>.</p>
 
-  <div class="table-wrap">
+  <p class="scroll-hint" aria-hidden="true">Swipe the table sideways to see SheetJS CE and SheetJS Pro.</p>
+  <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region needs a keyboard stop so keyboard users can scroll it (WCAG 2.1.1, axe scrollable-region-focusable) -->
+  <section class="table-wrap" tabindex="0" aria-labelledby="comparison-title">
     <table>
       <thead>
         <tr><th>Feature</th><th>modern-xlsx</th><th>SheetJS CE</th><th>SheetJS Pro</th></tr>
       </thead>
       <tbody>
-        <tr><td>Read / write XLSX</td><td class="yes">Free</td><td class="yes">Free</td><td class="yes">Paid</td></tr>
-        <tr><td>Cell styling</td><td class="yes">Free</td><td class="no">No</td><td class="paid">Paid</td></tr>
-        <tr><td>Number formats</td><td class="yes">Free</td><td class="no">Read only</td><td class="paid">Paid</td></tr>
-        <tr><td>Data validation</td><td class="yes">Free</td><td class="no">No</td><td class="paid">Paid</td></tr>
-        <tr><td>Conditional formatting</td><td class="yes">Free</td><td class="no">No</td><td class="paid">Paid</td></tr>
-        <tr><td>Comments</td><td class="yes">Free</td><td class="no">Read only</td><td class="paid">Paid</td></tr>
-        <tr><td>Rich text</td><td class="yes">Free</td><td class="no">No</td><td class="paid">Paid</td></tr>
-        <tr><td>Sheet protection</td><td class="yes">Free</td><td class="no">Read only</td><td class="paid">Paid</td></tr>
-        <tr><td>Frozen panes</td><td class="yes">Free</td><td class="no">Partial</td><td class="paid">Paid</td></tr>
-        <tr><td>Temporal API dates</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
-        <tr><td>Available on npm</td><td class="yes">Yes</td><td class="no">CDN only</td><td class="no">No</td></tr>
-        <tr><td>Tree-shakable ESM</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
-        <tr><td>TypeScript types</td><td class="yes">Built-in</td><td class="no">Partial</td><td class="no">Partial</td></tr>
-        <tr><td>WASM-accelerated</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
-        <tr><td>OOXML validation &amp; repair</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
-        <tr><td>Barcode &amp; QR code generation</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
-        <tr><td>Image embedding</td><td class="yes">Yes</td><td class="no">No</td><td class="paid">Paid</td></tr>
-        <tr><td>Encryption (password protection)</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+        <tr><td>Read and write .xlsx</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no"><span aria-hidden="true">—</span><span class="visually-hidden">Not stated</span></td></tr>
+        <tr><td>Cell styles on write</td><td class="yes">Yes</td><td>Partial: row and column styling metadata</td><td class="paid">Paid (Pro Basic)</td></tr>
+        <tr><td>Number formats rendered to text</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="paid">Paid (SSF Pro, locale formats)</td></tr>
+        <tr><td>Conditional formatting on write</td><td class="yes">Yes</td><td class="paid">Paid (SheetJS Pro)</td><td class="paid">Paid (Pro Basic)</td></tr>
+        <tr><td>Data validation</td><td class="yes">Yes</td><td class="no">Not documented</td><td class="paid">Paid (Pro Basic; read or write not stated)</td></tr>
+        <tr><td>Charts on write</td><td class="yes">Yes</td><td class="paid">Paid (Pro Chart)</td><td class="paid">Paid (Pro Chart)</td></tr>
+        <tr><td>Images on write</td><td class="yes">Yes</td><td class="paid">Paid (Pro Image)</td><td class="paid">Paid (Pro Image)</td></tr>
+        <tr><td>Pivot tables on write</td><td class="yes">Yes</td><td class="paid">Paid (add-on)</td><td class="paid">Paid (add-on)</td></tr>
+        <tr><td>Cell comments</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="paid">Paid (comment rich text and styling)</td></tr>
+        <tr><td>Threaded comments</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no"><span aria-hidden="true">—</span><span class="visually-hidden">Not stated</span></td></tr>
+        <tr><td>Sheet protection on write</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no"><span aria-hidden="true">—</span><span class="visually-hidden">Not stated</span></td></tr>
+        <tr><td>Open password-encrypted files</td><td class="yes">Yes (Agile and Standard)</td><td>Partial: XOR-encrypted XLS only</td><td class="paid">Paid (encryption add-on)</td></tr>
+        <tr><td>Encrypt on write</td><td class="yes">Yes (Agile, AES-256)</td><td class="paid">Paid (Pro add-on)</td><td class="paid">Paid (encryption add-on)</td></tr>
+        <tr><td>Streaming write</td><td class="yes">Yes (<code>StreamingXlsxWriter</code>)</td><td>Partial: CSV, HTML, JSON and SpreadsheetML 2003 streams; no XLSX stream writer</td><td class="no"><span aria-hidden="true">—</span><span class="visually-hidden">Not stated</span></td></tr>
+        <tr><td>Browser, Node.js, Deno</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no"><span aria-hidden="true">—</span><span class="visually-hidden">Not stated</span></td></tr>
+        <tr><td>Bun</td><td class="yes">Yes</td><td>Partial: documented as experimental</td><td class="no"><span aria-hidden="true">—</span><span class="visually-hidden">Not stated</span></td></tr>
+        <tr><td>Cloudflare Workers</td><td class="yes">Yes</td><td class="no">Not documented (a Deno Deploy demo exists)</td><td class="no"><span aria-hidden="true">—</span><span class="visually-hidden">Not stated</span></td></tr>
+        <tr><td>Bundled TypeScript types</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no"><span aria-hidden="true">—</span><span class="visually-hidden">Not stated</span></td></tr>
+        <tr><td>Current release on npm</td><td class="yes">Yes</td><td class="no">No: npm stops at 0.18.5 (2022); 0.20.3 is on cdn.sheetjs.com</td><td class="no">No: sold by inquiry</td></tr>
+        <tr><td>Runtime dependencies</td><td class="yes">0</td><td class="yes">0 (0.20.3)</td><td class="no"><span aria-hidden="true">—</span><span class="visually-hidden">Not stated</span></td></tr>
+        <tr><td>License</td><td class="yes">MIT</td><td class="yes">Apache-2.0</td><td class="paid">Commercial; price not published</td></tr>
       </tbody>
     </table>
-  </div>
+  </section>
+  <p class="table-note">— in the SheetJS Pro column means sheetjs.com/pro does not state it (checked 2026-11-11).</p>
+  <p class="table-note">modern-xlsx runtime rows: CI runs the tests on Node 24 and 26 and in Chromium, and runs the examples under Bun, Deno and a local Cloudflare Worker (<code>wrangler dev --local</code>). Encryption needs the full build, not <code>modern-xlsx/lite</code>.</p>
 </section>
+</main>
 
-<!-- FOOTER -->
 <footer>
-  <div>MIT License &copy; 2026 modern-xlsx contributors</div>
+  <div>MIT License &copy; 2026 Albert Badalov</div>
   <div class="links">
+    <a href="playground.html">Playground</a>
+    <a href="api/">API reference</a>
+    <a href="https://github.com/ABCrimson/modern-xlsx/blob/master/packages/modern-xlsx/CHANGELOG.md">Changelog</a>
+    <a href="https://github.com/ABCrimson/modern-xlsx/security/policy">Security</a>
     <a href="https://github.com/ABCrimson/modern-xlsx">GitHub</a>
     <a href="https://www.npmjs.com/package/modern-xlsx">npm</a>
     <a href="https://github.com/ABCrimson/modern-xlsx/issues">Issues</a>
   </div>
 </footer>
+
+<script type="module">
+  // Copy buttons: data-copy holds the text, data-copy-from names the element whose text is copied.
+  for (const button of document.querySelectorAll('[data-copy], [data-copy-from]')) {
+    button.addEventListener('click', async () => {
+      const text = button.dataset.copy ?? document.getElementById(button.dataset.copyFrom)?.textContent ?? '';
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = 'Copied';
+      } catch {
+        button.textContent = 'Copy failed';
+      }
+      setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+    });
+  }
+</script>
 
 </body>
 </html>

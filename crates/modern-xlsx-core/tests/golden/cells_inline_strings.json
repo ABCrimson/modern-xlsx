@@ -1,0 +1,25 @@
+[
+  {
+    "index": 1,
+    "cells": [
+      {
+        "reference": "A1",
+        "cellType": "inlineStr",
+        "value": "Tom & Jerry",
+        "inlineString": "Tom & Jerry"
+      },
+      {
+        "reference": "B1",
+        "cellType": "inlineStr",
+        "value": "  pad  ",
+        "inlineString": "  pad  "
+      },
+      {
+        "reference": "C1",
+        "cellType": "inlineStr",
+        "value": "a < b > c",
+        "inlineString": "a < b > c"
+      }
+    ]
+  }
+]

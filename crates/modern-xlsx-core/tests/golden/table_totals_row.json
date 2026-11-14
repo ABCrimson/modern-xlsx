@@ -1,0 +1,35 @@
+[
+  {
+    "id": 1,
+    "name": "Sales",
+    "displayName": "Sales",
+    "ref": "A1:C4",
+    "headerRowCount": 1,
+    "totalsRowCount": 1,
+    "totalsRowShown": true,
+    "columns": [
+      {
+        "id": 1,
+        "name": "Region & Area",
+        "totalsRowLabel": "Total"
+      },
+      {
+        "id": 2,
+        "name": "Amt",
+        "totalsRowFunction": "sum"
+      },
+      {
+        "id": 3,
+        "name": "Double",
+        "totalsRowFunction": "custom",
+        "calculatedColumnFormula": "Sales[[#This Row],[Amt]]*2",
+        "totalsRowFormula": "SUBTOTAL(109,[Double])"
+      }
+    ],
+    "styleInfo": {
+      "name": "TableStyleMedium2",
+      "showRowStripes": true
+    },
+    "autoFilterRef": "A1:C3"
+  }
+]

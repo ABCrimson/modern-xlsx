@@ -5,7 +5,7 @@
  */
 
 import type { BarcodeMatrix } from './common.js';
-import { at, createGrid, setCell } from './common.js';
+import { at, createGrid, DM_FIELD, rsEncode, setCell } from './common.js';
 
 // ---------------------------------------------------------------------------
 // Data Matrix Encoder (ECC 200, ASCII mode)
@@ -28,24 +28,26 @@ const DM_SIZES: [number, number, number, number][] = [
   [48, 48, 174, 68],
 ];
 
-function dmAsciiEnc(data: string): number[] {
+/** @internal */
+export function dmAsciiEnc(data: string): number[] {
+  const cps = Array.from(data, (ch) => ch.codePointAt(0) as number);
   const cws: number[] = [];
+  // Latin-1 text keeps the default interpretation; anything wider switches to UTF-8 via
+  // ECI 000026 (codeword 241, then value + 1 = 27) and encodes the UTF-8 bytes.
+  const latin1 = cps.every((cp) => cp <= 255);
+  if (!latin1) cws.push(241, 27);
+  const units = latin1 ? cps : Array.from(new TextEncoder().encode(data));
   let i = 0;
-  while (i < data.length) {
-    const ch = data.charCodeAt(i);
-    if (i + 1 < data.length) {
-      const ch2 = data.charCodeAt(i + 1);
-      if (ch >= 48 && ch <= 57 && ch2 >= 48 && ch2 <= 57) {
-        cws.push((ch - 48) * 10 + (ch2 - 48) + 130);
-        i += 2;
-        continue;
-      }
+  while (i < units.length) {
+    const ch = units[i] as number;
+    const ch2 = units[i + 1];
+    if (ch >= 48 && ch <= 57 && ch2 !== undefined && ch2 >= 48 && ch2 <= 57) {
+      cws.push((ch - 48) * 10 + (ch2 - 48) + 130);
+      i += 2;
+      continue;
     }
-    if (ch >= 0 && ch <= 127) cws.push(ch + 1);
-    else {
-      cws.push(235);
-      cws.push(ch - 127);
-    }
+    if (ch <= 127) cws.push(ch + 1);
+    else cws.push(235, ch - 127);
     i++;
   }
   return cws;
@@ -56,60 +58,32 @@ function dmSelSize(len: number): [number, number, number, number] {
   throw new Error('Data Matrix: data too long');
 }
 
-function dmPad(cws: number[], cap: number): number[] {
+/** @internal */
+export function dmPad(cws: number[], cap: number): number[] {
   const p = [...cws];
   if (p.length < cap) p.push(129);
   while (p.length < cap) {
     const r = ((149 * (p.length + 1)) % 253) + 1;
-    p.push((129 + r) % 254);
+    const t = 129 + r;
+    p.push(t <= 254 ? t : t - 254);
   }
   return p;
 }
 
-const DM_GF_EXP = new Uint8Array(512);
-const DM_GF_LOG = new Uint8Array(256);
-{
-  let v = 1;
-  for (let i = 0; i < 255; i++) {
-    DM_GF_EXP[i] = v;
-    DM_GF_LOG[v] = i;
-    v <<= 1;
-    if (v >= 256) v ^= 0x12d;
-  }
-  for (let i = 255; i < 512; i++) DM_GF_EXP[i] = DM_GF_EXP[i - 255] ?? 0;
-}
-
-function dmEC(data: number[], numEc: number): number[] {
-  const mul = (a: number, b: number): number => {
-    if (a === 0 || b === 0) return 0;
-    return DM_GF_EXP[(DM_GF_LOG[a] ?? 0) + (DM_GF_LOG[b] ?? 0)] ?? 0;
-  };
-
-  let g = new Uint8Array([1]);
-  for (let i = 0; i < numEc; i++) {
-    const next = new Uint8Array(g.length + 1);
-    const factor = DM_GF_EXP[i + 1] ?? 0;
-    for (let j = 0; j < g.length; j++) {
-      next[j] = (next[j] ?? 0) ^ (g[j] ?? 0);
-      next[j + 1] = (next[j + 1] ?? 0) ^ mul(g[j] ?? 0, factor);
-    }
-    g = next;
-  }
-
-  const result = new Uint8Array(numEc);
-  for (const cw of data) {
-    const coef = cw ^ (result[0] ?? 0);
-    for (let j = 0; j < numEc - 1; j++) result[j] = (result[j + 1] ?? 0) ^ mul(g[j + 1] ?? 0, coef);
-    result[numEc - 1] = mul(g[numEc] ?? 0, coef);
-  }
-  return Array.from(result);
-}
-
+/**
+ * Encodes a Data Matrix (ECC 200) symbol.
+ *
+ * @experimental Module placement is not ISO/IEC 16022 conformant and symbols may not scan.
+ *
+ * @param data - Text to encode. Latin-1 text is encoded as is; any other text is encoded as UTF-8 behind an ECI marker.
+ * @returns The symbol matrix of the smallest square size that fits (10x10 to 48x48), without quiet zone.
+ * @throws {Error} `Data Matrix: data too long` if the data exceeds the 48x48 capacity.
+ */
 export function encodeDataMatrix(data: string): BarcodeMatrix {
   const cws = dmAsciiEnc(data);
   const [rows, cols, dataCap, ecCount] = dmSelSize(cws.length);
   const padded = dmPad(cws, dataCap);
-  const ecCws = dmEC(padded, ecCount);
+  const ecCws = Array.from(rsEncode(Uint8Array.from(padded), ecCount, DM_FIELD, 1));
   const allCws = [...padded, ...ecCws];
 
   const modules = createGrid(rows, cols, false);

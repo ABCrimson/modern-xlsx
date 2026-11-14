@@ -3,65 +3,230 @@ name: CI
 on:
   push:
     branches: [main, master]
-    tags: ['v*']
+    tags: ["v*"]
   pull_request:
     branches: [main, master]
+
+# One run per PR (or ref); a new PR push cancels the running PR run; push runs never cancel a running run, but a newer push replaces a still-pending one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  WASM_PACK_VERSION: 0.15.1
 
 jobs:
   rust:
     name: Rust
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    env:
+      # Job-level on purpose: the release wasm build (build-wasm job) warns and must stay unaffected.
+      CARGO_BUILD_WARNINGS: deny
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@beta
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          components: clippy
-          targets: wasm32-unknown-unknown
+          persist-credentials: false
+
+      # rust-toolchain.toml is the single source of the dated nightly, its components and targets.
+      - name: Install Rust (rust-toolchain.toml)
+        run: |
+          rustup toolchain install
+          rustc -V
 
       - name: Cache Cargo
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
+      - name: Format
+        run: |
+          cargo fmt --all --check
+          cargo fmt --manifest-path fuzz/Cargo.toml --all --check
+
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Clippy (no default features)
+        run: cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
+
+      - name: Clippy (parallel feature)
+        run: cargo clippy -p modern-xlsx-core --features parallel --all-targets --locked -- -D warnings
+
+      - name: Rustdoc (warnings are errors)
+        run: cargo doc -p modern-xlsx-core -p modern-xlsx-wasm --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
 
       - name: Test
-        run: cargo test -p modern-xlsx-core
+        run: cargo test --workspace --locked
+
+      - name: Test (no default features)
+        run: cargo test --workspace --no-default-features --locked
+
+      - name: Test (parallel feature)
+        run: cargo test -p modern-xlsx-core --features parallel --locked
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: wasm-pack@${{ env.WASM_PACK_VERSION }}
+
+      - name: wasm-pack version
+        run: test "$(wasm-pack --version)" = "wasm-pack $WASM_PACK_VERSION"
+
+      # These two steps are the only ones that run the wasm crate's wasm-bindgen tests (e.g.
+      # version_is_the_wasm_crate_semver; cargo test --workspace does not): one for the full
+      # build, one for the lite build (no default features).
+      - name: Test (wasm, Node)
+        run: wasm-pack test --node crates/modern-xlsx-wasm
+
+      - name: Test (wasm, Node, no default features)
+        run: wasm-pack test --node crates/modern-xlsx-wasm --no-default-features
+
+  # Compatibility with the next release channel: lint and test the core on beta.
+  rust-beta:
+    name: Rust (beta)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    env:
+      RUSTUP_TOOLCHAIN: beta
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust (beta)
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: beta
+          components: clippy
+
+      - name: Verify toolchain
+        run: rustc -V | grep -F beta
+
+      - name: Cache Cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-beta-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-beta-cargo-
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test -p modern-xlsx-core --locked
+
+  # The cfg(target_pointer_width = "32") cases (e.g. ole2::cfb::reader::tests::sector_offset_saturates_on_32_bit)
+  # compile only on a 32-bit target, and wasm32 test builds fail on proptest's wait-timeout.
+  rust-i686:
+    name: Rust (i686, 32-bit)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_WARNINGS: deny
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust (rust-toolchain.toml)
+        run: |
+          rustup toolchain install
+          rustup target add i686-unknown-linux-gnu
+          rustc -V
+
+      - name: Install the 32-bit C toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+
+      - name: Cache Cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-i686-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-i686-cargo-
+
+      - name: Test (core lib, i686)
+        run: cargo test -p modern-xlsx-core --lib --locked --target i686-unknown-linux-gnu
+
+  # Minimum supported Rust version: keep the job name and RUSTUP_TOOLCHAIN equal to Cargo.toml rust-version.
+  msrv:
+    name: MSRV (1.96.0)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    env:
+      RUSTUP_TOOLCHAIN: 1.96.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
+
+      - name: Verify toolchain
+        run: rustc -V | grep -F "$RUSTUP_TOOLCHAIN"
+
+      - name: Cache Cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-msrv-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-msrv-cargo-
+
+      - name: Check
+        run: cargo check --workspace --all-targets --locked
 
   security:
     name: Security Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@beta
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: cargo-audit@0.23.0
 
       - name: Cargo Audit
         run: cargo audit
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
           cache: "pnpm"
@@ -69,145 +234,365 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: npm audit
-        run: cd packages/modern-xlsx && npm audit --omit=dev || true
+      - name: pnpm audit (runtime deps, blocking)
+        run: pnpm audit --prod
+
+      - name: pnpm audit (dev/build toolchain, advisory)
+        continue-on-error: true
+        run: pnpm audit --audit-level high
 
   deny:
-    name: cargo-deny (licenses/bans/sources)
-    runs-on: ubuntu-latest
+    name: cargo-deny
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@beta
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install cargo-deny
-        run: cargo install cargo-deny --version 0.19.9 --locked
-      # Deterministic gate (committed Cargo.lock). Advisories/yanks are covered
-      # by the non-gating `security` job (cargo audit) so a same-day CVE can't
-      # block a tagged release.
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: cargo-deny@0.20.2
+      # Full gate on the committed Cargo.lock: advisories (yanked = deny), bans, licenses, sources.
       - name: cargo deny check
-        run: cargo deny check licenses bans sources
+        run: cargo deny --locked check
 
-  fuzz:
-    name: Fuzz smoke (reader)
-    runs-on: ubuntu-latest
-    # Non-deterministic nightly smoke — surfaces real panics as a signal, never blocks CI.
-    continue-on-error: true
-    # Override rust-toolchain.toml (channel=beta) — cargo-fuzz needs nightly's -Z sanitizer flags.
+  # Has msoffcrypto-tool (an independent implementation) decrypt what this crate encrypts.
+  encryption-oracle:
+    name: Encryption oracle (msoffcrypto-tool)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
     env:
-      RUSTUP_TOOLCHAIN: nightly
+      # The pin named in crates/modern-xlsx-core/tests/interop/main.rs and oracle.py.
+      MSOFFCRYPTO_VERSION: 6.1.0
     steps:
-      - uses: actions/checkout@v7
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
-      - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
-      - name: Fuzz read_xlsx (30s smoke)
-        run: cargo fuzz run read_xlsx -- -max_total_time=30 -rss_limit_mb=4096
-      - name: Fuzz read_xlsx_json (30s smoke)
-        run: cargo fuzz run read_xlsx_json -- -max_total_time=30 -rss_limit_mb=4096
-
-  smoke:
-    name: Package smoke test (tarball + ./lite)
-    needs: rust
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@beta
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          targets: wasm32-unknown-unknown
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - name: Build WASM (full + lite)
+          persist-credentials: false
+
+      - name: Install Rust (rust-toolchain.toml)
         run: |
-          wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt
-          wasm-pack build crates/modern-xlsx-wasm --target web --release --no-opt --out-dir ../../packages/modern-xlsx/wasm-lite -- --no-default-features
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "26"
-          cache: "pnpm"
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Build package
-        run: pnpm -C packages/modern-xlsx build
-      - name: Pack tarball
-        run: cd packages/modern-xlsx && pnpm pack --pack-destination "${RUNNER_TEMP}"
-      - name: Install tarball in a clean project and import both entry points
-        run: |
-          mkdir -p "${RUNNER_TEMP}/smoke" && cd "${RUNNER_TEMP}/smoke"
-          npm init -y >/dev/null
-          npm install "${RUNNER_TEMP}"/modern-xlsx-*.tgz
-          node --input-type=module -e "
-            import { Workbook, VERSION } from 'modern-xlsx';
-            import { Workbook as LiteWorkbook } from 'modern-xlsx/lite';
-            if (typeof Workbook !== 'function') throw new Error('main export broken');
-            if (typeof LiteWorkbook !== 'function') throw new Error('./lite export broken');
-            console.log('smoke ok — modern-xlsx', VERSION, '+ /lite import works');
-          "
-
-  typescript:
-    name: TypeScript (Node ${{ matrix.node-version }}, ${{ matrix.os }})
-    needs: rust
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        node-version: ["24", "26"]
-        os: [ubuntu-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@beta
-        with:
-          targets: wasm32-unknown-unknown
+          rustup toolchain install
+          rustc -V
 
       - name: Cache Cargo
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-oracle-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-oracle-cargo-
 
-      - name: Install wasm-pack (Linux)
-        if: runner.os == 'Linux'
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Install wasm-pack (Windows)
-        if: runner.os == 'Windows'
-        run: cargo install wasm-pack
-
-      - name: Cache WASM artifact
-        id: cache-wasm
-        uses: actions/cache@v6
+      # Python 3.16.0-alpha.2 is newer, but cffi 2.1.1 (required by cryptography 50.0.2, which
+      # msoffcrypto-tool needs) ships no cp316 wheel, so pip would compile it from source.
+      # Re-check https://pypi.org/pypi/cffi/json; once a cp316 wheel exists, use the 3.16 alpha
+      # with allow-prereleases: true.
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          path: packages/modern-xlsx/wasm/
-          key: ${{ runner.os }}-wasm-${{ hashFiles('crates/**/*.rs', 'Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-wasm-
+          python-version: "3.15.2"
 
-      - name: Build WASM
-        if: steps.cache-wasm.outputs.cache-hit != 'true'
-        run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt
-
-      - name: Track WASM size
+      - name: Install msoffcrypto-tool
         run: |
-          WASM_SIZE=$(stat -c%s packages/modern-xlsx/wasm/modern_xlsx_wasm_bg.wasm 2>/dev/null || stat -f%z packages/modern-xlsx/wasm/modern_xlsx_wasm_bg.wasm 2>/dev/null || wc -c < packages/modern-xlsx/wasm/modern_xlsx_wasm_bg.wasm)
-          echo "WASM binary size: ${WASM_SIZE} bytes ($(( WASM_SIZE / 1024 )) KB)"
-          if [ "$WASM_SIZE" -gt 2097152 ]; then
-            echo "::warning::WASM binary exceeds 2 MB threshold (${WASM_SIZE} bytes)"
-          fi
+          python -m pip install "msoffcrypto-tool==$MSOFFCRYPTO_VERSION"
+          python -I -c "import importlib.metadata as m, os; v = m.version('msoffcrypto-tool'); assert v == os.environ['MSOFFCRYPTO_VERSION'], v"
+
+      - name: Interop oracle (ignored tests)
+        env:
+          MX_MSOFFCRYPTO_PYTHON: python
+        run: cargo test -p modern-xlsx-core --release --locked --test interop -- --ignored
+
+  # A crash is a real panic in the library (reader, writer or validator), so a failure fails the job; the job stays out of publish's needs.
+  fuzz:
+    name: Fuzz smoke
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # cargo-fuzz needs nightly's sanitizer flags; rust-toolchain.toml pins the dated nightly.
+      - name: Install Rust (rust-toolchain.toml)
+        run: |
+          rustup toolchain install
+          rustc -V
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: cargo-fuzz@0.13.2
+      - name: Fetch fuzz dependencies
+        run: cargo fetch --locked --manifest-path fuzz/Cargo.toml
+      - name: Fuzz targets (30s each)
+        run: |
+          # The prebuilt cargo-fuzz is a static musl binary whose default --target is its own triple, which the sanitizers cannot build for.
+          host=$(rustc -vV | sed -n "s/^host: //p")
+          for target in $(cargo fuzz list); do
+            mkdir -p "fuzz/corpus/${target}"
+            seeds=()
+            if [ -d "fuzz/seeds/${target}" ]; then seeds=("fuzz/seeds/${target}"); fi
+            echo "::group::fuzz ${target}"
+            cargo fuzz run --target "${host}" "${target}" "fuzz/corpus/${target}" "${seeds[@]}" -- -max_total_time=30 -rss_limit_mb=4096
+            echo "::endgroup::"
+          done
+
+  # Builds the full and lite WASM once; typescript, typescript-nightly, browser and smoke download exactly these bytes and verify them against wasm.sha256, and publish ships the tarball smoke packed from them.
+  build-wasm:
+    name: Build WASM (full + lite)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    env:
+      # Gzip budgets = ceil(gzip -9 -n size x 1.05), measured 2026-11-14 (UTC) on a clean copy of the final 1.3.0 release tree with this job's
+      # commands: nightly-2026-11-14 (rustc 1.102.0-nightly 5f4effd57), wasm-pack 0.15.1 (wasm-opt -Oz), trim-paths 'all', opt-level 3:
+      # full 917326 bytes, lite 854256 bytes. A budget is a regression tripwire set from that measurement, not a size target (docs/perf-size.md).
+      WASM_GZIP_BUDGET_FULL: 963193
+      WASM_GZIP_BUDGET_LITE: 896969
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # rust-toolchain.toml is the single source of the dated nightly, its components and targets.
+      - name: Install Rust (rust-toolchain.toml)
+        run: |
+          rustup toolchain install
+          rustc -V
+
+      - name: Cache Cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-wasm-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-wasm-cargo-
+
+      # No restore-keys: a stale partial hit would ship an old binary. The key hashes everything that changes the output (sources, manifests, [profile.release], the dated toolchain, the wasm-pack pin and this workflow). Tag builds skip the cache and rebuild.
+      - name: Cache WASM output
+        id: cache-wasm
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            packages/modern-xlsx/wasm/
+            packages/modern-xlsx/wasm-lite/
+          key: wasm-${{ env.WASM_PACK_VERSION }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'crates/**/*.rs', 'rust-toolchain.toml', '.github/workflows/ci.yml') }}
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: wasm-pack@${{ env.WASM_PACK_VERSION }}
+
+      - name: Verify wasm-pack version
+        run: test "$(wasm-pack --version)" = "wasm-pack $WASM_PACK_VERSION"
+
+      # trim-paths 'all' (stable from Cargo 1.101, so in the pinned nightly) remaps every crate's source path, so panic
+      # locations read crates/modern-xlsx-core/src/... or /cargo/registry/<hash>/zip-9.5.1/src/... instead of a
+      # runner path, and the .wasm no longer depends on the checkout or CARGO_HOME location. It goes
+      # through --config because the MSRV Cargo (1.96) rejects the key in Cargo.toml or a Cargo config file;
+      # the root package.json build:wasm scripts pass the same flag.
+      - name: Build WASM (full)
+        if: steps.cache-wasm.outputs.cache-hit != 'true'
+        run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm -- --config "profile.release.trim-paths='all'"
+
+      - name: Build WASM (lite)
+        if: steps.cache-wasm.outputs.cache-hit != 'true'
+        run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm-lite -- --no-default-features --config "profile.release.trim-paths='all'"
+
+      # Raw and gzip -9 -n sizes; a gzip size over its budget fails the job.
+      - name: Check WASM size budget
+        run: |
+          fail=0
+          {
+            echo "### WASM size"
+            echo "| build | raw bytes | gzip -9 bytes | gzip budget |"
+            echo "| --- | ---: | ---: | ---: |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          check() {
+            local name="$1" file="$2" budget="$3" raw gz
+            raw=$(wc -c < "$file")
+            gz=$(gzip -9 -n -c "$file" | wc -c)
+            echo "| ${name} | ${raw} | ${gz} | ${budget} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "${name}: ${raw} bytes raw, ${gz} bytes gzip (budget ${budget})"
+            if [ "$gz" -gt "$budget" ]; then
+              echo "::error::${name} WASM gzip size ${gz} bytes exceeds the ${budget} byte budget"
+              fail=1
+            fi
+          }
+          check full packages/modern-xlsx/wasm/modern_xlsx_wasm_bg.wasm "$WASM_GZIP_BUDGET_FULL"
+          check lite packages/modern-xlsx/wasm-lite/modern_xlsx_wasm_bg.wasm "$WASM_GZIP_BUDGET_LITE"
+          exit "$fail"
+
+      - name: Write wasm.sha256
+        run: cd packages/modern-xlsx && sha256sum wasm/* wasm-lite/* > wasm.sha256
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wasm
+          path: |
+            packages/modern-xlsx/wasm/
+            packages/modern-xlsx/wasm-lite/
+            packages/modern-xlsx/wasm.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # Packs the npm tarball once and proves it: no node: imports in the browser bundles, publint,
+  # attw, a CycloneDX SBOM, and a clean install that writes, validates and reads a workbook with
+  # both entry points and runs the CLI. publish ships exactly this tarball (artifact npm-tarball).
+  smoke:
+    name: Package smoke test (tarball)
+    needs: build-wasm
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wasm
+          path: packages/modern-xlsx
+
+      - name: Verify WASM artifact
         shell: bash
+        working-directory: packages/modern-xlsx
+        run: sha256sum -c wasm.sha256
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm -C packages/modern-xlsx build
+
+      # The browser IIFE and the worker bundle must not reference Node built-ins (issue #24).
+      # grep exits 1 only when both files exist and neither has a hit.
+      - name: No node imports in the browser bundles
+        run: |
+          rc=0
+          grep -n 'node:' packages/modern-xlsx/dist/modern-xlsx.min.js packages/modern-xlsx/dist/modern-xlsx.worker.js || rc=$?
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::dist/modern-xlsx.min.js or dist/modern-xlsx.worker.js references node: (or is missing)"
+            exit 1
+          fi
+
+      - name: Pack tarball
+        working-directory: packages/modern-xlsx
+        run: pnpm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: publint (strict)
+        run: pnpm -C packages/modern-xlsx exec publint run --strict "$RUNNER_TEMP"/modern-xlsx-*.tgz
+
+      - name: Are the types wrong (ESM only)
+        run: pnpm -C packages/modern-xlsx exec attw "$RUNNER_TEMP"/modern-xlsx-*.tgz --profile esm-only
+
+      # The same command publish runs, proven here before any release.
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          pnpm --filter modern-xlsx sbom --sbom-format cyclonedx --sbom-type library --prod --out "$RUNNER_TEMP/sbom.cdx.json" --lockfile-only
+          node -e '
+            const s = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+            const v = require("./packages/modern-xlsx/package.json").version;
+            const c = s.metadata?.component ?? {};
+            const got = "CycloneDX " + s.specVersion + " for " + c.name + "@" + c.version;
+            if (s.specVersion !== "1.7" || c.name !== "modern-xlsx" || c.version !== v) {
+              console.error("::error::SBOM is " + got + "; expected CycloneDX 1.7 for modern-xlsx@" + v);
+              process.exit(1);
+            }
+            console.log("SBOM ok: " + got);
+          ' "$RUNNER_TEMP/sbom.cdx.json"
+
+      - name: Install the tarball in a clean project and run smoke-tarball.mjs
+        run: |
+          mkdir -p "$RUNNER_TEMP/smoke"
+          cp packages/modern-xlsx/scripts/smoke-tarball.mjs "$RUNNER_TEMP/smoke/"
+          cd "$RUNNER_TEMP/smoke"
+          npm init -y >/dev/null
+          npm install "$RUNNER_TEMP"/modern-xlsx-*.tgz
+          node smoke-tarball.mjs
+
+      - name: Write modern-xlsx.tgz.sha256
+        run: cd "$RUNNER_TEMP" && sha256sum modern-xlsx-*.tgz | tee modern-xlsx.tgz.sha256
+
+      - name: Upload npm tarball artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-tarball
+          path: |
+            ${{ runner.temp }}/modern-xlsx-*.tgz
+            ${{ runner.temp }}/modern-xlsx.tgz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # Whole-repository Biome check (docs, examples, config, scripts); the typescript matrix
+  # lints packages/modern-xlsx only. Runs once, needs no WASM build.
+  lint:
+    name: Lint (repository)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (repository)
+        run: pnpm exec biome check .
+
+  typescript:
+    name: TypeScript (Node ${{ matrix.node-version }}, ${{ matrix.os }})
+    needs: build-wasm
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        node-version: ["24", "26"]
+        os: [ubuntu-26.04, windows-2025-vs2026]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wasm
+          path: packages/modern-xlsx
+
+      - name: Verify WASM artifact
+        shell: bash
+        working-directory: packages/modern-xlsx
+        run: sha256sum -c wasm.sha256
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "${{ matrix.node-version }}"
           cache: "pnpm"
@@ -218,57 +603,96 @@ jobs:
       - name: Type check
         run: pnpm -C packages/modern-xlsx typecheck
 
+      - name: Type check tests
+        run: pnpm -C packages/modern-xlsx typecheck:tests
+
       - name: Lint
         run: pnpm -C packages/modern-xlsx lint
+
+      # Before Test: runtime.test.ts and iife.test.ts load dist/, which is gitignored.
+      - name: Build
+        run: pnpm -C packages/modern-xlsx build
 
       - name: Test
         run: pnpm -C packages/modern-xlsx test
 
+  # Early warning for the next Node major: same steps on the newest nightly, never gating (not in publish needs).
+  typescript-nightly:
+    name: TypeScript (Node nightly)
+    needs: build-wasm
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wasm
+          path: packages/modern-xlsx
+
+      - name: Verify WASM artifact
+        shell: bash
+        working-directory: packages/modern-xlsx
+        run: sha256sum -c wasm.sha256
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Setup Node.js (28 nightly)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "28-nightly"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm -C packages/modern-xlsx typecheck
+
+      - name: Type check tests
+        run: pnpm -C packages/modern-xlsx typecheck:tests
+
+      - name: Lint
+        run: pnpm -C packages/modern-xlsx lint
+
+      # Before Test: runtime.test.ts and iife.test.ts load dist/, which is gitignored.
       - name: Build
         run: pnpm -C packages/modern-xlsx build
 
+      - name: Test
+        run: pnpm -C packages/modern-xlsx test
+
   browser:
     name: Browser Tests
-    needs: rust
-    runs-on: ubuntu-latest
+    needs: build-wasm
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@beta
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          targets: wasm32-unknown-unknown
+          persist-credentials: false
 
-      - name: Cache Cargo
-        uses: actions/cache@v6
+      - name: Download WASM artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          name: wasm
+          path: packages/modern-xlsx
 
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Cache WASM artifact
-        id: cache-wasm
-        uses: actions/cache@v6
-        with:
-          path: packages/modern-xlsx/wasm/
-          key: ${{ runner.os }}-wasm-${{ hashFiles('crates/**/*.rs', 'Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-wasm-
-
-      - name: Build WASM
-        if: steps.cache-wasm.outputs.cache-hit != 'true'
-        run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt
+      - name: Verify WASM artifact
+        shell: bash
+        working-directory: packages/modern-xlsx
+        run: sha256sum -c wasm.sha256
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
           cache: "pnpm"
@@ -276,72 +700,320 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The browser tests load the built files from /dist (iife and worker).
+      - name: Build package
+        run: pnpm -C packages/modern-xlsx build
+
       - name: Install Playwright browsers
-        run: pnpm -C packages/modern-xlsx exec playwright install --with-deps chromium
+        run: pnpm -C packages/modern-xlsx exec playwright install --with-deps --only-shell chromium
 
       - name: Browser tests
         run: pnpm -C packages/modern-xlsx test:browser
 
-  publish:
-    name: Publish to npm
-    # `security` (cargo audit) gates advisories on the publish path; `deny` gates
-    # licenses/bans/sources deterministically. With Cargo.lock committed, an audit
-    # failure means a real new CVE against a locked dep — correctly blocking release.
-    needs: [rust, typescript, browser, deny, smoke, security]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: read
-      id-token: write
+      - name: Service worker example
+        run: node packages/modern-xlsx/scripts/sw-smoke.mjs
+
+  # Runs the examples against the tarball smoke packed (artifact npm-tarball, never the
+  # registry): each copy installs modern-xlsx from file:<tgz> in RUNNER_TEMP, so the checkout
+  # stays untouched. Node apps, Bun and Deno tests, a Deno Deploy type check, and the
+  # Cloudflare Worker under wrangler dev --local.
+  examples:
+    name: Examples (Node, Bun, Deno, Workers)
+    needs: smoke
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    env:
+      BUN_VERSION: 1.4.4
+      DENO_VERSION: 2.9.8
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@beta
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          targets: wasm32-unknown-unknown
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Build WASM
-        run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt
-
-      - name: Build WASM (lite)
-        run: wasm-pack build crates/modern-xlsx-wasm --target web --release --out-dir ../../packages/modern-xlsx/wasm-lite --no-opt -- --no-default-features
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+
+      - name: Example, docs/site and README pins match the package version
+        run: node scripts/sync-example-pins.mjs --check
+
+      - name: README Quick Start blocks are identical
+        run: node scripts/check-readme-sync.mjs
+
+      # VERSION, package.json and every pin agree; the CHANGELOG has one "## [Unreleased]"
+      # and a section for the package.json version.
+      - name: Release metadata is consistent
+        run: node scripts/prepare-release.mjs --check
+
+      - name: Download npm tarball artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/pkg
+
+      - name: Verify npm tarball artifact
+        run: |
+          cd "$RUNNER_TEMP/pkg" && sha256sum -c modern-xlsx.tgz.sha256
+          V=$(node -p "require('$GITHUB_WORKSPACE/packages/modern-xlsx/package.json').version")
+          echo "TGZ=$RUNNER_TEMP/pkg/modern-xlsx-$V.tgz" >> "$GITHUB_ENV"
+
+      - name: Node examples (run, then reopen each output)
+        run: node scripts/examples-smoke.mjs node --tgz "$TGZ"
+
+      - name: Install Bun ${{ env.BUN_VERSION }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # The registry pin is dropped first: bun resolves the dependencies already in package.json
+      # before it adds the tarball, and on a release commit the pinned version is not published yet.
+      - name: Bun test (examples/runtimes)
+        run: |
+          test "$(bun --version)" = "$BUN_VERSION"
+          cp -r examples/runtimes "$RUNNER_TEMP/bun-runtimes"
+          cd "$RUNNER_TEMP/bun-runtimes"
+          npm pkg delete dependencies.modern-xlsx
+          bun add "$TGZ"
+          bun test ./bun.test.ts
+
+      - name: Install Deno ${{ env.DENO_VERSION }}
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      # Deno resolves the bare 'modern-xlsx' from a node_modules holding the tarball:
+      # nodeModulesDir "manual" plus a package.json, with the registry import-map entry dropped.
+      - name: Deno test (examples/runtimes) and deno check (examples/edge/deno-deploy)
+        run: |
+          deno --version | grep -F "deno $DENO_VERSION "
+          use_tarball() {
+            cp -r "examples/$1" "$RUNNER_TEMP/deno-${1##*/}"
+            cd "$RUNNER_TEMP/deno-${1##*/}"
+            [ -f package.json ] || npm init -y >/dev/null
+            npm pkg set "dependencies.modern-xlsx=file:$TGZ"
+            npm install --no-audit --no-fund
+            node -e '
+              const fs = require("node:fs");
+              const config = JSON.parse(fs.readFileSync("deno.json", "utf8"));
+              config.nodeModulesDir = "manual";
+              delete config.imports["modern-xlsx"];
+              fs.writeFileSync("deno.json", JSON.stringify(config, null, 2));
+            '
+          }
+          (use_tarball runtimes; deno test --allow-read deno.test.ts)
+          (use_tarball edge/deno-deploy; deno check main.ts)
+
+      - name: Cloudflare Worker (wrangler types --check, tsc, wrangler dev --local)
+        run: node scripts/examples-smoke.mjs edge --tgz "$TGZ"
+
+  # Type-checks the React, Angular, Vue and Svelte snippets against the packed tarball with
+  # exact framework pins; vue-tsc and svelte-check run isolated on TypeScript 6.0.x.
+  examples-types:
+    name: Examples (framework type checks)
+    needs: smoke
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download npm tarball artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/pkg
+
+      - name: Verify npm tarball artifact
+        run: cd "$RUNNER_TEMP/pkg" && sha256sum -c modern-xlsx.tgz.sha256
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+
+      - name: Type-check the framework snippets
+        run: |
+          V=$(node -p "require('./packages/modern-xlsx/package.json').version")
+          node scripts/examples-typecheck.mjs --tgz "$RUNNER_TEMP/pkg/modern-xlsx-$V.tgz"
+
+  # Publishes the tarball the smoke job packed and tested (no rebuild) through npm trusted
+  # publishing (OIDC), which attaches provenance by itself, then creates the GitHub Release.
+  publish:
+    name: Publish to npm
+    # Every gate on the publish path: deny runs the full cargo-deny check (advisories with
+    # yanked = deny, bans, licenses, sources) and security runs cargo audit plus a blocking
+    # pnpm audit --prod, so a new advisory blocks the release; examples and examples-types run
+    # the examples against the very tarball published; rust-i686 (32-bit) and encryption-oracle
+    # (msoffcrypto-tool decrypts our output) gate it too. fuzz and typescript-nightly stay out of needs.
+    needs:
+      - rust
+      - rust-beta
+      - rust-i686
+      - msrv
+      - security
+      - deny
+      - encryption-oracle
+      - build-wasm
+      - lint
+      - typescript
+      - browser
+      - smoke
+      - examples
+      - examples-types
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      NPM_VERSION: 12.2.2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # First, before anything is installed: the tag must be v + packages/modern-xlsx version.
+      - name: Check tag matches the package version
+        run: |
+          V=$(node -p "require('./packages/modern-xlsx/package.json').version")
+          [ "$GITHUB_REF_NAME" = "v$V" ] || { echo "::error::tag/version mismatch: tag $GITHUB_REF_NAME, package.json $V"; exit 1; }
+          echo "V=$V" >> "$GITHUB_ENV"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      # Node 26.13 bundles npm 11.20.0; trusted publishing needs npm >= 11.5.1 and OIDC dist-tag support >= 11.21.
+      # Pinned to the newest npm and checked exactly.
+      - name: Install npm ${{ env.NPM_VERSION }}
+        run: |
+          npm install -g "npm@$NPM_VERSION"
+          test "$(npm --version)" = "$NPM_VERSION"
 
-      - name: Build
-        run: pnpm -C packages/modern-xlsx build
+      - name: Download npm tarball artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/pkg
+
+      - name: Verify npm tarball artifact
+        run: cd "$RUNNER_TEMP/pkg" && sha256sum -c modern-xlsx.tgz.sha256
 
       - name: Generate SBOM (CycloneDX)
-        continue-on-error: true
-        run: cd packages/modern-xlsx && npx -y @cyclonedx/cyclonedx-npm@5.0.0 --omit dev --output-file "${RUNNER_TEMP}/sbom.cdx.json"
+        run: pnpm --filter modern-xlsx sbom --sbom-format cyclonedx --sbom-type library --prod --out "$RUNNER_TEMP/sbom.cdx.json" --lockfile-only
 
+      # archive: false uploads the bare file; the artifact is named after it (sbom.cdx.json).
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sbom
           path: ${{ runner.temp }}/sbom.cdx.json
-          if-no-files-found: warn
+          archive: false
+          if-no-files-found: error
 
+      # Validated before the irreversible publish. The release body is the top of the CHANGELOG's
+      # "## [V]" section (summary, highlights, upgrade notes, install line) up to its
+      # "<!-- release-notes:end -->" line, then a link to the whole CHANGELOG.md at the tag and a
+      # link to the compare view from the release below it; the next step appends the CDN integrity
+      # value and the step after it checks the size. The whole section is too long for a release
+      # body.
+      - name: Extract release notes
+        run: |
+          CL=packages/modern-xlsx/CHANGELOG.md
+          awk -v v="$V" 'index($0,"## ["v"]")==1{f=1;next} f&&/^## \[/{exit} f' "$CL" > "$RUNNER_TEMP/section.md"
+          grep -q '[^[:space:]]' "$RUNNER_TEMP/section.md" || { echo "::error::$CL has no '## [$V]' section"; exit 1; }
+          grep -qx '<!-- release-notes:end -->' "$RUNNER_TEMP/section.md" || { echo "::error::the '## [$V]' section of $CL has no '<!-- release-notes:end -->' line"; exit 1; }
+          awk '/^<!-- release-notes:end -->$/{exit} 1' "$RUNNER_TEMP/section.md" > "$RUNNER_TEMP/notes.md"
+          grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" || { echo "::error::nothing above '<!-- release-notes:end -->' in the '## [$V]' section of $CL"; exit 1; }
+          PREV=$(awk -v v="$V" 'index($0,"## ["v"]")==1{f=1;next} f&&/^## \[/{sub(/^## \[/,""); sub(/\].*/,""); print; exit}' "$CL")
+          [ -n "$PREV" ] || { echo "::error::$CL has no release section below '## [$V]' to compare against"; exit 1; }
+          {
+            echo
+            echo "Every change, with details and measurements: [CHANGELOG.md](https://github.com/$GITHUB_REPOSITORY/blob/v$V/packages/modern-xlsx/CHANGELOG.md)"
+            echo
+            echo "Full diff: [v$PREV...v$V](https://github.com/$GITHUB_REPOSITORY/compare/v$PREV...v$V)"
+          } >> "$RUNNER_TEMP/notes.md"
+
+      # The README points CDN users here for the integrity value: it is computed from the exact
+      # dist/modern-xlsx.min.js inside the tarball being published, never from a local build.
+      - name: Add the CDN integrity hash to the release notes
+        shell: bash
+        run: |
+          SRI="sha384-$(tar -xzOf "$RUNNER_TEMP/pkg/modern-xlsx-$V.tgz" package/dist/modern-xlsx.min.js | openssl dgst -sha384 -binary | openssl base64 -A)"
+          [ "${#SRI}" -eq 71 ] || { echo "::error::unexpected integrity value '$SRI'"; exit 1; }
+          {
+            echo
+            echo '### CDN integrity'
+            echo
+            echo "Subresource Integrity value of \`dist/modern-xlsx.min.js\` in this release: \`$SRI\`"
+            echo
+            echo '```html'
+            echo "<script src=\"https://cdn.jsdelivr.net/npm/modern-xlsx@$V/dist/modern-xlsx.min.js\" integrity=\"$SRI\" crossorigin=\"anonymous\"></script>"
+            echo '```'
+          } >> "$RUNNER_TEMP/notes.md"
+          echo "$SRI"
+
+      # GitHub refuses a release body of about 125,000 characters or more, and the release is
+      # created after the publish: a body that does not fit must stop the job here, before it.
+      - name: Check the release notes size
+        run: |
+          SIZE=$(LC_ALL=C.UTF-8 wc -m < "$RUNNER_TEMP/notes.md")
+          [ "$SIZE" -lt 100000 ] || { echo "::error::the release notes are $SIZE characters; they must stay under 100,000 (shorten the text above '<!-- release-notes:end -->' in packages/modern-xlsx/CHANGELOG.md)"; exit 1; }
+          echo "release notes: $SIZE characters"
+
+      # Trusted publishing attaches provenance on its own, so no provenance flag; prereleases go to the next dist-tag.
+      # Re-runnable: when the registry already holds this version with the sha512 integrity of this
+      # very tarball (a re-run after a later step failed), the publish is skipped; when it holds the
+      # version with another integrity, the job fails, since a published version cannot be replaced.
       - name: Publish
         run: |
-          cd packages/modern-xlsx
-          VERSION=$(node -p "require('./package.json').version")
-          if echo "$VERSION" | grep -qE '[-]'; then
-            npm publish --provenance --access public --tag next
-          else
-            npm publish --provenance --access public
+          TGZ="$RUNNER_TEMP/pkg/modern-xlsx-$V.tgz"
+          LOCAL="sha512-$(openssl dgst -sha512 -binary "$TGZ" | openssl base64 -A)"
+          REMOTE=$(npm view "modern-xlsx@$V" dist.integrity 2>/dev/null || true)
+          if [ -n "$REMOTE" ]; then
+            if [ "$REMOTE" = "$LOCAL" ]; then
+              echo "modern-xlsx@$V is already on the registry with this tarball's integrity ($LOCAL); skipping npm publish"
+              exit 0
+            fi
+            echo "::error::modern-xlsx@$V is already on the registry with integrity $REMOTE, but the tarball of this run has $LOCAL"
+            exit 1
           fi
+          args=(--access public)
+          case "$V" in *-*) args+=(--tag next) ;; esac
+          npm publish "$TGZ" "${args[@]}"
+
+      # Re-runnable: when a Release for this tag already exists (an earlier run, or one created by
+      # hand), its title and notes are replaced with this run's; otherwise it is created.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME exists; updating its title and notes"
+            gh release edit "$GITHUB_REF_NAME" --title "v$V" --notes-file "$RUNNER_TEMP/notes.md"
+            exit 0
+          fi
+          case "$V" in
+            *-*) latest=(--prerelease --latest=false) ;;
+            *) latest=(--latest) ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "v$V" --notes-file "$RUNNER_TEMP/notes.md" "${latest[@]}"
+
+      # Last, after the Release exists: a missing attestation fails the run without stranding the Release.
+      - name: Check provenance
+        run: |
+          # The registry can lag the publish by a few seconds: retry for about a minute.
+          for _ in 1 2 3 4 5 6; do
+            P=$(npm view "modern-xlsx@$V" dist.attestations.provenance 2>/dev/null || true)
+            if [ -n "$P" ]; then echo "provenance: $P"; exit 0; fi
+            sleep 10
+          done
+          echo "::error::modern-xlsx@$V has no provenance attestation on the registry"
+          exit 1

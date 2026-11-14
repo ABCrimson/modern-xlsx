@@ -1,17 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { readBuffer, Workbook } from '../src/index.js';
+import {
+  INVALID_WORKBOOK,
+  JSON_ERROR,
+  ModernXlsxError,
+  readBuffer,
+  SIZE_LIMIT,
+  StreamingXlsxWriter,
+  Workbook,
+} from '../src/index.js';
+import {
+  INVALID_WORKBOOK as LITE_INVALID_WORKBOOK,
+  JSON_ERROR as LITE_JSON_ERROR,
+  SIZE_LIMIT as LITE_SIZE_LIMIT,
+} from '../src/index-lite.js';
+import type { StreamingCellInput } from '../src/io/streaming-writer.js';
+import { write as wasmWrite } from '../wasm/modern_xlsx_wasm.js';
 
-describe('0.1.5 — Error Handling & Edge Cases', () => {
+describe('Error Handling & Edge Cases', () => {
   // 1. Empty Uint8Array throws
   it('rejects empty Uint8Array', async () => {
-    await expect(readBuffer(new Uint8Array(0))).rejects.toThrow();
+    await expect(readBuffer(new Uint8Array(0))).rejects.toMatchObject({
+      name: 'ModernXlsxError',
+      code: 'UNRECOGNIZED_FORMAT',
+    });
   });
 
   // 2. Random bytes throw
   it('rejects random bytes gracefully', async () => {
-    const garbage = new Uint8Array(1024);
-    crypto.getRandomValues(garbage);
-    await expect(readBuffer(garbage)).rejects.toThrow();
+    // Fixed pattern: reproducible, and starts with neither PK nor the OLE2 signature.
+    const garbage = Uint8Array.from({ length: 1024 }, (_, i) => (i * 37 + 11) & 0xff);
+    await expect(readBuffer(garbage)).rejects.toMatchObject({
+      name: 'ModernXlsxError',
+      code: 'UNRECOGNIZED_FORMAT',
+    });
   });
 
   // 3. Truncated ZIP throws
@@ -20,7 +41,10 @@ describe('0.1.5 — Error Handling & Edge Cases', () => {
     wb.addSheet('Test');
     const buffer = await wb.toBuffer();
     const truncated = buffer.slice(0, Math.floor(buffer.length / 2));
-    await expect(readBuffer(truncated)).rejects.toThrow();
+    await expect(readBuffer(truncated)).rejects.toMatchObject({
+      name: 'ModernXlsxError',
+      code: 'ZIP_READ',
+    });
   });
 
   // 4. OLE2 magic bytes detection
@@ -36,7 +60,10 @@ describe('0.1.5 — Error Handling & Edge Cases', () => {
       0xe1,
       ...new Uint8Array(100),
     ]);
-    await expect(readBuffer(ole2)).rejects.toThrow();
+    await expect(readBuffer(ole2)).rejects.toMatchObject({
+      name: 'ModernXlsxError',
+      code: 'UNRECOGNIZED_FORMAT',
+    });
   });
 
   // 5. Empty workbook roundtrip
@@ -146,5 +173,68 @@ describe('0.1.5 — Error Handling & Edge Cases', () => {
     for (const r of results) {
       expect(r.getSheet('Sheet1')?.cell('A1').value).toBe('concurrent');
     }
+  });
+});
+
+describe('SIZE_LIMIT error code', () => {
+  it('exports SIZE_LIMIT from the full and lite entries', () => {
+    expect(SIZE_LIMIT).toBe('SIZE_LIMIT');
+    expect(LITE_SIZE_LIMIT).toBe('SIZE_LIMIT');
+  });
+
+  it('parses a forwarded [SIZE_LIMIT] WASM error', () => {
+    const err = ModernXlsxError.fromWasmError(new Error('[SIZE_LIMIT] size limit exceeded: x'));
+    expect(err.code).toBe('SIZE_LIMIT');
+    expect(err.message).toBe('size limit exceeded: x');
+  });
+});
+
+describe('JSON and INVALID_WORKBOOK error codes', () => {
+  it('exports JSON_ERROR and INVALID_WORKBOOK from the full and lite entries', () => {
+    expect(JSON_ERROR).toBe('JSON');
+    expect(LITE_JSON_ERROR).toBe('JSON');
+    expect(INVALID_WORKBOOK).toBe('INVALID_WORKBOOK');
+    expect(LITE_INVALID_WORKBOOK).toBe('INVALID_WORKBOOK');
+  });
+
+  it('rejects writing a workbook without sheets with INVALID_WORKBOOK', async () => {
+    await expect(new Workbook().toBuffer()).rejects.toMatchObject({
+      name: 'ModernXlsxError',
+      code: INVALID_WORKBOOK,
+    });
+  });
+
+  it('codes malformed workbook JSON as JSON, with the position printed once', () => {
+    let thrown: unknown;
+    try {
+      wasmWrite('{bad');
+    } catch (e) {
+      thrown = e;
+    }
+    const err = ModernXlsxError.fromWasmError(thrown);
+    expect(err.code).toBe(JSON_ERROR);
+    expect(err.message.match(/line/g)).toHaveLength(1);
+  });
+
+  it('wraps a streaming row with an unknown cellType in a ModernXlsxError coded JSON', () => {
+    const writer = StreamingXlsxWriter.create();
+    writer.startSheet('S');
+    const cells = JSON.parse('[{"value":"1","cellType":"bogus"}]') as StreamingCellInput[];
+    let thrown: unknown;
+    try {
+      writer.writeRow(cells);
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(ModernXlsxError);
+    expect(thrown).toMatchObject({ code: JSON_ERROR });
+    writer[Symbol.dispose]();
+  });
+
+  it('rejects finishing a streaming workbook without sheets with INVALID_WORKBOOK', () => {
+    const writer = StreamingXlsxWriter.create();
+    expect(() => writer.finish()).toThrow(
+      expect.objectContaining({ name: 'ModernXlsxError', code: INVALID_WORKBOOK }),
+    );
   });
 });

@@ -6,14 +6,18 @@ export type {
   BinaryOpNode,
   BooleanNode,
   CellRefNode,
+  ColumnRangeNode,
   ErrorNode,
   FunctionCallNode,
+  MissingArgNode,
   NameNode,
   NumberNode,
   ParseResult,
   PercentNode,
   RangeNode,
+  RowRangeNode,
   StringNode,
+  StructuredRefNode,
   UnaryOpNode,
 } from './parser.js';
 export { parseCellRefValue, parseFormula } from './parser.js';

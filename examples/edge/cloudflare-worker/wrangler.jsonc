@@ -1,0 +1,9 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "modern-xlsx-worker",
+  "main": "worker.ts",
+  "compatibility_date": "2026-11-10",
+  // wrangler matches rules against the import specifier, so the extensionless
+  // "modern-xlsx/wasm" export needs its own rule to load as a WebAssembly.Module.
+  "rules": [{ "type": "CompiledWasm", "globs": ["modern-xlsx/wasm"], "fallthrough": false }]
+}

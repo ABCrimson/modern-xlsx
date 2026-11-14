@@ -1,31 +1,24 @@
 # cargo-deny configuration — supply-chain, license, and advisory gating.
-# Run: cargo deny check   (CI runs this on every push)
+# Run: cargo deny --locked check   (CI's deny job runs exactly this)
 
 [advisories]
-version = 2
 yanked = "deny"
 # Add specific RUSTSEC IDs here only with a justification if ever needed.
 ignore = []
 
 [licenses]
-version = 2
-# Permissive licenses compatible with this project's MIT/Apache-2.0 dual license.
+# Licenses compatible with distributing this MIT-licensed project: only the permissive licenses the dependency tree actually uses (cargo-deny reports any allowed license no crate needs as license-not-encountered).
 allow = [
     "MIT",
     "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "ISC",
     "Zlib",
     "Unicode-3.0",
     "CC0-1.0",
-    "MPL-2.0",
 ]
 confidence-threshold = 0.9
 
 [bans]
-# Bleeding-edge projects pull many crate versions; surface duplicates without failing.
+# Duplicate crate versions are surfaced as warnings, not failures.
 multiple-versions = "warn"
 wildcards = "warn"
 allow-wildcard-paths = true

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { readBuffer, Workbook } from '../src/index.js';
-import type { CellData } from '../src/types.js';
+import { expandSharedFormula, readBuffer, Workbook } from '../src/index.js';
+import type { CellData } from '../src/model/types.js';
 
-describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
+describe('Formula & Metadata Roundtrip Tests', () => {
   // ---------------------------------------------------------------------------
   // 1. Simple formula roundtrip
   // ---------------------------------------------------------------------------
@@ -20,7 +20,7 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
 
     // Formula text preserved
     expect(ws2?.cell('A3').formula).toBe('SUM(A1:A2)');
-    expect(ws2?.cell('A3').type).toBe('formulaStr');
+    expect(ws2?.cell('A3').type).toBe('number');
 
     // Source values preserved
     expect(ws2?.cell('A1').value).toBe(10);
@@ -50,13 +50,13 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     expect(ws2).toBeDefined();
 
     expect(ws2?.cell('A3').formula).toBe('SUM(A1:A2)');
-    expect(ws2?.cell('A3').type).toBe('formulaStr');
+    expect(ws2?.cell('A3').type).toBe('number');
 
     expect(ws2?.cell('B3').formula).toBe('AVERAGE(B1:B2)');
-    expect(ws2?.cell('B3').type).toBe('formulaStr');
+    expect(ws2?.cell('B3').type).toBe('number');
 
     expect(ws2?.cell('C3').formula).toBe('MAX(C1:C2)');
-    expect(ws2?.cell('C3').type).toBe('formulaStr');
+    expect(ws2?.cell('C3').type).toBe('number');
   });
 
   // ---------------------------------------------------------------------------
@@ -103,9 +103,41 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
 
     const cell = row?.cells.find((c) => c.reference === 'A1');
     expect(cell).toBeDefined();
-    expect(cell?.formula).toBe('{=ROW(1:3)}');
+    // The UI braces are normalised away: <f> content has none (ECMA-376 Part 1 §18.3.1.40).
+    expect(cell?.formula).toBe('ROW(1:3)');
     expect(cell?.formulaType).toBe('array');
     expect(cell?.formulaRef).toBe('A1:A3');
+  });
+
+  it('array formula given without UI braces roundtrips unchanged', async () => {
+    const wb = new Workbook();
+    wb.addSheet('Sheet1');
+    const data = wb.toJSON();
+    const sheet = data.sheets[0];
+    if (!sheet) throw new Error('Sheet not found');
+    sheet.worksheet.rows = [
+      {
+        index: 1,
+        cells: [
+          {
+            reference: 'A1',
+            cellType: 'formulaStr',
+            styleIndex: null,
+            value: null,
+            formula: 'ROW(1:3)',
+            formulaType: 'array',
+            formulaRef: 'A1:A3',
+            sharedIndex: null,
+            inlineString: null,
+          },
+        ],
+        height: null,
+        hidden: false,
+      },
+    ];
+
+    const wb2 = await readBuffer(await new Workbook(data).toBuffer());
+    expect(wb2.getSheet('Sheet1')?.cell('A1').formula).toBe('ROW(1:3)');
   });
 
   // ---------------------------------------------------------------------------
@@ -236,6 +268,7 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     expect(childCell2).toBeDefined();
     expect(childCell2?.formulaType).toBe('shared');
     expect(childCell2?.sharedIndex).toBe(0);
+    expect(childCell2?.value).toBe('40');
 
     // Child cell (B3) — should have sharedIndex but no formula text
     const row3 = sheet.worksheet.rows.find((r) => r.index === 3);
@@ -244,6 +277,13 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     expect(childCell3).toBeDefined();
     expect(childCell3?.formulaType).toBe('shared');
     expect(childCell3?.sharedIndex).toBe(0);
+    expect(childCell3?.value).toBe('60');
+
+    // The public cell getter does not expand shared-formula children.
+    expect(wb3.getSheet('Sheet1')?.cell('B2').formula).toBeNull();
+    expect(wb3.getSheet('Sheet1')?.cell('B3').formula).toBeNull();
+    expect(expandSharedFormula('A1*2', 'B1', 'B2')).toBe('A2*2');
+    expect(expandSharedFormula('A1*2', 'B1', 'B3')).toBe('A3*2');
   });
 
   // ---------------------------------------------------------------------------
@@ -353,22 +393,14 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     expect(props?.title).toBe('Partial Props');
     expect(props?.creator).toBe('partial-test');
 
-    // Unset fields should be null or undefined
-    const unsetOrNull = (val: unknown) => val === null || val === undefined;
-    expect(unsetOrNull(props?.subject)).toBe(true);
-    expect(unsetOrNull(props?.keywords)).toBe(true);
-    expect(unsetOrNull(props?.description)).toBe(true);
-    expect(unsetOrNull(props?.lastModifiedBy)).toBe(true);
-    expect(unsetOrNull(props?.category)).toBe(true);
-    expect(unsetOrNull(props?.contentStatus)).toBe(true);
-    expect(unsetOrNull(props?.company)).toBe(true);
-    expect(unsetOrNull(props?.manager)).toBe(true);
+    // Unset fields are absent from the read-back object, not null.
+    expect(Object.keys(props ?? {}).sort()).toEqual(['creator', 'title']);
   });
 
   // ---------------------------------------------------------------------------
   // 8. Calc chain roundtrip
   // ---------------------------------------------------------------------------
-  it('calc chain roundtrip — formulas populate calc chain', async () => {
+  it('writer omits calcChain for a new workbook', async () => {
     const wb = new Workbook();
     const ws = wb.addSheet('Sheet1');
     ws.cell('A1').value = 10;
@@ -379,27 +411,32 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
 
-    const chain = wb2.calcChain;
-    // Calc chain may or may not be populated depending on writer behavior.
-    // If populated, verify structure is correct.
-    if (chain.length > 0) {
-      for (const entry of chain) {
-        expect(entry.cellRef).toBeTypeOf('string');
-        expect(entry.cellRef.length).toBeGreaterThan(0);
-        expect(entry.sheetId).toBeTypeOf('number');
-      }
+    // The writer emits calcChain.xml only when the model carries entries.
+    expect(wb2.calcChain).toEqual([]);
 
-      // Check that formula cells appear in the chain
-      const cellRefs = chain.map((e) => e.cellRef);
-      expect(cellRefs).toContain('A3');
-      expect(cellRefs).toContain('B3');
-    }
-
-    // Regardless, formulas should be intact
+    // Formulas are intact
     const ws2 = wb2.getSheet('Sheet1');
     expect(ws2).toBeDefined();
     expect(ws2?.cell('A3').formula).toBe('SUM(A1:A2)');
     expect(ws2?.cell('B3').formula).toBe('AVERAGE(A1:A2)');
+  });
+
+  it('calc chain entries survive write and read', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    ws.cell('A1').value = 10;
+    ws.cell('A3').formula = 'SUM(A1:A2)';
+    ws.cell('B3').formula = 'A1*2';
+
+    const data = wb.toJSON();
+    const entries = [
+      { cellRef: 'A3', sheetId: 1 },
+      { cellRef: 'B3', sheetId: 1 },
+    ];
+    data.calcChain = entries;
+
+    const wb2 = await readBuffer(await new Workbook(data).toBuffer());
+    expect(wb2.calcChain).toEqual(entries);
   });
 
   // ---------------------------------------------------------------------------
@@ -439,6 +476,20 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     expect(decodedXml).toBe('<xml>test</xml>');
   });
 
+  it('drops a preserved entry at a generated sheet part', async () => {
+    const wb = new Workbook();
+    wb.addSheet('Sheet1').cell('A1').value = 1;
+    const data = wb.toJSON();
+    data.preservedEntries = {
+      'xl/worksheets/sheet1.xml': Array.from(new TextEncoder().encode('<worksheet/>')),
+    };
+
+    // The generated sheet part wins; the preserved entry at its name is dropped.
+    const wb2 = await readBuffer(await new Workbook(data).toBuffer());
+    expect(wb2.getSheet('Sheet1')?.cell('A1').value).toBe(1);
+    expect(wb2.toJSON().preservedEntries?.['xl/worksheets/sheet1.xml']).toBeUndefined();
+  });
+
   // ---------------------------------------------------------------------------
   // 10. Formula with value (cached result)
   // ---------------------------------------------------------------------------
@@ -455,7 +506,7 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
 
     // Verify local state before roundtrip
     expect(cell.formula).toBe('SUM(A1:A2)');
-    expect(cell.type).toBe('formulaStr');
+    expect(cell.type).toBe('number');
 
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
@@ -464,7 +515,7 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
 
     // Formula must be preserved
     expect(ws2?.cell('A3').formula).toBe('SUM(A1:A2)');
-    expect(ws2?.cell('A3').type).toBe('formulaStr');
+    expect(ws2?.cell('A3').type).toBe('number');
 
     // Check raw data for cached value
     const readData = wb2.toJSON();
@@ -613,7 +664,7 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     // Array formula (B1)
     const arrayCell = row1?.cells.find((c) => c.reference === 'B1');
     expect(arrayCell).toBeDefined();
-    expect(arrayCell?.formula).toBe('{=TRANSPOSE(A1:A3)}');
+    expect(arrayCell?.formula).toBe('TRANSPOSE(A1:A3)');
     expect(arrayCell?.formulaType).toBe('array');
     expect(arrayCell?.formulaRef).toBe('B1:D1');
 
@@ -632,6 +683,7 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     expect(sharedChild2).toBeDefined();
     expect(sharedChild2?.formulaType).toBe('shared');
     expect(sharedChild2?.sharedIndex).toBe(0);
+    expect(sharedChild2?.value).toBe('41');
 
     // Shared formula child (C3)
     const row3 = sheet.worksheet.rows.find((r) => r.index === 3);
@@ -640,6 +692,7 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     expect(sharedChild3).toBeDefined();
     expect(sharedChild3?.formulaType).toBe('shared');
     expect(sharedChild3?.sharedIndex).toBe(0);
+    expect(sharedChild3?.value).toBe('51');
   });
 
   // ---------------------------------------------------------------------------
@@ -667,27 +720,6 @@ describe('0.1.3 — Formula & Metadata Roundtrip Tests', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
 
-    // Properties should be null or all fields null/undefined after clearing
-    const props = wb2.docProperties;
-    if (props !== null) {
-      // If the reader returns an empty object rather than null,
-      // all individual fields should be null/undefined
-      const allNull = [
-        props.title,
-        props.subject,
-        props.creator,
-        props.keywords,
-        props.description,
-        props.lastModifiedBy,
-        props.created,
-        props.modified,
-        props.category,
-        props.contentStatus,
-        props.application,
-        props.company,
-        props.manager,
-      ].every((v) => v === null || v === undefined);
-      expect(allNull).toBe(true);
-    }
+    expect(wb2.docProperties).toBeNull();
   });
 });

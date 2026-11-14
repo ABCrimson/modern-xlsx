@@ -1,13 +1,21 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readBuffer } from '../src/index.js';
-import { StyleBuilder } from '../src/style-builder.js';
-import { initWasm } from '../src/wasm-loader.js';
-import { Workbook } from '../src/workbook.js';
+import { StyleBuilder } from '../src/authoring/style-builder.js';
+import { readBuffer, Workbook } from '../src/index.js';
+import { roundTrip } from './helpers/roundtrip.js';
+
+/** Writes the workbook to the OS temp dir when MODERN_XLSX_KEEP_OUTPUT is set. */
+function keepOutput(buffer: Uint8Array): void {
+  const { MODERN_XLSX_KEEP_OUTPUT } = process.env;
+  if (MODERN_XLSX_KEEP_OUTPUT) {
+    writeFileSync(join(tmpdir(), 'modern-xlsx-comprehensive.xlsx'), buffer);
+  }
+}
 
 describe('Comprehensive XLSX Generation', () => {
   it('generates comprehensive test file with all features', async () => {
-    await initWasm();
     const wb = new Workbook();
 
     // --- Sheet 1: Styles showcase ---
@@ -52,7 +60,7 @@ describe('Comprehensive XLSX Generation', () => {
     // Date format
     const dateFmtStyle = new StyleBuilder().numberFormat('yyyy-mm-dd').build(wb.styles);
     ws1.cell('A5').value = 'Date format';
-    ws1.cell('B5').value = 45658; // 2024-12-31
+    ws1.cell('B5').value = 45658; // 2025-01-01
     ws1.cell('B5').styleIndex = dateFmtStyle;
 
     // Fill colors
@@ -153,7 +161,9 @@ describe('Comprehensive XLSX Generation', () => {
     ws3.cell('D1').value = 'AVERAGE';
     ws3.cell('E1').value = 'IF Result';
 
+    let sumC = 0;
     for (let i = 2; i <= 11; i++) {
+      sumC += i * 15;
       ws3.cell(`A${i}`).value = i * 10;
       ws3.cell(`B${i}`).value = i * 5;
       ws3.cell(`C${i}`).formula = `SUM(A${i},B${i})`;
@@ -167,7 +177,8 @@ describe('Comprehensive XLSX Generation', () => {
     // Totals row
     ws3.cell('A12').value = 'Totals:';
     ws3.cell('C12').formula = 'SUM(C2:C11)';
-    ws3.cell('C12').value = 825; // cached value
+    ws3.cell('C12').value = sumC; // cached value
+    expect(sumC).toBe(975);
     ws3.cell('D12').formula = 'AVERAGE(D2:D11)';
     ws3.cell('D12').value = 48.75; // cached value
 
@@ -183,9 +194,9 @@ describe('Comprehensive XLSX Generation', () => {
     const categories = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'];
     for (let i = 2; i <= 1001; i++) {
       ws4.cell(`A${i}`).value = i - 1;
-      ws4.cell(`B${i}`).value = Math.round(Math.random() * 10000) / 100;
+      ws4.cell(`B${i}`).value = ((i * 7919) % 10000) / 100;
       ws4.cell(`C${i}`).value = categories[(i - 2) % categories.length] ?? 'Alpha';
-      ws4.cell(`D${i}`).value = Math.round(Math.random() * 100000) / 100;
+      ws4.cell(`D${i}`).value = ((i * 104729) % 100000) / 100;
     }
 
     // Freeze the header row
@@ -208,7 +219,10 @@ describe('Comprehensive XLSX Generation', () => {
 
     // Verify Styles sheet
     const ws1r = wb2.getSheetByIndex(0);
-    expect(ws1r?.rowCount).toBeGreaterThanOrEqual(8);
+    expect(ws1r?.rowCount).toBe(8);
+    const boldXf = wb2.styles.cellXfs[ws1r?.cell('B2').styleIndex ?? 0];
+    expect(wb2.styles.fonts[boldXf?.fontId ?? 0]?.bold).toBe(true);
+    expect(ws1r?.columns.map((c) => c.width)).toEqual([20, 25, 30]);
 
     // Verify Data sheet
     const ws2r = wb2.getSheetByIndex(1);
@@ -220,15 +234,35 @@ describe('Comprehensive XLSX Generation', () => {
 
     // Verify Formulas sheet
     const ws3r = wb2.getSheetByIndex(2);
-    expect(ws3r?.rowCount).toBeGreaterThanOrEqual(12);
+    expect(ws3r?.rowCount).toBe(12);
+    expect(ws3r?.cell('C12').value).toBe(975);
+    expect(ws3r?.cell('D12').value).toBe(48.75);
+    expect(ws3r?.cell('C12').formula).toBe('SUM(C2:C11)');
+    expect(ws3r?.cell('E2').value).toBe('Low');
+    expect(ws3r?.cell('E2').formula).toBe('IF(A2>50,"High","Low")');
 
     // Verify LargeData sheet
     const ws4r = wb2.getSheetByIndex(3);
     expect(ws4r?.rowCount).toBe(1001);
     expect(ws4r?.frozenPane).toEqual({ rows: 1, cols: 0 });
+    expect(ws4r?.cell('B2').value).toBe(((2 * 7919) % 10000) / 100);
+    expect(ws4r?.cell('D2').value).toBe(((2 * 104729) % 100000) / 100);
+    expect(ws4r?.cell('B1001').value).toBe(((1001 * 7919) % 10000) / 100);
+    expect(ws4r?.cell('D1001').value).toBe(((1001 * 104729) % 100000) / 100);
 
-    // Save for manual inspection
-    mkdirSync('test-output', { recursive: true });
-    writeFileSync('test-output/comprehensive-test.xlsx', buffer);
+    keepOutput(buffer);
+  });
+
+  // A formula cell with a numeric cached value is a number cell and reads back as a number.
+  it('reads numeric cached formula results back as numbers', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Formulas');
+    ws.cell('C12').formula = 'SUM(C2:C11)';
+    ws.cell('C12').value = 975;
+    ws.cell('D12').formula = 'AVERAGE(D2:D11)';
+    ws.cell('D12').value = 48.75;
+    const wb2 = await roundTrip(wb);
+    expect(wb2.getSheet('Formulas')?.cell('C12').value).toBe(975);
+    expect(wb2.getSheet('Formulas')?.cell('D12').value).toBe(48.75);
   });
 });

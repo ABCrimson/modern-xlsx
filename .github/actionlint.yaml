@@ -1,0 +1,6 @@
+# actionlint 1.7.12 does not know GitHub's hosted `ubuntu-26.04` label yet, so a plain `actionlint` run
+# would report it as an unknown runner label. Declaring it here lets that run exit 0 without extra flags.
+# Drop this file once a released actionlint lists `ubuntu-26.04` among its hosted labels.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

@@ -1,19 +1,56 @@
 version: 2
 updates:
   - package-ecosystem: "cargo"
-    directory: "/"
+    directories: ["/", "/fuzz"]
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 1
+    groups:
+      cargo:
+        patterns: ["*"]
+        group-by: dependency-name
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
 
+  # The root covers the pnpm workspace and pnpm-lock.yaml. examples/edge/cloudflare-worker is a
+  # standalone npm project outside the workspace; its wrangler and typescript pins are covered
+  # here. modern-xlsx is ignored: scripts/sync-example-pins.mjs owns that pin.
   - package-ecosystem: "npm"
-    directory: "/packages/modern-xlsx"
+    directories: ["/", "/examples/edge/cloudflare-worker"]
+    ignore:
+      - dependency-name: "modern-xlsx"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 1
+    groups:
+      dev-tooling:
+        dependency-type: "development"
+        patterns: ["*"]
+      runtime:
+        dependency-type: "production"
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    cooldown:
+      default-days: 1
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"

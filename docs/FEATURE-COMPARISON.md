@@ -1,657 +1,133 @@
-# Feature Comparison: modern-xlsx vs SheetJS (xlsx)
-
-> **Exhaustive capability matrix** — every feature either library supports, compared side-by-side.
-
-| Legend | Meaning |
-|--------|---------|
-| :white_check_mark: | Fully supported |
-| :star: | Supported + superior implementation |
-| :lock: | SheetJS Pro only (paid license) |
-| :x: | Not supported |
-| :construction: | Partial / limited support |
-
----
-
-## 1. File Format Support
-
-### Read Formats
-
-| Format | modern-xlsx | SheetJS | Notes |
-|--------|:-----------:|:-------:|-------|
-| XLSX (Office Open XML) | :white_check_mark: | :white_check_mark: | Both full support |
-| XLSM (Macro-enabled) | :x: | :white_check_mark: | SheetJS reads data (not macros) |
-| XLSB (Binary) | :x: | :white_check_mark: | SheetJS proprietary binary format |
-| XLS (BIFF8/5/4/3/2) | :x: | :white_check_mark: | Legacy Excel 97-2003 |
-| XLML (SpreadsheetML 2003) | :x: | :white_check_mark: | XML-based legacy format |
-| ODS (OpenDocument) | :x: | :white_check_mark: | LibreOffice/OpenOffice native |
-| FODS (Flat ODS) | :x: | :white_check_mark: | Single-file ODS variant |
-| CSV | :x: | :white_check_mark: | SheetJS reads CSV as workbook |
-| TSV / TXT | :x: | :white_check_mark: | Tab-separated values |
-| HTML tables | :x: | :white_check_mark: | Parse `<table>` from HTML |
-| SYLK | :x: | :white_check_mark: | Symbolic Link format |
-| DIF | :x: | :white_check_mark: | Data Interchange Format |
-| PRN | :x: | :white_check_mark: | Lotus Formatted Text |
-| ETH | :x: | :white_check_mark: | EtherCalc record format |
-| DBF (dBASE) | :x: | :white_check_mark: | dBASE III/IV |
-| WK1/WK3/WKS | :x: | :white_check_mark: | Lotus 1-2-3 workbooks |
-| QPW | :x: | :white_check_mark: | Quattro Pro |
-| Numbers (Apple) | :x: | :white_check_mark: | Requires `numbers` option |
-
-### Write Formats
-
-| Format | modern-xlsx | SheetJS | Notes |
-|--------|:-----------:|:-------:|-------|
-| XLSX | :star: | :white_check_mark: | modern-xlsx: 8x smaller output via WASM-native ZIP |
-| XLSM | :x: | :white_check_mark: | |
-| XLSB | :x: | :white_check_mark: | |
-| XLS (BIFF8) | :x: | :white_check_mark: | |
-| XLS (BIFF5) | :x: | :white_check_mark: | |
-| XLS (BIFF4/3/2) | :x: | :white_check_mark: | |
-| XLML | :x: | :white_check_mark: | |
-| ODS | :x: | :white_check_mark: | |
-| FODS | :x: | :white_check_mark: | |
-| CSV | :x: | :white_check_mark: | modern-xlsx converts to CSV string but doesn't write file |
-| TXT | :x: | :white_check_mark: | |
-| SYLK | :x: | :white_check_mark: | |
-| HTML | :x: | :white_check_mark: | modern-xlsx converts to HTML string but doesn't write file |
-| DIF | :x: | :white_check_mark: | |
-| RTF | :x: | :white_check_mark: | |
-| PRN | :x: | :white_check_mark: | |
-| ETH | :x: | :white_check_mark: | |
-| DBF | :x: | :white_check_mark: | |
-| WK3 | :x: | :white_check_mark: | |
-| Numbers | :x: | :construction: | Requires external `numbers` option |
-
----
-
-## 2. I/O Operations
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Read from `Uint8Array` / Buffer | :white_check_mark: `readBuffer()` | :white_check_mark: `XLSX.read()` | |
-| Read from file path | :white_check_mark: `readFile()` | :white_check_mark: `XLSX.readFile()` | |
-| Read from file (sync) | :x: | :white_check_mark: `readFileSync()` | modern-xlsx is async-only (WASM) |
-| Write to `Uint8Array` / Buffer | :white_check_mark: `wb.toBuffer()` | :white_check_mark: `XLSX.write()` | |
-| Write to file | :white_check_mark: `wb.toFile()` | :white_check_mark: `XLSX.writeFile()` | |
-| Write to file (sync) | :x: | :white_check_mark: `writeFileSync()` | modern-xlsx is async-only |
-| Write to file (async) | :white_check_mark: `wb.toFile()` | :white_check_mark: `writeFileAsync()` | |
-| Write to Blob (browser) | :star: `writeBlob()` | :white_check_mark: via `type:'array'` | modern-xlsx: native WASM Blob |
-| Parse CFB containers | :x: | :white_check_mark: `parse_xlscfb()` | Compound File Binary |
-| Parse ZIP directly | :x: | :white_check_mark: `parse_zip()` | |
-| Set custom FS module | :x: | :white_check_mark: `set_fs()` | |
-| Set codepage tables | :x: | :white_check_mark: `set_cptable()` | For legacy encoding |
-| WASM initialization | :star: `initWasm()` | :x: | Zero-copy WASM acceleration |
-| WASM sync init | :white_check_mark: `initWasmSync()` | :x: | |
-| Read encrypted XLSX | :star: `readFile(path, { password })` | :x: | modern-xlsx: ECMA-376 Agile Encryption |
-| Write encrypted XLSX | :star: `toFile(path, { password })` | :x: | modern-xlsx: AES-256 + SHA-512 |
-
----
-
-## 3. Workbook Operations
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Create new workbook | :white_check_mark: `new Workbook()` | :white_check_mark: `utils.book_new()` | |
-| Get sheet names | :white_check_mark: `.sheetNames` | :white_check_mark: `.SheetNames` | |
-| Get sheet count | :white_check_mark: `.sheetCount` | :construction: `.SheetNames.length` | |
-| Get sheet by name | :white_check_mark: `.getSheet(name)` | :white_check_mark: `.Sheets[name]` | |
-| Get sheet by index | :white_check_mark: `.getSheetByIndex(i)` | :construction: `.Sheets[.SheetNames[i]]` | |
-| Add sheet | :white_check_mark: `.addSheet(name)` | :white_check_mark: `utils.book_append_sheet()` | |
-| Remove sheet | :white_check_mark: `.removeSheet(name)` | :x: | Manual splice required in SheetJS |
-| Sheet visibility | :white_check_mark: `ws.state` | :white_check_mark: `utils.book_set_sheet_visibility()` | `'visible' \| 'hidden' \| 'veryHidden'`; round-trip verified |
-| Date system (1900/1904) | :white_check_mark: `.dateSystem` | :white_check_mark: `.Workbook.WBProps.date1904` | |
-| Workbook views | :star: `.workbookViews` | :construction: `.Workbook.Views` | modern-xlsx: typed interface |
-| Document properties | :star: `.docProperties` | :construction: `.Props` | modern-xlsx: typed `DocPropertiesData` |
-| Serialize to JSON | :white_check_mark: `.toJSON()` | :x: | WASM boundary serialization |
-| Validate workbook | :star: `.validate()` | :x: | Returns `ValidationReport` with issues |
-| Repair workbook | :star: `.repair()` | :x: | Auto-fix common issues |
-
----
-
-## 4. Worksheet Operations
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Create new sheet | :white_check_mark: `ws = wb.addSheet()` | :white_check_mark: `utils.sheet_new()` | |
-| Sheet name | :white_check_mark: `.name` | :x: | Tracked via `SheetNames[]` in SheetJS |
-| Access rows | :star: `.rows` | :x: | Typed `RowData[]`; SheetJS uses flat cell refs |
-| Access columns | :white_check_mark: `.columns` | :white_check_mark: `ws['!cols']` | |
-| Set column width | :white_check_mark: `.setColumnWidth(col, w)` | :construction: `ws['!cols'][i].wch` | |
-| Set row height | :white_check_mark: `.setRowHeight(row, h)` | :construction: `ws['!rows'][i].hpt` | |
-| Hide row | :white_check_mark: `.setRowHidden(row, b)` | :construction: `ws['!rows'][i].hidden` | |
-| Hide column | :construction: via `.columns` | :construction: `ws['!cols'][i].hidden` | |
-| Sheet used range | :white_check_mark: `ws.usedRange` | :white_check_mark: `ws['!ref']` | Both computed from populated cells |
-| Outline / grouping | :star: `groupRows()` / `groupColumns()` | :construction: `ws['!outline']` | Levels 0-7 + `collapseRows()` / `expandRows()` + `outlineProperties` |
-| Sheet tab color | :white_check_mark: `ws.tabColor` | :construction: via `Workbook.Sheets` | RGB hex, round-trip verified |
-
----
-
-## 5. Cell Operations
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Read/write by reference | :white_check_mark: `ws.cell('A1').value` | :white_check_mark: `ws['A1'].v` | |
-| Get cell (safe) | :white_check_mark: `ws.cell('A1')` | :white_check_mark: `utils.sheet_get_cell()` | |
-| String values | :white_check_mark: | :white_check_mark: | |
-| Number values | :white_check_mark: | :white_check_mark: | |
-| Boolean values | :white_check_mark: | :white_check_mark: | |
-| Error values | :white_check_mark: type `'error'` | :white_check_mark: type `'e'` | |
-| Date values (native) | :construction: `.dateValue` getter | :white_check_mark: type `'d'` | Read via `.dateValue`; write via `dateToSerial()` + date format |
-| Stub/empty cells | :white_check_mark: type `'stub'` | :white_check_mark: type `'z'` | Both can represent empty cells |
-| Inline strings | :white_check_mark: type `'inlineStr'` | :x: | Stored directly in cell XML |
-| Formula strings | :white_check_mark: type `'formulaStr'` | :x: | Formula returning string |
-| Cell type field | :star: `.type` (getter) | :white_check_mark: `.t` | modern-xlsx: semantic types |
-| Cell reference field | :white_check_mark: `.reference` | :x: | Implicit from key in SheetJS |
-| Style index | :star: `.styleIndex` | :lock: `.s` | SheetJS styling is Pro only |
-| Formatted text | :white_check_mark: via `formatCell()` | :white_check_mark: `.w` | |
-| Rich text (in cell) | :white_check_mark: `.richText` getter/setter | :white_check_mark: `.r` (HTML) | Typed `RichTextRun[]`; SheetJS stores as HTML |
-| Cell HTML rendering | :x: | :white_check_mark: `.h` | |
-| Number format override | :construction: via style index | :white_check_mark: `.z` | SheetJS: per-cell `.z` property |
-
----
-
-## 6. Formulas
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Simple formulas | :white_check_mark: `.formula = 'SUM(A1:A3)'` | :white_check_mark: `.f = 'SUM(...)'` | |
-| Array formulas | :white_check_mark: `formulaType: 'array'` | :white_check_mark: `.F` range + `sheet_set_array_formula()` | |
-| Shared formulas | :white_check_mark: `formulaType: 'shared'` + `sharedIndex` | :x: | |
-| Dynamic array formulas | :white_check_mark: `dynamicArray` flag | :white_check_mark: `.D = true` | `cm="1"` attribute round-trips; spilled-range tracking deferred |
-| Formula reference | :white_check_mark: `.formulaRef` | :white_check_mark: `.F` | Range for array formulas |
-| Sheet to formulae | :white_check_mark: `sheetToFormulae()` | :white_check_mark: `utils.sheet_to_formulae()` | Extract all formulas as strings |
-| Calc chain | :star: `.calcChain` | :construction: parsed but not exposed | modern-xlsx: typed `CalcChainEntryData[]` |
-
----
-
-## 7. Merge Cells
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Get merge ranges | :white_check_mark: `.mergeCells` | :white_check_mark: `ws['!merges']` | |
-| Add merge range | :white_check_mark: `.addMergeCell('A1:C1')` | :construction: `ws['!merges'].push()` | |
-| Remove merge range | :white_check_mark: `.removeMergeCell('A1:C1')` | :x: | Manual splice in SheetJS |
-
----
-
-## 8. Styling
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| **Style system** | :star: `StyleBuilder` API | :lock: Pro only | **modern-xlsx free; SheetJS paid** |
-| Font (name, size, bold, italic) | :star: | :lock: | |
-| Font color | :star: | :lock: | |
-| Font underline | :star: | :lock: | |
-| Font strikethrough | :star: | :lock: | |
-| Fill (solid pattern) | :star: | :lock: | |
-| Fill (pattern types — 18 patterns) | :star: | :lock: | gray125, darkGrid, lightTrellis, etc. |
-| Fill (gradient — linear/path) | :star: | :lock: | `GradientFillData` with stops |
-| Border (top/bottom/left/right) | :star: | :lock: | |
-| Border (diagonal) | :star: | :lock: | |
-| Border styles (13 styles) | :star: | :lock: | thin, medium, thick, dashed, dotted, etc. |
-| Border colors | :star: | :lock: | |
-| Alignment (horizontal) | :star: | :lock: | left, center, right, fill, justify, etc. |
-| Alignment (vertical) | :star: | :lock: | top, center, bottom, justify, distributed |
-| Alignment (wrap text) | :star: | :lock: | |
-| Alignment (text rotation) | :star: | :lock: | |
-| Alignment (indent) | :star: | :lock: | |
-| Alignment (shrink to fit) | :star: | :lock: | |
-| Cell protection (locked) | :star: | :lock: | |
-| Cell protection (hidden) | :star: | :lock: | |
-| Number format (custom) | :star: `numberFormat()` | :white_check_mark: `cell_set_number_format()` | Community edition has per-cell format |
-| Number format (built-in table) | :star: `getBuiltinFormat()` | :white_check_mark: `SSF.get_table()` | |
-| DXF styles (differential) | :star: | :x: | For conditional formatting |
-| Cell styles (named) | :star: `CellStyleData` | :x: | Normal, Title, Heading, etc. |
-| CellXf (cell format records) | :star: | :lock: | Full OOXML xf records |
-| NumFmt records | :star: | :construction: | Custom format records |
-| Theme colors | :star: `.themeColors` | :x: | Parsed `ThemeColorsData` |
-| Style builder (fluent API) | :star: `wb.createStyle().font().fill().build()` | :x: | Chainable builder pattern |
-
----
-
-## 9. Frozen Panes
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Freeze rows | :white_check_mark: `.frozenPane = { rows: 1, cols: 0 }` | :white_check_mark: `ws['!freeze']` | |
-| Freeze columns | :white_check_mark: `.frozenPane = { rows: 0, cols: 1 }` | :white_check_mark: `ws['!freeze']` | |
-| Freeze both | :white_check_mark: | :white_check_mark: | |
-| Split panes | :white_check_mark: `.splitPane` | :x: | modern-xlsx: typed `SplitPaneData` |
-
----
-
-## 10. Auto Filter
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Set auto filter range | :white_check_mark: `.autoFilter = 'A1:C10'` | :white_check_mark: `ws['!autofilter'] = { ref: '...' }` | |
-| Filter column definitions | :star: `FilterColumnData` | :x: | modern-xlsx: typed filter conditions |
-| Remove auto filter | :white_check_mark: `.autoFilter = null` | :construction: `delete ws['!autofilter']` | |
-
----
-
-## 11. Data Validation
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Add validation rule | :star: `.addValidation()` | :lock: Pro only | **modern-xlsx free** |
-| List validation | :star: `validationType: 'list'` | :lock: | Dropdown lists |
-| Whole number validation | :star: `validationType: 'whole'` | :lock: | |
-| Decimal validation | :star: `validationType: 'decimal'` | :lock: | |
-| Date validation | :star: `validationType: 'date'` | :lock: | |
-| Time validation | :star: `validationType: 'time'` | :lock: | |
-| Text length validation | :star: `validationType: 'textLength'` | :lock: | |
-| Custom formula validation | :star: `validationType: 'custom'` | :lock: | |
-| Validation operators | :star: between, notBetween, equal, etc. | :lock: | |
-| Input prompt | :star: `prompt` / `promptTitle` | :lock: | |
-| Error alert | :star: `errorMessage` / `errorTitle` | :lock: | |
-| Remove validation | :white_check_mark: `.removeValidation()` | :lock: | |
-| Get validations | :white_check_mark: `.validations` | :lock: | |
-
----
-
-## 12. Conditional Formatting
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Conditional format rules | :star: `ConditionalFormattingData` | :lock: Pro only | **modern-xlsx free** |
-| Color scales | :star: `ColorScaleData` | :lock: | 2-color and 3-color |
-| Data bars | :star: `DataBarData` | :lock: | |
-| Icon sets | :star: `IconSetData` | :lock: | |
-| Cell value rules | :star: | :lock: | |
-| DXF style references | :star: `DxfStyleData` | :lock: | Differential formatting |
-| CFVO (conditional format value objects) | :star: `CfvoData` | :lock: | min/max/percentile/formula |
-
----
-
-## 13. Hyperlinks
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Add external hyperlink | :white_check_mark: `.addHyperlink()` | :white_check_mark: `cell_set_hyperlink()` | |
-| Add internal link | :white_check_mark: | :white_check_mark: `cell_set_internal_link()` | |
-| Link display text | :white_check_mark: `display` | :construction: | |
-| Link tooltip | :white_check_mark: `tooltip` | :x: | |
-| Remove hyperlink | :white_check_mark: `.removeHyperlink()` | :x: | |
-| Get all hyperlinks | :white_check_mark: `.hyperlinks` | :construction: cell `.l` property | |
-
----
-
-## 14. Comments
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Add comment | :white_check_mark: `.addComment()` | :white_check_mark: `cell_add_comment()` | |
-| Remove comment | :white_check_mark: `.removeComment()` | :x: | |
-| Get all comments | :white_check_mark: `.comments` | :construction: cell `.c` array | |
-| Comment author | :white_check_mark: | :construction: `.c[].a` | |
-| Comment text | :white_check_mark: | :construction: `.c[].t` | |
-| Threaded comments | :star: `.addThreadedComment()` | :x: | modern-xlsx: typed `ThreadedCommentData` + `replyToComment()` |
-
----
-
-## 15. Named Ranges
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Get all named ranges | :star: `.namedRanges` | :construction: `.Workbook.Names` | modern-xlsx: typed `DefinedNameData[]` |
-| Add named range | :white_check_mark: `.addNamedRange()` | :x: | |
-| Get named range by name | :white_check_mark: `.getNamedRange()` | :x: | |
-| Remove named range | :white_check_mark: `.removeNamedRange()` | :x: | |
-| Scoped named ranges | :white_check_mark: `localSheetId` | :construction: | |
-
----
-
-## 16. Page Setup & Print
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Page orientation | :white_check_mark: `pageSetup.orientation` | :x: | |
-| Paper size | :white_check_mark: `pageSetup.paperSize` | :x: | |
-| Fit to width/height | :white_check_mark: `pageSetup.fitToWidth/Height` | :x: | |
-| Scale | :white_check_mark: `pageSetup.scale` | :x: | |
-| Page margins | :white_check_mark: `pageMargins` | :white_check_mark: `ws['!margins']` | |
-| Header/footer margins | :white_check_mark: `.header` / `.footer` | :white_check_mark: | |
-| Print area | :white_check_mark: `setPrintArea()` | :x: | modern-xlsx: per-sheet print area |
-| Page breaks | :white_check_mark: `.pageBreaks` | :x: | modern-xlsx: typed `PageBreaksData` |
-| Print titles (repeat rows) | :white_check_mark: `setPrintTitles()` | :x: | modern-xlsx: repeat rows/columns |
-
----
-
-## 17. Sheet Protection
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Protect sheet | :star: `.sheetProtection` | :white_check_mark: `ws['!protect']` | |
-| Protect objects | :star: `.objects` | :construction: | |
-| Protect scenarios | :star: `.scenarios` | :construction: | |
-| Protect format cells | :star: `.formatCells` | :construction: | |
-| Protect format columns | :star: `.formatColumns` | :construction: | |
-| Protect format rows | :star: `.formatRows` | :construction: | |
-| Protect insert columns | :star: `.insertColumns` | :construction: | |
-| Protect insert rows | :star: `.insertRows` | :construction: | |
-| Protect delete columns | :star: `.deleteColumns` | :construction: | |
-| Protect delete rows | :star: `.deleteRows` | :construction: | |
-| Protect sort | :star: `.sort` | :construction: | |
-| Protect auto filter | :star: `.autoFilter` | :construction: | |
-| Select locked cells | :x: | :construction: | |
-| Select unlocked cells | :x: | :construction: | |
-| Password protection | :white_check_mark: `.password` | :construction: | modern-xlsx: `SheetProtectionData.password` |
-
----
-
-## 18. Document Properties
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Title | :white_check_mark: `.docProperties.title` | :white_check_mark: `.Props.Title` | |
-| Creator / Author | :white_check_mark: `.creator` | :white_check_mark: `.Props.Author` | |
-| Description / Subject | :white_check_mark: `.description` | :white_check_mark: `.Props.Subject` | |
-| Created date | :white_check_mark: `.created` | :white_check_mark: `.Props.CreatedDate` | |
-| Modified date | :white_check_mark: `.modified` | :white_check_mark: `.Props.ModifiedDate` | |
-| Keywords | :white_check_mark: `.keywords` | :white_check_mark: `.Props.Keywords` | |
-| Category | :white_check_mark: `.category` | :white_check_mark: `.Props.Category` | |
-| Last modified by | :white_check_mark: `.lastModifiedBy` | :white_check_mark: `.Props.LastAuthor` | |
-| Application name | :white_check_mark: `.application` | :white_check_mark: `.Props.Application` | |
-| App version | :white_check_mark: `.appVersion` | :white_check_mark: `.Props.AppVersion` | |
-| Company | :white_check_mark: `.company` | :white_check_mark: `.Props.Company` | |
-| Manager | :white_check_mark: `.manager` | :white_check_mark: `.Props.Manager` | |
-
----
-
-## 19. Cell Reference Utilities
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Column index → letter | :white_check_mark: `columnToLetter(0)` → `'A'` | :white_check_mark: `encode_col(0)` → `'A'` | |
-| Letter → column index | :white_check_mark: `letterToColumn('A')` → `0` | :white_check_mark: `decode_col('A')` → `0` | |
-| Decode cell ref | :white_check_mark: `decodeCellRef('B3')` → `{row:2,col:1}` | :white_check_mark: `decode_cell('B3')` → `{r:2,c:1}` | |
-| Encode cell ref | :white_check_mark: `encodeCellRef(2,1)` → `'B3'` | :white_check_mark: `encode_cell({r:2,c:1})` → `'B3'` | |
-| Decode range | :white_check_mark: `decodeRange('A1:C3')` | :white_check_mark: `decode_range('A1:C3')` | |
-| Encode range | :white_check_mark: `encodeRange(...)` | :white_check_mark: `encode_range(...)` | |
-| Encode row | :white_check_mark: `encodeRow(0)` → `'1'` | :white_check_mark: `encode_row(0)` → `'1'` | |
-| Decode row | :white_check_mark: `decodeRow('1')` → `0` | :white_check_mark: `decode_row('1')` → `0` | |
-| Split cell ref | :white_check_mark: `splitCellRef('$A$1')` | :white_check_mark: `split_cell('$A$1')` | Separates col/row parts |
-
----
-
-## 20. Date Utilities
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Date → serial number | :star: `dateToSerial({year,month,day})` | :x: | Temporal-like input |
-| Serial number → Date | :star: `serialToDate(serial)` | :x: | Returns JS Date (UTC) |
-| Is date format code | :star: `isDateFormatCode('yyyy-mm-dd')` | :white_check_mark: `SSF.is_date(format, value)` | |
-| Is date format ID | :star: `isDateFormatId(14)` | :construction: via `SSF._table` | |
-| Parse date code | :x: | :white_check_mark: `SSF.parse_date_code(serial)` | Returns `{y,m,d,H,M,S}` |
-| Is Temporal-like | :white_check_mark: `isTemporalLike(obj)` | :x: | |
-| Lotus 1-2-3 bug handling | :white_check_mark: serial 60 handling | :white_check_mark: | Feb 29, 1900 quirk |
-
----
-
-## 21. Number Formatting (SSF)
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Format cell value | :white_check_mark: `formatCell(42, '#,##0')` | :white_check_mark: `SSF.format(fmt, val)` | |
-| Built-in format table | :white_check_mark: `getBuiltinFormat(14)` | :white_check_mark: `SSF.get_table()` | |
-| Load custom format | :white_check_mark: `loadFormat(fmt, idx)` | :white_check_mark: `SSF.load(fmt, idx)` | Register custom format at runtime |
-| Load format table | :white_check_mark: `loadFormatTable(table)` | :white_check_mark: `SSF.load_table(table)` | Bulk register (`Record<number, string>`) |
-| General format | :white_check_mark: | :white_check_mark: | |
-| Number formats (#,##0) | :white_check_mark: | :white_check_mark: | |
-| Percentage (0%) | :white_check_mark: | :white_check_mark: | |
-| Scientific (0.00E+00) | :white_check_mark: | :white_check_mark: | |
-| Fraction (# ?/?) | :white_check_mark: | :white_check_mark: | |
-| Date formats | :white_check_mark: | :white_check_mark: | |
-| Time formats | :white_check_mark: | :white_check_mark: | |
-| Multi-section formats | :white_check_mark: | :white_check_mark: | pos;neg;zero;text |
-| Color codes ([Red], etc.) | :white_check_mark: | :white_check_mark: | |
-| Locale codes ([$-409]) | :construction: | :white_check_mark: | |
-| Conditional sections | :white_check_mark: | :white_check_mark: | `[>100]#,##0;[<=100]0.00` |
-
----
-
-## 22. Sheet Conversion Utilities
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Array-of-arrays → sheet | :white_check_mark: `aoaToSheet(data)` | :white_check_mark: `aoa_to_sheet(data)` | |
-| JSON → sheet | :white_check_mark: `jsonToSheet(data)` | :white_check_mark: `json_to_sheet(data)` | |
-| Sheet → JSON | :white_check_mark: `sheetToJson(ws)` | :white_check_mark: `sheet_to_json(ws)` | |
-| Sheet → CSV | :white_check_mark: `sheetToCsv(ws)` | :white_check_mark: `sheet_to_csv(ws)` | |
-| Sheet → HTML | :white_check_mark: `sheetToHtml(ws)` | :white_check_mark: `sheet_to_html(ws)` | |
-| Sheet → TXT | :white_check_mark: `sheetToTxt(ws)` | :white_check_mark: `sheet_to_txt(ws)` | Tab-separated |
-| Sheet → formulae | :white_check_mark: `sheetToFormulae(ws)` | :white_check_mark: `sheet_to_formulae(ws)` | Formula strings |
-| Sheet → row objects | :x: | :white_check_mark: `sheet_to_row_object_array(ws)` | Alias for sheet_to_json |
-| Add AoA to existing sheet | :white_check_mark: `sheetAddAoa(ws, data)` | :white_check_mark: `sheet_add_aoa(ws, data)` | |
-| Add JSON to existing sheet | :white_check_mark: `sheetAddJson(ws, data)` | :white_check_mark: `sheet_add_json(ws, data)` | |
-| DOM table → sheet | :x: | :white_check_mark: `sheet_add_dom(ws, el)` | Browser DOM element |
-| DOM table → book | :x: | :white_check_mark: `table_to_book(el)` | |
-| DOM table → sheet | :x: | :white_check_mark: `table_to_sheet(el)` | |
-| Format cell utility | :white_check_mark: `formatCell()` | :white_check_mark: `format_cell()` | |
-| JSON → sheet (options) | :white_check_mark: `JsonToSheetOptions` | :white_check_mark: options object | |
-| AoA → sheet (options) | :white_check_mark: `AoaToSheetOptions` | :white_check_mark: options object | |
-| CSV options (separator, etc.) | :white_check_mark: `SheetToCsvOptions` | :white_check_mark: options object | |
-| HTML options | :white_check_mark: `SheetToHtmlOptions` | :white_check_mark: options object | |
-
----
-
-## 23. Streaming
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Stream to JSON | :x: | :white_check_mark: `stream.to_json()` | Node.js Readable stream |
-| Stream to CSV | :x: | :white_check_mark: `stream.to_csv()` | |
-| Stream to HTML | :x: | :white_check_mark: `stream.to_html()` | |
-| Stream to XLML | :x: | :white_check_mark: `stream.to_xlml()` | |
-| Set Readable impl | :x: | :white_check_mark: `stream.set_readable()` | Custom stream impl |
-| Streaming XLSX writer | :star: `StreamingXlsxWriter` | :x: | 100K+ rows, O(unique strings) memory |
-| WASM streaming reader | :star: via WASM SAX parser | :x: | Rust SAX-style XML parsing |
-| Parallel sheet parsing | :star: rayon feature flag | :x: | Multi-threaded WASM |
-
----
-
-## 24. Rich Text
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Rich text builder | :star: `RichTextBuilder` | :x: | Fluent API |
-| Bold text runs | :star: `.bold('text')` | :x: | |
-| Italic text runs | :star: `.italic('text')` | :x: | |
-| Bold+italic runs | :star: `.boldItalic('text')` | :x: | |
-| Colored text runs | :star: `.colored('text', 'FF0000')` | :x: | |
-| Custom styled runs | :star: `.styled('text', opts)` | :x: | font, size, bold, italic, color |
-| Build rich text array | :star: `.build()` → `RichTextRun[]` | :x: | |
-| Plain text extraction | :star: `.plainText()` | :x: | |
-| Rich text in cells | :white_check_mark: `Cell.richText` | :white_check_mark: `.r` (HTML string) | Typed runs vs HTML string |
-| Rich text roundtrip | :white_check_mark: | :white_check_mark: | |
-
----
-
-## 25. Images & Charts
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Add image (PNG) | :star: `wb.addImage()` | :lock: Pro only | **modern-xlsx free** |
-| Add image (JPEG) | :star: | :lock: | |
-| Add image (GIF) | :star: | :lock: | |
-| Image anchor (from/to cell) | :star: `ImageAnchor` | :lock: | |
-| Charts (read) | :star: `.charts` → `WorksheetChartData[]` | :lock: | modern-xlsx: structured chart parsing |
-| Charts (create) | :star: `ChartBuilder` (10 types) | :lock: | bar, column, line, pie, doughnut, scatter, area, radar, bubble, stock |
-| Drawings (preserved roundtrip) | :white_check_mark: `preservedEntries` | :lock: | |
-| Tables (read) | :star: `.tables` → `TableDefinitionData[]` | :lock: | modern-xlsx: structured table parsing |
-| Tables (create) | :star: `.addTable()` | :lock: | Excel tables (ListObjects) |
-
----
-
-## 26. Barcode & QR Code Generation
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| QR code encoding | :star: `encodeQR()` | :x: | **Unique to modern-xlsx** |
-| Code 128 encoding | :star: `encodeCode128()` | :x: | |
-| EAN-13 encoding | :star: `encodeEAN13()` | :x: | |
-| UPC-A encoding | :star: `encodeUPCA()` | :x: | |
-| Code 39 encoding | :star: `encodeCode39()` | :x: | |
-| PDF417 encoding | :star: `encodePDF417()` | :x: | |
-| DataMatrix encoding | :star: `encodeDataMatrix()` | :x: | |
-| ITF-14 encoding | :star: `encodeITF14()` | :x: | |
-| GS1-128 encoding | :star: `encodeGS1128()` | :x: | |
-| Render barcode to PNG | :star: `renderBarcodePNG()` | :x: | |
-| Embed barcode in sheet | :star: `wb.addBarcode()` | :x: | One-call API |
-| Barcode options (ecLevel, showText) | :star: `DrawBarcodeOptions` | :x: | |
-| Generate drawing XML | :star: `generateDrawingXml()` | :x: | Low-level API |
-| Generate drawing rels | :star: `generateDrawingRels()` | :x: | Low-level API |
-
----
-
-## 27. Table Layout Engine
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Draw styled table | :star: `drawTable(wb, ws, opts)` | :x: | **Unique to modern-xlsx** |
-| Draw table from data | :star: `drawTableFromData(wb, ws, data)` | :x: | Auto-generate from 2D array |
-| Column definitions | :star: `TableColumn` with width, align, format | :x: | |
-| Header styling | :star: auto-styled headers | :x: | |
-| Zebra striping | :star: alternating row colors | :x: | |
-| Auto column widths | :star: | :x: | |
-| Custom cell styles | :star: `CellStyle` overrides | :x: | |
-| Table result metadata | :star: `TableResult` (range, dimensions) | :x: | |
-
----
-
-## 28. Shared Strings (SST)
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| SST read | :white_check_mark: auto-resolved | :white_check_mark: auto-resolved | |
-| SST write | :white_check_mark: built internally by WASM | :white_check_mark: | |
-| Rich text runs in SST | :white_check_mark: `SharedStringsData.richRuns` | :white_check_mark: | |
-| SST deduplication | :white_check_mark: | :white_check_mark: | |
-| SST index resolution | :star: automatic in `readBuffer()` | :white_check_mark: automatic | modern-xlsx: transparent |
-
----
-
-## 29. Validation & Repair
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Validate workbook | :star: `wb.validate()` | :x: | **Unique to modern-xlsx** |
-| Validation report | :star: `ValidationReport` | :x: | Issues with severity & category |
-| Issue categories | :star: `IssueCategory` enum | :x: | |
-| Issue severity levels | :star: `Severity` enum | :x: | |
-| Auto-repair | :star: `wb.repair()` | :x: | Returns `RepairResult` |
-| Repair summary | :star: `RepairResult` | :x: | Changes made + report |
-
----
-
-## 30. Web Worker Support
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Dedicated worker API | :star: `createXlsxWorker()` | :x: | **Unique to modern-xlsx** |
-| Worker options | :star: `XlsxWorkerOptions` | :x: | |
-| Off-main-thread processing | :star: | :x: | WASM in Web Worker |
-| Transferable buffers | :star: | :x: | Zero-copy to/from worker |
-
----
-
-## 31. Performance & Architecture
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Core language | :star: Rust (WASM) | JavaScript | Rust: memory-safe, fast |
-| XML parsing | :star: SAX (quick-xml) | SAX (custom JS) | |
-| ZIP handling | :star: Native Rust (zip crate) | JSZip / CFB | |
-| Output file size | :star: ~8x smaller | Baseline | WASM-native compression |
-| Read speed (10K rows) | :star: ~3.4x faster | Baseline | Benchmarked (100K rows: ~4.2x) |
-| Write speed (10K rows) | :white_check_mark: ~parity | Baseline | Cell-by-cell API (much smaller output) |
-| aoaToSheet speed (50K rows) | :star: ~1.7x faster | Baseline | Batch API |
-| sheetToJson speed (10K rows) | :white_check_mark: ~parity | Baseline | |
-| sheetToCsv speed (10K rows) | :white_check_mark: ~parity | Baseline | |
-| Tree-shakeable | :white_check_mark: ESM | :construction: CJS + ESM | |
-| Zero runtime deps | :star: | :x: | SheetJS bundles CFB, SSF |
-| TypeScript types | :star: Full generics + interfaces | :construction: `@types/xlsx` | |
-| Type safety | :star: 120+ exported types | :construction: | |
-| Bundle size (browser, gzipped) | :construction: ~24 KB JS + ~650 KB WASM | :white_check_mark: ~200 KB JS | WASM has fixed overhead |
-| Async-first | :white_check_mark: | :x: | All I/O is async |
-| Sync API | :x: | :white_check_mark: | SheetJS has sync methods |
-| Browser support | :white_check_mark: | :white_check_mark: | Both work in browser |
-| Node.js support | :white_check_mark: | :white_check_mark: | |
-| Deno support | :white_check_mark: | :construction: | |
-| Bun support | :white_check_mark: | :construction: | |
-| Multi-threading (rayon) | :star: optional feature flag | :x: | Parallel sheet parsing |
-
----
-
-## 32. API Design
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| API style | :star: Class-based OOP | POJO-based | |
-| Cell access | :star: `ws.cell('A1').value` | `ws['A1'].v` | Getter/setter vs raw property |
-| Method chaining | :star: StyleBuilder, RichTextBuilder | :x: | Fluent API |
-| Null safety | :star: `getSheet()` returns `undefined` | :x: | |
-| Error types | :star: `ModernXlsxError` (Rust thiserror) | Generic errors | |
-| Versioning | :white_check_mark: `VERSION` constant | :white_check_mark: `version` property | |
-
----
-
-## 33. Advanced Features (0.9.x+)
-
-| Feature | modern-xlsx | SheetJS | Notes |
-|---------|:-----------:|:-------:|-------|
-| Pivot tables (read) | :star: `.pivotTables` | :lock: Pro only | Typed `PivotTableData[]` |
-| Pivot tables (write) | :star: `.addPivotTable()` / `PivotTableBuilder` | :lock: | Fluent builder via `addPivotTableFromBuilder()` |
-| Pivot caches | :star: `wb.addPivotCache()` | :lock: | Workbook-level cache definitions |
-| Threaded comments (read/write) | :star: `.addThreadedComment()` / `.replyToComment()` | :x: | Modern Excel comment threads |
-| Slicers (read/write) | :star: `.slicers` / `.addSlicer()` | :x: | Plus `wb.addSlicerCache()` |
-| Timelines (read/write) | :star: `.timelines` / `.addTimeline()` | :x: | Plus `wb.addTimelineCache()` |
-| Sparklines | :white_check_mark: `SparklineGroupData` | :lock: Pro only | Parse + write |
-| CLI tool | :star: `npx modern-xlsx info\|convert` | :x: | XLSX → JSON/CSV from the terminal |
-| Feature-gated WASM (`/lite`) | :star: `modern-xlsx/lite` | :x: | Smaller binary without encryption |
-
----
-
-## Summary Scorecard
-
-| Category | modern-xlsx | SheetJS | Winner |
-|----------|:-----------:|:-------:|--------|
-| **Format support** (read) | 1 format | 20+ formats | SheetJS |
-| **Format support** (write) | 1 format | 23 formats | SheetJS |
-| **Styling** (free) | 30+ style features | 1 (number format) | modern-xlsx |
-| **Styling** (with Pro) | 30+ style features | 30+ style features | Tie |
-| **Data validation** | Full support (free) | Pro only | modern-xlsx |
-| **Conditional formatting** | Full support (free) | Pro only | modern-xlsx |
-| **Images** | Full support (free) | Pro only | modern-xlsx |
-| **Barcode/QR generation** | 9 barcode types | None | modern-xlsx |
-| **Table layout engine** | Full support | None | modern-xlsx |
-| **Rich text builder** | Fluent API | None | modern-xlsx |
-| **Validation & repair** | Full support | None | modern-xlsx |
-| **Encryption (password)** | Read + write (free) | None | modern-xlsx |
-| **Web Worker support** | Built-in API | None | modern-xlsx |
-| **Performance (read)** | ~3.4x faster | Baseline | modern-xlsx |
-| **Performance (write)** | ~parity | Baseline | Tie |
-| **Output file size** | ~8x smaller | Baseline | modern-xlsx |
-| **Type safety** | 120+ types | Basic typings | modern-xlsx |
-| **Streaming XLSX writer** | `StreamingXlsxWriter` | None | modern-xlsx |
-| **Pivot tables** | Read + write (free) | Pro only | modern-xlsx |
-| **Threaded comments** | Read + write | None | modern-xlsx |
-| **Slicers & timelines** | Read + write | None | modern-xlsx |
-| **CLI tool** | `info` / `convert` | None | modern-xlsx |
-| **Streaming conversions** (CSV/JSON/HTML) | None | 4 stream formats | SheetJS |
-| **DOM integration** | None | table_to_book, etc. | SheetJS |
-| **Sync API** | None | Full sync support | SheetJS |
-| **Legacy format support** | None | XLS, BIFF, WK, etc. | SheetJS |
-| **Cell reference utils** | 9 functions | 9 functions | Tie |
-| **Date utilities** | 5 functions | 3 functions | modern-xlsx |
-| **Named ranges** | Full CRUD API | Read-only | modern-xlsx |
-| **Sheet protection** | 12 granular fields + password | Basic | modern-xlsx |
-| **Theme colors** | Full parsing | None | modern-xlsx |
-| **Calc chain** | Typed access | Parsed but hidden | modern-xlsx |
-
-### Overall
-
-- **modern-xlsx wins on:** Read performance, output file size, type safety, styling (free), data validation, conditional formatting, images, charts, barcodes, table layout, rich text API, validation/repair, encryption, streaming XLSX writer, Web Workers, pivot tables, threaded comments, slicers & timelines, CLI tooling, API ergonomics
-- **SheetJS wins on:** Multi-format support (20+ read, 23 write), streaming CSV/JSON/HTML conversions, DOM integration, sync API, legacy format compatibility, broader ecosystem maturity
-- **Tie on:** Core XLSX read/write, write performance, CSV/JSON export speed, cell operations, formulas, merge cells, frozen panes, auto filter, hyperlinks, comments, document properties, number formatting, sheet conversion utilities, cell reference utilities
+# Feature comparison
+
+As of 2026-11-11 (dates on this page are UTC calendar days), this page compares modern-xlsx with SheetJS CE 0.20.3, SheetJS Pro (no published version), exceljs 4.4.0, read-excel-file 9.3.15, write-excel-file 4.1.1, wasm-xlsxwriter 0.13.2, HyperFormula 3.5.0 and Univer 1.4.0. Every competitor cell cites the vendor page, README, type definitions or npm registry entry it comes from; the [Sources](#sources) list gives each one with its access date. The modern-xlsx column describes the code in this repository, and [modern-xlsx notes](#modern-xlsx-notes) gives the limits behind it.
+
+SheetJS CE is not published to npm past 0.18.5: `npm install xlsx` installs 0.18.5, and SheetJS serves 0.20.3 from its own CDN, which it calls the authoritative source [4]. The Univer column describes `@univerjs/presets`; its .xlsx import and export run through the Univer Pro exchange plugins and a conversion backend [38] [39].
+
+For a function-by-function mapping, see [Migrating from SheetJS](migration-from-sheetjs.md) and [Migrating from ExcelJS](migration-from-exceljs.md).
+
+## Legend
+
+| Value           | Meaning                                                               |
+| --------------- | --------------------------------------------------------------------- |
+| Yes             | Supported.                                                            |
+| No              | Not supported, or the vendor says it is out of scope.                 |
+| Partial         | Supported with the limit the cell names.                              |
+| Paid: _product_ | Needs the named paid product, edition or add-on.                      |
+| Not documented  | The vendor's docs, README and published types say nothing either way. |
+
+## Matrix
+
+| Capability                             | modern-xlsx                                                                                                                | SheetJS CE                                                                                                                              | SheetJS Pro                                                             | exceljs                                                                                | read-excel-file                                                              | write-excel-file                                                                 | wasm-xlsxwriter                                              | HyperFormula                                             | Univer                                                                                                                                                                                                                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Formats**                            |                                                                                                                            |                                                                                                                                         |                                                                         |                                                                                        |                                                                              |                                                                                  |                                                              |                                                          |                                                                                                                                                                                                                                                             |
+| Read .xlsx                             | Yes: `readBuffer`, `readFile`                                                                                              | Yes [5]                                                                                                                                 | Not documented [19]                                                     | Yes [21]                                                                               | Yes [23]                                                                     | No: write-only [25]                                                              | No: wraps the write API only [27]                            | No: no built-in file import [31]                         | Paid: Univer Pro exchange plugins and a conversion backend [39] [40] [43]                                                                                                                                                                                   |
+| Write .xlsx                            | Yes: `wb.toBuffer`, `wb.toFile`, `writeBlob`                                                                               | Yes [5]                                                                                                                                 | Not documented [19]                                                     | Yes [21]                                                                               | No: read-only [23]                                                           | Yes [25]                                                                         | Yes [27]                                                     | Not documented [31]                                      | Paid: as for reading [39] [40] [43]                                                                                                                                                                                                                         |
+| Other read formats                     | No: a legacy .xls is rejected with `LEGACY_FORMAT`                                                                         | Yes: XLSM, XLSB, XLS (BIFF2-BIFF8), SpreadsheetML 2003, ODS, FODS, NUMBERS, CSV/TXT, HTML, DBF, Lotus, Quattro Pro and more [5]         | Not documented [19]                                                     | CSV [21]                                                                               | No: .xls throws `XLS_FILE_NOT_SUPPORTED` [23]                                | No: write-only [25]                                                              | No [27]                                                      | No: only through third-party parsers [31]                | Paid: XLS, CSV, TSV [39] [40]                                                                                                                                                                                                                               |
+| Other write formats                    | Partial: one sheet as CSV, TXT or HTML text (`sheetToCsv`, `sheetToTxt`, `sheetToHtml`) or as row objects (`sheetToJson`)  | Yes: XLSM, XLSB, XLS (BIFF2-BIFF8), SpreadsheetML 2003, ODS, FODS, NUMBERS, CSV/TXT, HTML, RTF, DBF, Lotus WK1/WK3 and more [5]         | Not documented [19]                                                     | CSV [21]                                                                               | No: read-only [23]                                                           | Not documented [25]                                                              | Not documented [27]                                          | Not documented [31]                                      | Paid: CSV, TSV (one sheet, values only) [39] [40]                                                                                                                                                                                                           |
+| **Authoring**                          |                                                                                                                            |                                                                                                                                         |                                                                         |                                                                                        |                                                                              |                                                                                  |                                                              |                                                          |                                                                                                                                                                                                                                                             |
+| Cell styles on write                   | Yes: `StyleBuilder`                                                                                                        | Partial: row and column styling metadata with `cellStyles`; cell and text styling is SheetJS Pro [6]                                    | Paid: Pro Basic [6] [19]                                                | Yes [21]                                                                               | No: read-only [23]                                                           | Yes [25]                                                                         | Yes: `Format` [27]                                           | Not documented [31]                                      | Partial: open source in the editor; .xlsx output needs the paid exchange plugins [39] [40]                                                                                                                                                                  |
+| Number format rendered to display text | Yes: `formatCell`                                                                                                          | Yes: fills the cell's `w` property [8]                                                                                                  | Paid: SSF Pro, locale formats [19]                                      | Not documented [21]                                                                    | Not documented: formats only tell dates from numbers [23]                    | Not documented [25]                                                              | Not documented [27]                                          | Not documented [32]                                      | Yes: `getDisplayValue()` [40] [46]                                                                                                                                                                                                                          |
+| Conditional formatting on write        | Yes: the sheet's `conditionalFormatting` data (no method; see notes)                                                       | Paid: SheetJS Pro [6]                                                                                                                   | Paid: Pro Basic [6] [19]                                                | Yes [21]                                                                               | No: read-only [23]                                                           | Yes [25]                                                                         | Not documented [27] [28]                                     | Not documented [31]                                      | Partial: open source in the editor; .xlsx via the paid exchange plugins [39] [40]                                                                                                                                                                           |
+| Data validation on write               | Yes: `ws.addValidation`                                                                                                    | Not documented; Pro Basic lists "Data Validations" [18] [19]                                                                            | Paid: Pro Basic lists "Data Validations", read or write not stated [19] | Yes [21]                                                                               | No: read-only [23]                                                           | Partial: third-party package `@onparallel/write-excel-file-data-validation` [25] | Not documented [27] [28]                                     | Not documented [31]                                      | Partial: open source in the editor; .xlsx via the paid exchange plugins [39] [40]                                                                                                                                                                           |
+| Charts on write                        | Yes: `ws.addChart` with `ChartBuilder`, 10 chart types                                                                     | Paid: Pro Chart [6] [19]                                                                                                                | Paid: Pro Chart [19]                                                    | Not documented [21]                                                                    | No: read-only [23]                                                           | Not documented [25]                                                              | Yes: `Chart`, `insertChart` [28]                             | Not documented [31]                                      | Paid: `@univerjs-pro` chart plugins [43] [44]                                                                                                                                                                                                               |
+| Images on write                        | Yes: `wb.addImage` (PNG, JPEG, GIF)                                                                                        | Paid: Pro Image [6] [19]                                                                                                                | Paid: Pro Image [19]                                                    | Yes, except in streaming mode [21]                                                     | No: read-only [23]                                                           | Yes [25]                                                                         | Yes: `insertImage` [27] [28]                                 | Not documented [31]                                      | Partial: open source in the editor; .xlsx via the paid exchange plugins [39] [40]                                                                                                                                                                           |
+| Pivot tables on write                  | Yes: `ws.addPivotTable`, `PivotTableBuilder`, `wb.addPivotCache`                                                           | Paid: PivotTable add-on [6] [19]                                                                                                        | Paid: PivotTable add-on [19]                                            | Not documented [21]                                                                    | No: read-only [23]                                                           | Not documented [25]                                                              | Not documented [28]                                          | Not documented [31]                                      | Paid: `@univerjs-pro/sheets-pivot` [43] [45]                                                                                                                                                                                                                |
+| Cell comments (notes)                  | Yes: `ws.addComment`                                                                                                       | Yes [9]                                                                                                                                 | Paid: comment rich text and styling [9]                                 | Yes: notes [21]                                                                        | Not documented [23]                                                          | Not documented [25]                                                              | Yes: `Note`, `insertNote` [28]                               | Not documented [31]                                      | Partial: open source in the editor; .xlsx via the paid exchange plugins [39] [40]                                                                                                                                                                           |
+| Threaded comments                      | Yes: `ws.addThreadedComment`, `ws.replyToComment`                                                                          | Yes [9]                                                                                                                                 | Not documented [19]                                                     | Not documented [21]                                                                    | Not documented [23]                                                          | Not documented [25]                                                              | Not documented [28]                                          | Not documented [31]                                      | Partial: open source in the editor; .xlsx via the paid exchange plugins [39] [40]                                                                                                                                                                           |
+| Excel tables (ListObjects)             | Yes: `ws.addTable`                                                                                                         | Not documented [18]                                                                                                                     | Not documented: Pro Basic lists only table styling [19]                 | Yes [21]                                                                               | Not documented [23]                                                          | Not documented [25]                                                              | Yes: `Table`, `addTable` [28]                                | No: structured references to tables are not offered [33] | Partial: open source in the editor; .xlsx via the paid exchange plugins [39] [40]                                                                                                                                                                           |
+| Sheet protection on write              | Yes: `ws.sheetProtection` (see notes)                                                                                      | Yes: `ws['!protect']`, XOR password [10]                                                                                                | Not documented [19]                                                     | Yes: `worksheet.protect` [21]                                                          | No: read-only [23]                                                           | Not documented [25]                                                              | Yes: `Worksheet.protect()` [28]                              | Not documented [31]                                      | Partial: open-source permissions; "Validate Excel password-protection compatibility separately" [40]                                                                                                                                                        |
+| **Security**                           |                                                                                                                            |                                                                                                                                         |                                                                         |                                                                                        |                                                                              |                                                                                  |                                                              |                                                          |                                                                                                                                                                                                                                                             |
+| Open password-encrypted files          | Yes: `readBuffer(data, { password })`, Agile and Standard encryption (full build)                                          | Partial: XOR-encrypted XLS only [7]                                                                                                     | Paid: encryption add-on (AES-CBC XLSX/XLSM/XLSB, RC4 XLS) [7] [19]      | Not documented [21]                                                                    | Not documented [23]                                                          | No: write-only [25]                                                              | No: write-only [27]                                          | No: no file import [31]                                  | No [40]                                                                                                                                                                                                                                                     |
+| Encrypt on write                       | Yes: `wb.toBuffer({ password })`, Agile AES-256 with SHA-512 (full build)                                                  | Paid: SheetJS Pro encryption add-on [19]                                                                                                | Paid: encryption add-on [19]                                            | Not documented [21]                                                                    | No: read-only [23]                                                           | Not documented [25]                                                              | Not documented [28]                                          | Not documented [31]                                      | No [40]                                                                                                                                                                                                                                                     |
+| **Formulas**                           |                                                                                                                            |                                                                                                                                         |                                                                         |                                                                                        |                                                                              |                                                                                  |                                                              |                                                          |                                                                                                                                                                                                                                                             |
+| Formula evaluation                     | Partial: `evaluateFormula` evaluates one formula against a context you supply, with `createDefaultFunctions()` (see notes) | No: needs the SheetJS Pro Formula Calculator [11]                                                                                       | Paid: Formula Calculator [19]                                           | No: "cannot process the formula" [21]                                                  | No: returns the cached results [23]                                          | Not documented: writes formulas only [25]                                        | Not documented: writes formulas only [27]                    | Yes: 423 functions [32]                                  | Yes: open-source engine; the Advanced Formula Engine is paid [40] [47] [48]                                                                                                                                                                                 |
+| **Streaming**                          |                                                                                                                            |                                                                                                                                         |                                                                         |                                                                                        |                                                                              |                                                                                  |                                                              |                                                          |                                                                                                                                                                                                                                                             |
+| Streaming or row-by-row read           | No: `readBuffer` parses the whole file in one call (see notes)                                                             | No: reads entire files into memory [13]                                                                                                 | Not documented [19]                                                     | Yes: `stream.xlsx.WorkbookReader` [21]                                                 | Partial: unpacks the archive at once, then parses sheet XML as a stream [23] | No: write-only [25]                                                              | No: write-only [27]                                          | No: no file import [31]                                  | Not documented [39]                                                                                                                                                                                                                                         |
+| Streaming write                        | Partial: `StreamingXlsxWriter` takes rows one at a time; the compressed file stays in memory until `finish()`              | Partial: `stream.to_csv`, `to_html`, `to_json`, `to_xlml`; no XLSX stream writer [12]                                                   | Not documented [19]                                                     | Yes: `stream.xlsx.WorkbookWriter` [21]                                                 | No: read-only [23]                                                           | Partial: Node `toStream()`; constant memory not documented [25]                  | Not documented: output is a buffer (`saveToBufferSync`) [27] | Not documented [31]                                      | Not documented [39]                                                                                                                                                                                                                                         |
+| **Runtimes**                           |                                                                                                                            |                                                                                                                                         |                                                                         |                                                                                        |                                                                              |                                                                                  |                                                              |                                                          |                                                                                                                                                                                                                                                             |
+| Browser                                | Yes: Chromium in CI                                                                                                        | Yes [14]                                                                                                                                | Not documented [19]                                                     | Partial: the document workbook only; the streaming reader and writer are excluded [21] | Yes [23]                                                                     | Yes [25]                                                                         | Yes: Chrome 75+, Firefox 79+, Safari 15+ [27]                | Yes [34]                                                 | Yes [41]                                                                                                                                                                                                                                                    |
+| Node.js                                | Yes: Node 24 and 26 in CI                                                                                                  | Yes [4]                                                                                                                                 | Not documented [19]                                                     | Yes [21]                                                                               | Yes [23]                                                                     | Yes [25]                                                                         | Yes [27]                                                     | Yes: Node 13+ for full compatibility [35]                | Yes: Node 18.17.0+ [41]                                                                                                                                                                                                                                     |
+| Deno                                   | Yes: in CI                                                                                                                 | Yes [15]                                                                                                                                | Not documented [19]                                                     | Not documented [21]                                                                    | Not documented [23]                                                          | Not documented [25]                                                              | Not documented [27]                                          | Not documented [35]                                      | Not documented [41]                                                                                                                                                                                                                                         |
+| Bun                                    | Yes: in CI                                                                                                                 | Partial: "Bun support is considered experimental" [16]                                                                                  | Not documented [19]                                                     | Not documented [21]                                                                    | Not documented [23]                                                          | Not documented [25]                                                              | Not documented [27]                                          | Not documented [35]                                      | Not documented [41]                                                                                                                                                                                                                                         |
+| Cloudflare Workers or edge             | Yes: a Cloudflare Worker in CI                                                                                             | Partial: a Deno Deploy demo; Cloudflare Workers not documented [17]                                                                     | Not documented [19]                                                     | Not documented [21]                                                                    | Not documented [23]                                                          | Not documented [25]                                                              | Not documented [27]                                          | Not documented [35]                                      | Not documented [41]                                                                                                                                                                                                                                         |
+| **Packaging**                          |                                                                                                                            |                                                                                                                                         |                                                                         |                                                                                        |                                                                              |                                                                                  |                                                              |                                                          |                                                                                                                                                                                                                                                             |
+| Bundled TypeScript types               | Yes                                                                                                                        | Yes [2]                                                                                                                                 | Not documented [19]                                                     | Yes [20]                                                                               | Yes [22]                                                                     | Yes [24]                                                                         | Yes [29]                                                     | Yes [30]                                                 | Yes [37]                                                                                                                                                                                                                                                    |
+| Free or paid                           | Free                                                                                                                       | Free; styling, conditional formatting, images, charts, pivot tables, encryption and the formula calculator are SheetJS Pro [2] [6] [19] | Paid; price not published [19]                                          | Free [20]                                                                              | Free [22]                                                                    | Free [24]                                                                        | Free [26]                                                    | Free under GPL-3.0, or a paid proprietary license [36]   | Core free; the commercial edition adds charts, pivot tables, Office file conversion and real-time collaboration; Business "From $99 / month", labeled a limited-time offer; without a license, the exchange plugins allow 10 exports a month [37] [42] [43] |
+| License                                | MIT                                                                                                                        | Apache-2.0 [1] [2]                                                                                                                      | Commercial, sold by inquiry [19]                                        | MIT [20]                                                                               | MIT [22]                                                                     | MIT [24]                                                                         | MIT [26]                                                     | GPL-3.0-only, or a proprietary license [30] [36]         | Apache-2.0 (`@univerjs/presets`); the exchange plugins are part of Univer Pro [37] [38]                                                                                                                                                                     |
+| Runtime dependencies                   | 0                                                                                                                          | 0 in CDN 0.20.3; 7 in npm 0.18.5 [1] [2]                                                                                                | Not published [19]                                                      | 9 [20]                                                                                 | 4 [22]                                                                       | 1 [24]                                                                           | 0 [26]                                                       | 2 [30]                                                   | 9 (`@univerjs/presets`) [37]                                                                                                                                                                                                                                |
+| Latest version                         | The release that ships this page (`VERSION`)                                                                               | 0.20.3, tagged 2024-07-18 (CDN); npm `xlsx` is 0.18.5 [1] [2] [3]                                                                       | Not published [19]                                                      | 4.4.0, published 2023-10-19; prerelease 4.4.1-prerelease.0, 2024-12-20 [20]            | 9.3.15, published 2026-11-11 [22]                                            | 4.1.1, published 2026-06-08 [24]                                                 | 0.13.2, published 2026-10-30 [26]                            | 3.5.0, published 2026-10-09 [30]                         | 1.4.0, published 2026-11-07 [37]                                                                                                                                                                                                                            |
+
+## modern-xlsx notes
+
+- **Formats.** modern-xlsx reads and writes .xlsx only. A legacy .xls is rejected with `LEGACY_FORMAT`. The lite build (`modern-xlsx/lite`) cannot decrypt: an encrypted file is rejected with `PASSWORD_PROTECTED`, and a `password` option with `INVALID_ARGUMENT`. `sheetToCsv`, `sheetToTxt` and `sheetToHtml` export one sheet as text, and `sheetToJson` as row objects. There is no CSV, TXT or HTML reader; `jsonToSheet` and `aoaToSheet` build a sheet from JavaScript objects and arrays.
+- **Conditional formatting.** No worksheet method adds a rule. Rules are data: set `conditionalFormatting` on a sheet's `worksheet` in the `WorkbookData` that `wb.toJSON()` returns (the live data, so edits change the workbook), or pass that data to `new Workbook(data)`. The rules read back from a file in the same place.
+- **Charts.** `ChartType` has 10 values: `bar`, `column`, `line`, `pie`, `doughnut`, `scatter`, `area`, `radar`, `bubble` and `stock`. `ws.charts` reads the charts in a file.
+- **Pivot tables.** The writer does not compute a pivot table's cells. A row, column or page field without items, as `PivotTableBuilder` builds every field, is written with the shared items of its cache field, and its cache with `refreshOnLoad`, so Excel lays the table out and shows its values when it opens the file. A cache built from a range, a table or a named range is written as read, and a cache over consolidation ranges is kept verbatim.
+- **Threaded comments.** Ids are upper-case GUIDs in braces, the form Excel requires, and each thread on a cell without a note is written with the `tc=` placeholder note Excel needs to show it. As in Excel, a cell holds one thread and a comment text at most 32,767 UTF-16 code units: `addThreadedComment` throws `INVALID_ARGUMENT` for a second thread on a cell, and it and `replyToComment` for a longer text.
+- **Sheet protection.** `ws.sheetProtection` takes the boolean flags `sheet`, `objects`, `scenarios`, `formatCells`, `formatColumns`, `formatRows`, `insertColumns`, `insertRows`, `deleteColumns`, `deleteRows`, `sort` and `autoFilter`, and the optional flags `insertHyperlinks`, `pivotTables`, `selectLockedCells` and `selectUnlockedCells`. `true` locks an action and `false` allows it. The writer emits a flag as `1` or `0` only when it differs from its ECMA-376 default, and the reader gives an absent attribute that default. To set a password, pass `plainPassword`: the full build stores a SHA-512 hash with a random 16-byte salt and 100,000 spins, and the lite build stores the legacy 16-bit hash and accepts ASCII passwords only. Hashes read from a file are written back unchanged.
+- **Slicers and timelines.** `ws.addSlicer`, `ws.addTimeline`, `wb.addSlicerCache` and `wb.addTimelineCache` write slicers and timelines in a custom dialect that is not Excel-verified, without the links Excel needs to load them. The reader accepts both that dialect and Excel's (MS-XLSX x14 slicers, x15 timelines). A round trip therefore rewrites an Excel workbook's slicers and timelines in the custom dialect. The Excel form is planned for [1.9.0](ROADMAP.md#190-pivot-and-bi-parity).
+- **Encryption.** The full build decrypts ECMA-376 Agile encryption (AES-128, AES-192 or AES-256 with SHA-1, SHA-256, SHA-384 or SHA-512) and Standard encryption (AES-128, AES-192 or AES-256 with a SHA-1 key). With a `password`, `wb.toBuffer` and `wb.toFile` write Agile encryption with AES-256, SHA-512 and 100,000 key-derivation rounds. The lite build rejects a `password` with `INVALID_ARGUMENT`.
+- **Formulas.** `evaluateFormula(formula, ctx)` parses and evaluates one formula; `ctx` supplies the cell lookups and, in `ctx.functions`, the function table. `createDefaultFunctions()` returns the built-in table. On 2026-11-11, `node --input-type=module -e "import {createDefaultFunctions as f} from 'modern-xlsx'; console.log(f().size)"`, run in packages/modern-xlsx, printed 54. No export recalculates a whole workbook.
+- **Reading.** `readBuffer` and `readFile` parse the whole file in one call; there is no streaming read ([issue #31](https://github.com/ABCrimson/modern-xlsx/issues/31); planned for [1.4.0](ROADMAP.md#140-big-data-streaming-read-and-a-lean-bridge)). Data crosses the WASM boundary as JSON strings, so a workbook whose JSON exceeds 536,870,888 bytes (V8's maximum string length) cannot be read.
+- **Streaming write.** `StreamingXlsxWriter` serializes and compresses each row as `writeRow` receives it, so memory holds the compressed output and the shared-string table rather than every row's cells. The compressed file stays in WASM memory until `finish()` returns it.
+- **Web Worker.** `createXlsxWorker(options).readBuffer` returns `WorkbookData`, the plain data model, not a `Workbook`. A `Uint8Array` that spans its whole `ArrayBuffer` is transferred to the worker and detached; any other view is copied.
+- **Threads.** The Rust crate's `parallel` Cargo feature (rayon) is for native Rust builds only. The WASM build never enables it.
+- **Barcodes.** PDF417 and Data Matrix are `@experimental`: their output is not ISO/IEC 15438 or ISO/IEC 16022 conformant and may not scan.
+- **Runtimes in CI.** The Browser Tests job runs the browser suite in Chromium through Playwright. The TypeScript job runs Node 24 and 26 on Linux and Windows. The Examples job runs the examples under Node, Bun and Deno, type-checks the Deno Deploy example, and runs a Cloudflare Worker under `wrangler dev --local`.
+- **Packaging.** The package has no runtime dependencies and ships its TypeScript types. It also ships two separate .wasm files, `wasm/` (full) and `wasm-lite/` (no encryption). The CI gzip budget was set from a 2026-11-14 (UTC) measurement (`nightly-2026-11-14`, wasm-pack 0.15.1, `wasm-opt -Oz`, Cargo `trim-paths`) of 917,326 bytes (full) and 854,256 bytes (lite) after `gzip -9 -n`, taken on a clean copy of the final 1.3.0 tree with the CI `build-wasm` commands. The Build WASM job fails if either grows more than 5% past it.
+
+## Benchmarks
+
+This page gives no speed figures. The modern-xlsx and SheetJS benchmarks are in [read-write.bench.ts](../packages/modern-xlsx/__tests__/bench/read-write.bench.ts). They run against SheetJS CE 0.20.3, the `xlsx` dev dependency installed from the SheetJS CDN. `pnpm -C packages/modern-xlsx bench` builds the package first (`scripts.bench` in [package.json](../packages/modern-xlsx/package.json)) and then runs `vitest bench`; read-write.bench.ts ends by printing a dated table with the Node version, the CPU and the SheetJS version. Results depend on the machine that runs them.
+
+## Sources
+
+1. npm registry, `xlsx`: <https://registry.npmjs.org/xlsx> (accessed 2026-11-11)
+2. SheetJS CDN, `xlsx-latest/package/package.json`: <https://cdn.sheetjs.com/xlsx-latest/package/package.json> (accessed 2026-11-11)
+3. SheetJS git tag feed: <https://git.sheetjs.com/sheetjs/sheetjs/tags.rss> (accessed 2026-11-11)
+4. SheetJS documentation: <https://docs.sheetjs.com/docs/getting-started/installation/nodejs> (accessed 2026-11-11)
+5. SheetJS documentation: <https://docs.sheetjs.com/docs/miscellany/formats> (accessed 2026-11-11)
+6. SheetJS documentation: <https://docs.sheetjs.com/docs/api/write-options> (accessed 2026-11-11)
+7. SheetJS documentation: <https://docs.sheetjs.com/docs/api/parse-options> (accessed 2026-11-11)
+8. SheetJS documentation: <https://docs.sheetjs.com/docs/csf/features/nf> (accessed 2026-11-11)
+9. SheetJS documentation: <https://docs.sheetjs.com/docs/csf/features/comments> (accessed 2026-11-11)
+10. SheetJS documentation: <https://docs.sheetjs.com/docs/csf/sheet> (accessed 2026-11-11)
+11. SheetJS documentation: <https://docs.sheetjs.com/docs/csf/features/formulae> (accessed 2026-11-11)
+12. SheetJS documentation: <https://docs.sheetjs.com/docs/api/stream> (accessed 2026-11-11)
+13. SheetJS documentation: <https://docs.sheetjs.com/docs/demos/bigdata/stream> (accessed 2026-11-11)
+14. SheetJS documentation: <https://docs.sheetjs.com/docs/getting-started/installation/standalone> (accessed 2026-11-11)
+15. SheetJS documentation: <https://docs.sheetjs.com/docs/getting-started/installation/deno> (accessed 2026-11-11)
+16. SheetJS documentation: <https://docs.sheetjs.com/docs/getting-started/installation/bun> (accessed 2026-11-11)
+17. SheetJS documentation: <https://docs.sheetjs.com/docs/demos/cloud/deno> (accessed 2026-11-11)
+18. SheetJS documentation: <https://docs.sheetjs.com/docs/csf/features/> (accessed 2026-11-11)
+19. SheetJS Pro: <https://sheetjs.com/pro/> (accessed 2026-11-11)
+20. npm registry, `exceljs`: <https://registry.npmjs.org/exceljs> (accessed 2026-11-11)
+21. exceljs 4.4.0 README: <https://unpkg.com/exceljs@4.4.0/README.md> (accessed 2026-11-11)
+22. npm registry, `read-excel-file`: <https://registry.npmjs.org/read-excel-file> (accessed 2026-11-11)
+23. read-excel-file 9.3.15 README: <https://unpkg.com/read-excel-file@9.3.15/README.md> (accessed 2026-11-11)
+24. npm registry, `write-excel-file`: <https://registry.npmjs.org/write-excel-file> (accessed 2026-11-11)
+25. write-excel-file 4.1.1 README: <https://unpkg.com/write-excel-file@4.1.1/README.md> (accessed 2026-11-11)
+26. npm registry, `wasm-xlsxwriter`: <https://registry.npmjs.org/wasm-xlsxwriter> (accessed 2026-11-11)
+27. wasm-xlsxwriter 0.13.2 README: <https://unpkg.com/wasm-xlsxwriter@0.13.2/README.md> (accessed 2026-11-11)
+28. wasm-xlsxwriter 0.13.2 type definitions (`web/wasm_xlsxwriter.d.ts`): <https://unpkg.com/wasm-xlsxwriter@0.13.2/web/wasm_xlsxwriter.d.ts> (accessed 2026-11-11)
+29. wasm-xlsxwriter 0.13.2 `package.json`: <https://unpkg.com/wasm-xlsxwriter@0.13.2/package.json> (accessed 2026-11-11)
+30. npm registry, `hyperformula`: <https://registry.npmjs.org/hyperformula> (accessed 2026-11-11)
+31. HyperFormula documentation: <https://handsontable.com/docs/hyperformula/guide/file-import.html> (accessed 2026-11-11)
+32. HyperFormula documentation: <https://handsontable.com/docs/hyperformula/guide/built-in-functions.html> (accessed 2026-11-11)
+33. HyperFormula documentation: <https://handsontable.com/docs/hyperformula/guide/known-limitations.html> (accessed 2026-11-11)
+34. HyperFormula documentation: <https://handsontable.com/docs/hyperformula/guide/supported-browsers.html> (accessed 2026-11-11)
+35. HyperFormula documentation: <https://handsontable.com/docs/hyperformula/guide/server-side-installation.html> (accessed 2026-11-11)
+36. HyperFormula documentation: <https://handsontable.com/docs/hyperformula/guide/licensing.html> (accessed 2026-11-11)
+37. npm registry, `@univerjs/presets`: <https://registry.npmjs.org/@univerjs/presets> (accessed 2026-11-11)
+38. `@univerjs-pro/sheets-exchange-client` 1.4.0 README: <https://unpkg.com/@univerjs-pro/sheets-exchange-client@1.4.0/README.md> (accessed 2026-11-11)
+39. Univer documentation: <https://docs.univer.ai/guides/sheets/features/import-export> (accessed 2026-11-11)
+40. Univer documentation: <https://docs.univer.ai/overview/features/sheets> (accessed 2026-11-11)
+41. Univer documentation: <https://docs.univer.ai/guides/sheets> (accessed 2026-11-11)
+42. Univer documentation: <https://docs.univer.ai/server/license> (accessed 2026-11-11)
+43. Univer pricing: <https://univer.ai/pricing/> (accessed 2026-11-11)
+44. Univer documentation: <https://docs.univer.ai/guides/sheets/features/charts> (accessed 2026-11-11)
+45. Univer documentation: <https://docs.univer.ai/guides/sheets/features/pivot-table> (accessed 2026-11-11)
+46. Univer documentation: <https://docs.univer.ai/guides/sheets/features/core/numfmt> (accessed 2026-11-11)
+47. Univer documentation: <https://docs.univer.ai/guides/sheets/features/advanced-formula> (accessed 2026-11-11)
+48. Univer documentation: <https://docs.univer.ai/guides/sheets/features/core/formula> (accessed 2026-11-11)

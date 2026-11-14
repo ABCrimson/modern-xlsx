@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { assert, describe, expect, it, vi } from 'vitest';
+import { createDefaultFunctions } from '../src/formula/functions/index.js';
 import type { ASTNode, CellValue, EvalContext, FormulaFunction } from '../src/index.js';
 import { evaluateFormula, evaluateNode } from '../src/index.js';
 
@@ -14,10 +15,10 @@ function mockContext(
 ): EvalContext {
   return {
     currentSheet,
-    functions,
+    ...(functions && { functions }),
     getCell(sheet: string, col: number, row: number): CellValue {
       const key = `${sheet}!${col},${row}`;
-      if (key in data) return data[key];
+      if (key in data) return data[key] ?? null;
       // Fallback: try without sheet prefix for convenience
       const shortKey = `${col},${row}`;
       return data[shortKey] ?? null;
@@ -75,9 +76,13 @@ describe('arithmetic', () => {
     expect(ev('10/3')).toBeCloseTo(3.333333, 5);
   });
 
-  it('exponentiation right-associativity: 2^3^2 = 512', () => {
-    // 2^(3^2) = 2^9 = 512
-    expect(ev('2^3^2')).toBe(512);
+  it('exponentiation is left-associative, like Excel: 2^3^2 = 64', () => {
+    // (2^3)^2 = 8^2 = 64
+    expect(ev('2^3^2')).toBe(64);
+  });
+
+  it('100k nested parentheses evaluate to #VALUE! without throwing', () => {
+    expect(ev(`${'('.repeat(100_000)}1${')'.repeat(100_000)}`)).toBe('#VALUE!');
   });
 });
 
@@ -169,6 +174,41 @@ describe('comparison', () => {
   it('string ordering: "a"<"b"', () => {
     expect(ev('"a"<"b"')).toBe(true);
   });
+
+  it('mixed types order number < text < FALSE < TRUE', () => {
+    expect(ev('2<"1"')).toBe(true);
+    expect(ev('"a"<TRUE')).toBe(true);
+    expect(ev('"z"<FALSE')).toBe(true);
+    expect(ev('FALSE<TRUE')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Blank cells in comparisons
+// ---------------------------------------------------------------------------
+
+describe('blank comparison', () => {
+  it('a blank equals 0, "" and FALSE (coerced to the other side)', () => {
+    expect(ev('A1=0')).toBe(true);
+    expect(ev('A1=""')).toBe(true);
+    expect(ev('A1=FALSE')).toBe(true);
+  });
+
+  it('a blank orders as 0 against numbers and "" against text', () => {
+    expect(ev('A1<1')).toBe(true);
+    expect(ev('A1<"a"')).toBe(true);
+    expect(ev('A1>-1')).toBe(true);
+  });
+
+  it('a blank is not 1 and not unequal to 0', () => {
+    expect(ev('A1=1')).toBe(false);
+    expect(ev('A1<>0')).toBe(false);
+  });
+
+  it('a blank is below TRUE (as FALSE) and two blanks are equal', () => {
+    expect(ev('A1<TRUE')).toBe(true);
+    expect(ev('A1=B1')).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -190,6 +230,111 @@ describe('unary operators', () => {
 
   it('-TRUE = -1', () => {
     expect(ev('-TRUE')).toBe(-1);
+  });
+
+  it('unary + returns its operand unchanged (OpenFormula 6.4.15)', () => {
+    expect(ev('+"abc"')).toBe('abc');
+    expect(ev('+TRUE')).toBe(true);
+    expect(ev('+"1"')).toBe('1');
+  });
+
+  it('unary - still coerces: -"1" = -1', () => {
+    expect(ev('-"1"')).toBe(-1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// References in scalar context: implicit intersection and reference operators
+// ---------------------------------------------------------------------------
+
+describe('references in scalar context', () => {
+  /** Evaluate with the formula sitting at `currentCell` (0-based col, 1-based row). */
+  function evAt(
+    formula: string,
+    data: Record<string, CellValue>,
+    currentCell?: { col: number; row: number },
+  ): CellValue {
+    return evaluateFormula(formula, { ...mockContext(data), ...(currentCell && { currentCell }) });
+  }
+
+  const column = { '0,1': 5, '0,2': 7, '0,3': 9 };
+  const grid = { '0,1': 'A1', '1,1': 'B1', '1,2': 'B2', '2,2': 'C2', '2,3': 'C3' };
+
+  it('a multi-cell range without currentCell is #VALUE!', () => {
+    expect(evAt('A1:A3', column)).toBe('#VALUE!');
+  });
+
+  it('a single-column range intersects the formula row', () => {
+    expect(evAt('A1:A3', column, { col: 4, row: 2 })).toBe(7);
+  });
+
+  it('a single-row range intersects the formula column', () => {
+    expect(evAt('A2:C2', grid, { col: 1, row: 9 })).toBe('B2');
+  });
+
+  it('a range outside the formula row or column is #VALUE!', () => {
+    expect(evAt('A1:A3', column, { col: 4, row: 9 })).toBe('#VALUE!');
+    expect(evAt('A2:C2', grid, { col: 5, row: 9 })).toBe('#VALUE!');
+  });
+
+  it('a 2-D range is #VALUE! even with currentCell', () => {
+    expect(evAt('A1:B2', grid, { col: 0, row: 1 })).toBe('#VALUE!');
+  });
+
+  it('a 1x1 range yields its cell', () => {
+    expect(evAt('B2:B2', grid)).toBe('B2');
+  });
+
+  it('whole column and row ranges intersect the same way', () => {
+    expect(evAt('A:A', column, { col: 3, row: 3 })).toBe(9);
+    expect(evAt('2:2', grid, { col: 2, row: 7 })).toBe('C2');
+    expect(evAt('A:A', column)).toBe('#VALUE!');
+  });
+
+  it('an array constant yields its top-left element', () => {
+    expect(ev('{1,2;3,4}')).toBe(1);
+  });
+
+  it('an empty array constant is #VALUE!', () => {
+    expect(evaluateNode({ type: 'array', rows: [] }, mockContext())).toBe('#VALUE!');
+  });
+
+  it('intersection yields the 1x1 overlap', () => {
+    expect(evAt('B1:B3 B2:B2', grid)).toBe('B2');
+    expect(evAt('B:B 2:2', grid)).toBe('B2');
+  });
+
+  it('a multi-cell intersection follows implicit intersection', () => {
+    expect(evAt('A1:C3 B1:B3', grid, { col: 0, row: 2 })).toBe('B2');
+    expect(evAt('A1:C3 B1:B3', grid)).toBe('#VALUE!');
+  });
+
+  it('disjoint references intersect to #NULL!', () => {
+    expect(evAt('A1 C3', grid)).toBe('#NULL!');
+  });
+
+  it('a union in scalar context is #VALUE!', () => {
+    expect(evAt('(A1,B2)', grid)).toBe('#VALUE!');
+  });
+
+  it('a range operator built outside the parser is #VALUE!', () => {
+    const node: ASTNode = {
+      type: 'binary_op',
+      op: ':',
+      left: { type: 'cell_ref', col: 'A', row: 1, absCol: false, absRow: false },
+      right: { type: 'cell_ref', col: 'A', row: 2, absCol: false, absRow: false },
+    };
+    expect(evaluateNode(node, mockContext(column))).toBe('#VALUE!');
+  });
+
+  it('structured and 3-D references are #REF!', () => {
+    expect(ev('Table1[Col]')).toBe('#REF!');
+    expect(ev('Sheet1:Sheet3!A1')).toBe('#REF!');
+    expect(ev('Sheet1:Sheet3!A1:B2')).toBe('#REF!');
+  });
+
+  it('a missing argument evaluates to blank', () => {
+    expect(evaluateNode({ type: 'missing' }, mockContext())).toBe(null);
   });
 });
 
@@ -221,6 +366,79 @@ describe('cell references', () => {
 
   it('resolves multi-letter column: AA1', () => {
     expect(ev('AA1', { '26,1': 7 })).toBe(7);
+  });
+
+  it.each(['XFE1', 'A0', 'ZZZ1', 'A1048577'])(
+    '%s is a name outside A1:XFD1048576 and gives #NAME? without calling getCell',
+    (formula) => {
+      const getCell = vi.fn<EvalContext['getCell']>(() => 1);
+      expect(evaluateFormula(formula, { currentSheet: 'Sheet1', getCell })).toBe('#NAME?');
+      expect(getCell).not.toHaveBeenCalled();
+    },
+  );
+
+  it('never calls getCell outside the grid for XFE1+A0', () => {
+    const getCell = vi.fn<EvalContext['getCell']>(() => 1);
+    expect(evaluateFormula('XFE1+A0', { currentSheet: 'Sheet1', getCell })).toBe('#NAME?');
+    for (const [, col, row] of getCell.mock.calls) {
+      expect(col).toBeGreaterThanOrEqual(0);
+      expect(col).toBeLessThanOrEqual(16383);
+      expect(row).toBeGreaterThanOrEqual(1);
+      expect(row).toBeLessThanOrEqual(1048576);
+    }
+  });
+
+  // Excel (COM, 2026-11-11): each of these shows #NAME?, and IFERROR(XFE1,7) shows 7.
+  it.each(['A1:XFE1', 'XFE1:XFE2', 'A1:A1048577', 'Total:A1'])(
+    'a range with a name endpoint (%s) gives #NAME? without calling getCell',
+    (formula) => {
+      const getCell = vi.fn<EvalContext['getCell']>(() => 1);
+      expect(evaluateFormula(formula, { currentSheet: 'Sheet1', getCell })).toBe('#NAME?');
+      expect(getCell).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['SUM(A1:A99999999999)', '#NAME?'],
+    ['SUM(A1,XFE1)', '#NAME?'],
+    ['COLUMN(XFE1)', '#NAME?'],
+    ['ROW(A0)', '#NAME?'],
+    ['ROWS(A1:A1048577)', '#NAME?'],
+    ['COLUMNS(XFD1:XFE1)', '#NAME?'],
+    ['COLUMNS(Total)', '#NAME?'],
+    ['IFERROR(XFE1,7)', 7],
+  ])('%s gives %s through the built-in functions', (formula, expected) => {
+    const functions = createDefaultFunctions();
+    const getCell = vi.fn<EvalContext['getCell']>(() => 1);
+    expect(evaluateFormula(formula, { currentSheet: 'Sheet1', getCell, functions })).toBe(expected);
+    for (const [, col, row] of getCell.mock.calls) {
+      expect(col).toBeLessThanOrEqual(16383);
+      expect(row).toBeLessThanOrEqual(1048576);
+    }
+  });
+
+  it.each([
+    ['ROWS(A:A)', 1048576],
+    ['ROW(A:A)', 1],
+    ['ROWS(1:1)', 1],
+    ['COLUMNS(1:1)', 16384],
+  ])('%s is %s and never passes on a cell error by implicit intersection', (formula, expected) => {
+    const functions = createDefaultFunctions();
+    const getCell = vi.fn<EvalContext['getCell']>(() => '#DIV/0!');
+    const result = evaluateFormula(formula, {
+      currentSheet: 'Sheet1',
+      currentCell: { col: 1, row: 2 },
+      getCell,
+      functions,
+    });
+    expect(result).toBe(expected);
+    expect(getCell).not.toHaveBeenCalled();
+  });
+
+  it('still reads the last cell XFD1048576', () => {
+    const getCell = vi.fn<EvalContext['getCell']>(() => 5);
+    expect(evaluateFormula('XFD1048576', { currentSheet: 'Sheet1', getCell })).toBe(5);
+    expect(getCell.mock.calls).toEqual([['Sheet1', 16383, 1048576]]);
   });
 });
 
@@ -313,8 +531,11 @@ describe('function calls', () => {
   it('function names are case-insensitive', () => {
     const fns = new Map<string, FormulaFunction>();
     fns.set('ADD', (args, ctx, evaluate) => {
-      const a = evaluate(args[0], ctx);
-      const b = evaluate(args[1], ctx);
+      const [argA, argB] = args;
+      assert.isDefined(argA);
+      assert.isDefined(argB);
+      const a = evaluate(argA, ctx);
+      const b = evaluate(argB, ctx);
       if (typeof a === 'number' && typeof b === 'number') return a + b;
       return '#VALUE!';
     });
@@ -324,8 +545,11 @@ describe('function calls', () => {
   it('function receives raw AST nodes for lazy evaluation', () => {
     const fns = new Map<string, FormulaFunction>();
     fns.set('IF', (args, ctx, evaluate) => {
-      const cond = evaluate(args[0], ctx);
-      if (cond === true || cond === 1) return evaluate(args[1], ctx);
+      const [condArg, thenArg] = args;
+      assert.isDefined(condArg);
+      assert.isDefined(thenArg);
+      const cond = evaluate(condArg, ctx);
+      if (cond === true || cond === 1) return evaluate(thenArg, ctx);
       return args[2] ? evaluate(args[2], ctx) : false;
     });
     // Only the true branch should be evaluated
@@ -339,10 +563,8 @@ describe('function calls', () => {
 
 describe('named ranges', () => {
   it('returns "#NAME?" for unresolved named range', () => {
-    // Named ranges are parsed as "name" nodes; evaluator returns #NAME?
-    // Note: This only works if the tokenizer/parser produces a NameNode.
-    // The formula "MyRange" may tokenize as a cell_ref or name depending
-    // on the tokenizer. We test via the evaluateNode path directly.
+    // tokenize('MyRange') yields a single 'name' token; the NameNode is built directly
+    // to exercise evaluateNode, which returns #NAME? for an unresolved name.
     const node: ASTNode = { type: 'name', name: 'MyRange' };
     const ctx = mockContext();
     expect(evaluateNode(node, ctx)).toBe('#NAME?');
@@ -419,11 +641,18 @@ describe('edge cases', () => {
     expect(ev('#REF!%')).toBe('#REF!');
   });
 
-  it('exponent of zero: 0^0 = 1', () => {
-    expect(ev('0^0')).toBe(1);
+  it('zero to the power zero: 0^0 = #NUM! (as in Excel)', () => {
+    expect(ev('0^0')).toBe('#NUM!');
   });
 
   it('negative exponent: 2^-1 = 0.5', () => {
     expect(ev('2^-1')).toBe(0.5);
+  });
+});
+
+describe('#REF! range endpoints', () => {
+  it('propagates #REF! from a range operator endpoint', () => {
+    expect(ev('=#REF!:C1')).toBe('#REF!');
+    expect(ev('=SUM(#REF!:C2)', {}, createDefaultFunctions())).toBe('#REF!');
   });
 });

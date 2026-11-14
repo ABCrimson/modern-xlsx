@@ -1,21 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { initWasm, readBuffer, Workbook } from '../src/index.js';
 
-// Note: These tests verify that browser-relevant APIs exist at the JS runtime level.
-// They run in Node.js (not a real browser), so we test runtime support for WebAssembly and Blob.
-
-describe('Browser-compatible APIs', () => {
-  it('has WebAssembly support', () => {
-    expect(typeof WebAssembly).toBe('object');
+describe('Browser runtime (Chromium)', () => {
+  it('has WebAssembly and Blob support', () => {
     expect(typeof WebAssembly.instantiate).toBe('function');
+    expect(new Blob(['hello'], { type: 'text/plain' }).size).toBe(5);
   });
 
-  it('has Blob support', () => {
-    expect(typeof Blob).toBe('function');
-  });
-
-  it('can create a Blob', () => {
-    const blob = new Blob(['hello'], { type: 'text/plain' });
-    expect(blob.size).toBe(5);
-    expect(blob.type).toBe('text/plain');
+  it('initializes WASM with no arguments and round-trips a workbook', async () => {
+    await initWasm();
+    const wb = new Workbook();
+    wb.addSheet('Sheet1').cell('A1').value = 'hi';
+    const buf = await wb.toBuffer();
+    const back = await readBuffer(buf);
+    expect(back.getSheet('Sheet1')?.cell('A1').value).toBe('hi');
   });
 });

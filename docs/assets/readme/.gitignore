@@ -1,0 +1,5 @@
+# Outputs of src/build.sh that are not deliverables, and the generators' local install
+preview/
+src/out/
+src/node_modules/
+src/package-lock.json

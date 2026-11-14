@@ -1,23 +1,28 @@
+//! Excel date serials: the [`DateSystem`] (1900 or 1904), [`date_to_serial`] for
+//! [`DateTimeComponents`], and `iso8601_to_serial` for the ISO 8601 text of
+//! `t="d"` cells, which the worksheet parser calls.
+
 use core::hint::cold_path;
 
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 
 use crate::{ModernXlsxError, Result};
 
 /// Which date-origin system the workbook uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DateSystem {
     /// The default 1900 date system (used by Windows Excel).
     /// Day 1 = Jan 1, 1900. Includes the Lotus 1-2-3 leap-year bug at day 60.
+    #[default]
     Date1900,
     /// The 1904 date system (used by older Mac Excel).
     /// Day 0 = Jan 1, 1904. No leap-year bug.
     Date1904,
 }
 
-/// Broken-down date/time components extracted from a serial number.
+/// Broken-down date/time components that [`date_to_serial`] converts to an Excel serial number.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DateTimeComponents {
     pub year: i32,
@@ -35,138 +40,26 @@ const EPOCH_1900: NaiveDate = NaiveDate::from_ymd_opt(1899, 12, 31).unwrap();
 /// The epoch for the 1904 date system: Jan 1, 1904 (serial 0).
 const EPOCH_1904: NaiveDate = NaiveDate::from_ymd_opt(1904, 1, 1).unwrap();
 
-/// Extract hour, minute, second, millisecond from the fractional part of a serial number.
-#[inline]
-fn fractional_to_time(frac: f64) -> (u32, u32, u32, u32) {
-    let total_ms = (frac * 86_400_000.0).round() as u64;
-    let ms = (total_ms % 1000) as u32;
-    let total_secs = total_ms / 1000;
-    let second = (total_secs % 60) as u32;
-    let total_mins = total_secs / 60;
-    let minute = (total_mins % 60) as u32;
-    let hour = (total_mins / 60) as u32;
-    (hour, minute, second, ms)
-}
-
-/// Convert an Excel serial date number to date/time components.
-///
-/// # 1900 system
-///
-/// - Serial 0 = Dec 31, 1899 (Excel quirk)
-/// - Serial 1 = Jan 1, 1900
-/// - Serial 60 = Feb 29, 1900 (fake Lotus 1-2-3 bug; 1900 was NOT a leap year)
-/// - Serial 61 = March 1, 1900
-/// - For serial >= 61, subtract 1 to compensate for the fake day 60.
-///
-/// # 1904 system
-///
-/// - Serial 0 = Jan 1, 1904
-/// - No leap-year bug; straightforward day addition.
-pub fn serial_to_date(serial: f64, system: DateSystem) -> Result<DateTimeComponents> {
-    if serial < 0.0 {
-        cold_path();
-        return Err(ModernXlsxError::InvalidDate(format!(
-            "Failed to convert serial number {serial}: value must be non-negative (negative serial numbers are not valid in Excel)"
-        )));
-    }
-
-    let day_int = serial.floor() as i64;
-    let frac = serial - (day_int as f64);
-    let (hour, minute, second, millisecond) = fractional_to_time(frac);
-
-    match system {
-        DateSystem::Date1900 => serial_to_date_1900(day_int, hour, minute, second, millisecond),
-        DateSystem::Date1904 => serial_to_date_1904(day_int, hour, minute, second, millisecond),
-    }
-}
-
-fn serial_to_date_1900(
-    day_int: i64,
-    hour: u32,
-    minute: u32,
-    second: u32,
-    millisecond: u32,
-) -> Result<DateTimeComponents> {
-    // Day 0 = Dec 31, 1899
-    if day_int == 0 {
-        return Ok(DateTimeComponents {
-            year: 1899,
-            month: 12,
-            day: 31,
-            hour,
-            minute,
-            second,
-            millisecond,
-        });
-    }
-
-    // Day 60 = the fake Feb 29, 1900 (Lotus 1-2-3 bug).
-    if day_int == 60 {
-        return Ok(DateTimeComponents {
-            year: 1900,
-            month: 2,
-            day: 29,
-            hour,
-            minute,
-            second,
-            millisecond,
-        });
-    }
-
-    // For serials >= 61, subtract 1 to compensate for the fake day 60.
-    let adjusted = if day_int >= 61 { day_int - 1 } else { day_int };
-
-    let epoch = EPOCH_1900;
-    let date = epoch
-        .checked_add_signed(chrono::Duration::days(adjusted))
-        .ok_or_else(|| {
-            cold_path();
-            ModernXlsxError::InvalidDate(format!(
-                "Failed to convert serial number {day_int}: date overflow — the value is too large for the calendar"
-            ))
-        })?;
-
-    Ok(DateTimeComponents {
-        year: date.year(),
-        month: date.month(),
-        day: date.day(),
-        hour,
-        minute,
-        second,
-        millisecond,
-    })
-}
-
-fn serial_to_date_1904(
-    day_int: i64,
-    hour: u32,
-    minute: u32,
-    second: u32,
-    millisecond: u32,
-) -> Result<DateTimeComponents> {
-    let epoch = EPOCH_1904;
-    let date = epoch
-        .checked_add_signed(chrono::Duration::days(day_int))
-        .ok_or_else(|| {
-            cold_path();
-            ModernXlsxError::InvalidDate(format!(
-                "Failed to convert serial number {day_int}: date overflow — the value is too large for the calendar"
-            ))
-        })?;
-
-    Ok(DateTimeComponents {
-        year: date.year(),
-        month: date.month(),
-        day: date.day(),
-        hour,
-        minute,
-        second,
-        millisecond,
-    })
-}
+/// The last date either date system can hold (serial 2,958,465 in the 1900
+/// system).
+const LAST_DATE: NaiveDate = NaiveDate::from_ymd_opt(9999, 12, 31).unwrap();
 
 /// Convert date/time components back to an Excel serial number.
+///
+/// # Errors
+///
+/// `InvalidDate` when a time field is out of range (hour above 23, minute or
+/// second above 59, millisecond above 999), the date is not a calendar date,
+/// or it lies outside the date system: before 1899-12-31 (serial 0) in the
+/// 1900 system, before 1904-01-01 in the 1904 system, or after 9999-12-31.
 pub fn date_to_serial(dt: &DateTimeComponents, system: DateSystem) -> Result<f64> {
+    if dt.hour > 23 || dt.minute > 59 || dt.second > 59 || dt.millisecond > 999 {
+        cold_path();
+        return Err(ModernXlsxError::InvalidDate(format!(
+            "Failed to convert time {:02}:{:02}:{:02}.{:03}: a field is out of range",
+            dt.hour, dt.minute, dt.second, dt.millisecond
+        )));
+    }
     let time_frac = (dt.hour as f64 * 3600.0
         + dt.minute as f64 * 60.0
         + dt.second as f64
@@ -179,17 +72,8 @@ pub fn date_to_serial(dt: &DateTimeComponents, system: DateSystem) -> Result<f64
     }
 }
 
-fn date_to_serial_1900(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
-    // Special case: the fake Feb 29, 1900.
-    if dt.year == 1900 && dt.month == 2 && dt.day == 29 {
-        return Ok(60.0 + time_frac);
-    }
-
-    // Special case: Dec 31, 1899 = serial 0.
-    if dt.year == 1899 && dt.month == 12 && dt.day == 31 {
-        return Ok(time_frac);
-    }
-
+/// The calendar date of `dt`, checked to lie in `epoch..=LAST_DATE`.
+fn checked_date(dt: &DateTimeComponents, epoch: NaiveDate) -> Result<NaiveDate> {
     let date = NaiveDate::from_ymd_opt(dt.year, dt.month, dt.day).ok_or_else(|| {
         cold_path();
         ModernXlsxError::InvalidDate(format!(
@@ -197,9 +81,22 @@ fn date_to_serial_1900(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
             dt.year, dt.month, dt.day
         ))
     })?;
+    if !(epoch..=LAST_DATE).contains(&date) {
+        cold_path();
+        return Err(ModernXlsxError::InvalidDate(format!(
+            "Failed to convert {date}: the date system holds {epoch} to {LAST_DATE}"
+        )));
+    }
+    Ok(date)
+}
 
-    let epoch = EPOCH_1900;
-    let days = (date - epoch).num_days();
+fn date_to_serial_1900(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
+    // Special case: the fake Feb 29, 1900.
+    if dt.year == 1900 && dt.month == 2 && dt.day == 29 {
+        return Ok(60.0 + time_frac);
+    }
+
+    let days = (checked_date(dt, EPOCH_1900)? - EPOCH_1900).num_days();
 
     // Add 1 for serials >= 61 to re-introduce the Lotus bug gap.
     let serial = if days >= 60 { days + 1 } else { days };
@@ -208,18 +105,58 @@ fn date_to_serial_1900(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
 }
 
 fn date_to_serial_1904(dt: &DateTimeComponents, time_frac: f64) -> Result<f64> {
-    let date = NaiveDate::from_ymd_opt(dt.year, dt.month, dt.day).ok_or_else(|| {
-        cold_path();
-        ModernXlsxError::InvalidDate(format!(
-            "Failed to construct date from {}-{:02}-{:02}: not a valid calendar date",
-            dt.year, dt.month, dt.day
-        ))
-    })?;
-
-    let epoch = EPOCH_1904;
-    let days = (date - epoch).num_days();
-
+    let days = (checked_date(dt, EPOCH_1904)? - EPOCH_1904).num_days();
     Ok(days as f64 + time_frac)
+}
+
+/// The serial in `system` of the ISO 8601 text of a `t="d"` cell (ECMA-376
+/// Part 1, `ST_CellType` value `d`): `YYYY-MM-DD`, `YYYY-MM-DDThh:mm:ss[.fff]`
+/// or a time-only `Thh:mm:ss[.fff]` (a fraction of a day), each optionally
+/// followed by `Z` or a `±hh:mm` offset that is dropped (the wall-clock value
+/// is kept). Fractional seconds are truncated to the millisecond. Surrounding
+/// ASCII white space is ignored.
+///
+/// `None` when the text has none of these forms or `date_to_serial` rejects
+/// it (a date outside the date system, a field out of range).
+pub(crate) fn iso8601_to_serial(s: &str, system: DateSystem) -> Option<f64> {
+    let s = s.trim_ascii();
+    let (date, time, rest) = if let Some(t) = s.strip_prefix('T') {
+        let (time, rest) = NaiveTime::parse_and_remainder(t, "%H:%M:%S%.f").ok()?;
+        let epoch = match system {
+            DateSystem::Date1900 => EPOCH_1900,
+            DateSystem::Date1904 => EPOCH_1904,
+        };
+        (epoch, time, rest)
+    } else if s.contains('T') {
+        let (dt, rest) = NaiveDateTime::parse_and_remainder(s, "%Y-%m-%dT%H:%M:%S%.f").ok()?;
+        (dt.date(), dt.time(), rest)
+    } else {
+        let (date, rest) = NaiveDate::parse_and_remainder(s, "%Y-%m-%d").ok()?;
+        (date, NaiveTime::MIN, rest)
+    };
+    if !is_zone_designator(rest) {
+        return None;
+    }
+    let dt = DateTimeComponents {
+        year: date.year(),
+        month: date.month(),
+        day: date.day(),
+        hour: time.hour(),
+        minute: time.minute(),
+        second: time.second(),
+        // A leap second (nanosecond >= 10^9) lands above 999 and is rejected.
+        millisecond: time.nanosecond() / 1_000_000,
+    };
+    date_to_serial(&dt, system).ok()
+}
+
+/// Whether `rest` is empty, `Z`, or a `+hh:mm` / `-hh:mm` UTC offset.
+fn is_zone_designator(rest: &str) -> bool {
+    match rest.as_bytes() {
+        [] | [b'Z'] => true,
+        [b'+' | b'-', h1, h2, b':', m1, m2] => [h1, h2, m1, m2].iter().all(|b| b.is_ascii_digit()),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -228,102 +165,57 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn test_serial_to_date_1900() {
-        let dt = serial_to_date(1.0, DateSystem::Date1900).unwrap();
-        assert_eq!(dt.year, 1900);
-        assert_eq!(dt.month, 1);
-        assert_eq!(dt.day, 1);
-    }
-
-    #[test]
-    fn test_serial_to_date_known() {
-        // Serial 45336 = Feb 14, 2024
-        let dt = serial_to_date(45336.0, DateSystem::Date1900).unwrap();
-        assert_eq!(dt.year, 2024);
-        assert_eq!(dt.month, 2);
-        assert_eq!(dt.day, 14);
-    }
-
-    #[test]
-    fn test_serial_with_time() {
-        // Serial 45336.75 = Feb 14, 2024 at 18:00:00
-        let dt = serial_to_date(45336.75, DateSystem::Date1900).unwrap();
-        assert_eq!(dt.year, 2024);
-        assert_eq!(dt.month, 2);
-        assert_eq!(dt.day, 14);
-        assert_eq!(dt.hour, 18);
-        assert_eq!(dt.minute, 0);
-        assert_eq!(dt.second, 0);
-    }
-
-    #[test]
-    fn test_serial_half_day() {
-        let dt = serial_to_date(45336.5, DateSystem::Date1900).unwrap();
-        assert_eq!(dt.hour, 12);
-        assert_eq!(dt.minute, 0);
-        assert_eq!(dt.second, 0);
-    }
-
-    #[test]
-    fn test_lotus_bug_day_60() {
-        // Day 60 = the fake Feb 29, 1900
-        let dt = serial_to_date(60.0, DateSystem::Date1900).unwrap();
-        assert_eq!(dt.year, 1900);
-        assert_eq!(dt.month, 2);
-        assert_eq!(dt.day, 29);
-    }
-
-    #[test]
-    fn test_day_61_march_1() {
-        // Day 61 = March 1, 1900
-        let dt = serial_to_date(61.0, DateSystem::Date1900).unwrap();
-        assert_eq!(dt.year, 1900);
-        assert_eq!(dt.month, 3);
-        assert_eq!(dt.day, 1);
-    }
-
-    #[test]
-    fn test_1904_system() {
-        // Day 0 = Jan 1, 1904
-        let dt = serial_to_date(0.0, DateSystem::Date1904).unwrap();
-        assert_eq!(dt.year, 1904);
-        assert_eq!(dt.month, 1);
-        assert_eq!(dt.day, 1);
-    }
-
-    #[test]
     fn test_date_to_serial_roundtrip() {
-        let original_serial = 45336.75;
-        let dt = serial_to_date(original_serial, DateSystem::Date1900).unwrap();
-        let back = date_to_serial(&dt, DateSystem::Date1900).unwrap();
-        assert!((back - original_serial).abs() < 1e-6);
+        // Serial 45336.75 = Feb 14, 2024 at 18:00:00.
+        let dt = DateTimeComponents {
+            year: 2024,
+            month: 2,
+            day: 14,
+            hour: 18,
+            minute: 0,
+            second: 0,
+            millisecond: 0,
+        };
+        let serial = date_to_serial(&dt, DateSystem::Date1900).unwrap();
+        assert!((serial - 45336.75).abs() < 1e-6);
     }
 
     #[test]
-    fn test_serial_day_0() {
-        // Day 0 = Dec 31, 1899
-        let dt = serial_to_date(0.0, DateSystem::Date1900).unwrap();
-        assert_eq!(dt.year, 1899);
-        assert_eq!(dt.month, 12);
-        assert_eq!(dt.day, 31);
+    fn test_date_to_serial_1900_lotus_leap_year() {
+        let at = |month, day| DateTimeComponents {
+            year: 1900,
+            month,
+            day,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            millisecond: 0,
+        };
+        assert_eq!(
+            date_to_serial(&at(2, 28), DateSystem::Date1900).unwrap(),
+            59.0
+        );
+        assert_eq!(
+            date_to_serial(&at(2, 29), DateSystem::Date1900).unwrap(),
+            60.0
+        );
+        assert_eq!(
+            date_to_serial(&at(3, 1), DateSystem::Date1900).unwrap(),
+            61.0
+        );
     }
 
     #[test]
     fn test_error_messages_have_context() {
-        // Negative serial should mention the value
-        let err = serial_to_date(-5.0, DateSystem::Date1900).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("-5"), "expected serial value in error, got: {msg}");
-        assert!(
-            msg.contains("non-negative"),
-            "expected 'non-negative' hint, got: {msg}"
-        );
-        assert_eq!(err.code(), "INVALID_DATE");
-
         // Invalid calendar date
         let bad_dt = DateTimeComponents {
-            year: 2024, month: 13, day: 1,
-            hour: 0, minute: 0, second: 0, millisecond: 0,
+            year: 2024,
+            month: 13,
+            day: 1,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            millisecond: 0,
         };
         let err = date_to_serial(&bad_dt, DateSystem::Date1900).unwrap_err();
         let msg = err.to_string();
@@ -335,5 +227,103 @@ mod tests {
             msg.contains("not a valid calendar date"),
             "expected calendar hint, got: {msg}"
         );
+    }
+
+    fn ymd_hms(year: i32, month: u32, day: u32, h: u32, m: u32, s: u32) -> DateTimeComponents {
+        DateTimeComponents {
+            year,
+            month,
+            day,
+            hour: h,
+            minute: m,
+            second: s,
+            millisecond: 0,
+        }
+    }
+
+    #[test]
+    fn date_to_serial_rejects_out_of_range_time_fields() {
+        for (h, m, s, ms) in [(24, 0, 0, 0), (0, 60, 0, 0), (0, 0, 60, 0), (0, 0, 0, 1000)] {
+            let dt = DateTimeComponents {
+                millisecond: ms,
+                ..ymd_hms(2024, 1, 15, h, m, s)
+            };
+            for system in [DateSystem::Date1900, DateSystem::Date1904] {
+                let err = date_to_serial(&dt, system).unwrap_err();
+                assert_eq!(err.code(), "INVALID_DATE", "{dt:?}");
+            }
+        }
+        let last = DateTimeComponents {
+            millisecond: 999,
+            ..ymd_hms(2024, 1, 15, 23, 59, 59)
+        };
+        assert!(date_to_serial(&last, DateSystem::Date1900).unwrap() < 45307.0);
+    }
+
+    #[test]
+    fn date_to_serial_rejects_dates_outside_the_date_system() {
+        let d1900 = DateSystem::Date1900;
+        let d1904 = DateSystem::Date1904;
+        assert!(date_to_serial(&ymd_hms(1899, 12, 30, 0, 0, 0), d1900).is_err());
+        assert_eq!(
+            date_to_serial(&ymd_hms(1899, 12, 31, 12, 0, 0), d1900).unwrap(),
+            0.5
+        );
+        assert!(date_to_serial(&ymd_hms(1903, 12, 31, 0, 0, 0), d1904).is_err());
+        assert_eq!(
+            date_to_serial(&ymd_hms(1904, 1, 1, 0, 0, 0), d1904).unwrap(),
+            0.0
+        );
+        assert_eq!(
+            date_to_serial(&ymd_hms(9999, 12, 31, 0, 0, 0), d1900).unwrap(),
+            2_958_465.0
+        );
+        assert_eq!(
+            date_to_serial(&ymd_hms(9999, 12, 31, 0, 0, 0), d1904).unwrap(),
+            2_957_003.0
+        );
+        for system in [d1900, d1904] {
+            assert!(date_to_serial(&ymd_hms(10_000, 1, 1, 0, 0, 0), system).is_err());
+        }
+    }
+
+    #[test]
+    fn iso8601_serial_reads_the_cell_type_d_forms() {
+        let d1900 = DateSystem::Date1900;
+        for (s, serial) in [
+            ("2024-01-15", 45306.0),
+            ("2024-01-15T12:00:00", 45306.5),
+            ("2024-01-15T12:00:00Z", 45306.5),
+            ("2024-01-15T12:00:00+05:30", 45306.5),
+            ("2024-01-15T12:00:00-11:00", 45306.5),
+            ("T06:00:00", 0.25),
+        ] {
+            assert_eq!(iso8601_to_serial(s, d1900), Some(serial), "{s}");
+        }
+        // Fractional seconds are kept to the millisecond.
+        let frac = iso8601_to_serial("2024-01-15T12:00:00.2504", d1900).unwrap();
+        assert!((frac - (45306.5 + 0.25 / 86_400.0)).abs() < 1e-9, "{frac}");
+        assert_eq!(
+            iso8601_to_serial("2024-01-15T12:00:00", DateSystem::Date1904),
+            Some(45306.5 - 1462.0)
+        );
+        assert_eq!(
+            iso8601_to_serial("T06:00:00", DateSystem::Date1904),
+            Some(0.25)
+        );
+        for s in [
+            "",
+            "garbage",
+            "2024-01-15T12:00",
+            "2024-01-15 12:00:00",
+            "2024-01-15T12:00:00+0530",
+            "2024-01-15T12:00:00Zjunk",
+            "2024-02-30",
+            "1899-12-30",
+            "10000-01-01",
+            "T24:00:00",
+        ] {
+            assert_eq!(iso8601_to_serial(s, d1900), None, "{s}");
+        }
     }
 }

@@ -1,25 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultFunctions } from '../src/formula/functions/index.js';
-import type { CellValue } from '../src/index.js';
 import { evaluateFormula } from '../src/index.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const functions = createDefaultFunctions();
-
-function ev(formula: string, cells?: Record<string, CellValue>): CellValue {
-  return evaluateFormula(formula, {
-    currentSheet: 'Sheet1',
-    functions,
-    getCell: (sheet: string, col: number, row: number): CellValue => {
-      const letter = String.fromCharCode(65 + col);
-      const key = `${sheet}!${letter}${row}`;
-      return cells?.[key] ?? null;
-    },
-  });
-}
+import { ev } from './helpers/formula-context.js';
 
 // ---------------------------------------------------------------------------
 // IF
@@ -169,8 +151,9 @@ describe('CONCATENATE', () => {
     expect(ev('CONCATENATE("x",#REF!)')).toBe('#REF!');
   });
 
-  it('empty string for no args', () => {
-    expect(ev('CONCATENATE()')).toBe('');
+  it('#VALUE! for no args', () => {
+    expect(ev('CONCATENATE()')).toBe('#VALUE!');
+    expect(ev('CONCATENATE("a",,"b")')).toBe('ab');
   });
 });
 
@@ -269,6 +252,14 @@ describe('TRIM', () => {
 
   it('collapses multiple interior spaces', () => {
     expect(ev('TRIM("  hello   world  ")')).toBe('hello world');
+  });
+
+  it('collapses a long interior run of spaces', () => {
+    expect(ev('TRIM("a"&REPT(" ",32000)&"b")')).toBe('a b');
+  });
+
+  it('trims a lone space to empty text', () => {
+    expect(ev('TRIM(" ")')).toBe('');
   });
 });
 
@@ -438,6 +429,18 @@ describe('FIND', () => {
   it('error for start < 1', () => {
     expect(ev('FIND("a","abc",0)')).toBe('#VALUE!');
   });
+
+  // Expected values from Excel (Microsoft 365, COM probe on 2026-11-12): an
+  // empty find_text matches at start_num up to the text length + 1.
+  it('empty find_text: start_num past length + 1 is #VALUE!', () => {
+    expect(ev('FIND("","abc",3)')).toBe(3);
+    expect(ev('FIND("","abc",4)')).toBe(4);
+    expect(ev('FIND("","abc",5)')).toBe('#VALUE!');
+    expect(ev('FIND("","abc",10)')).toBe('#VALUE!');
+    expect(ev('FIND("","",1)')).toBe(1);
+    expect(ev('FIND("","",2)')).toBe('#VALUE!');
+    expect(ev('FIND("a","abc",4)')).toBe('#VALUE!');
+  });
 });
 
 describe('SEARCH', () => {
@@ -455,5 +458,88 @@ describe('SEARCH', () => {
 
   it('with start position', () => {
     expect(ev('SEARCH("l","Hello World",5)')).toBe(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TEXT via formatCell, TRIM, AND/OR, SEARCH wildcards, SUBSTITUTE, arity
+// ---------------------------------------------------------------------------
+
+describe('TEXT via formatCell', () => {
+  it('formats thousands and dates', () => {
+    expect(ev('TEXT(1234.5,"#,##0")')).toBe('1,235');
+    expect(ev('TEXT(45000,"yyyy-mm-dd")')).toBe('2023-03-15');
+  });
+
+  it('honours ctx.dateSystem', () => {
+    const out = evaluateFormula('TEXT(0,"yyyy-mm-dd")', {
+      currentSheet: 'Sheet1',
+      functions: createDefaultFunctions(),
+      dateSystem: 'date1904',
+      getCell: () => null,
+    });
+    expect(out).toBe('1904-01-01');
+  });
+
+  it('leaves non-numeric text as is', () => {
+    expect(ev('TEXT("abc","0")')).toBe('abc');
+  });
+});
+
+describe('TRIM strips U+0020 only', () => {
+  it('collapses spaces', () => {
+    expect(ev('TRIM("  a  b  ")')).toBe('a b');
+  });
+
+  it('keeps tabs and NBSP', () => {
+    expect(ev('TRIM("\ta ")')).toBe('\ta');
+    expect(ev('LEN(TRIM("a "))')).toBe(2);
+  });
+});
+
+describe('AND/OR evaluate every argument', () => {
+  it('returns later errors', () => {
+    expect(ev('AND(FALSE,#N/A)')).toBe('#N/A');
+    expect(ev('OR(TRUE,#N/A)')).toBe('#N/A');
+    expect(ev('OR(TRUE,1/0)')).toBe('#DIV/0!');
+  });
+
+  it('folds references', () => {
+    expect(ev('AND(A1:A3)', { 'Sheet1!A2': 'x', 'Sheet1!A3': true })).toBe(true);
+    expect(ev('AND(B1:B3)', { 'Sheet1!B1': true, 'Sheet1!B2': false, 'Sheet1!B3': true })).toBe(
+      false,
+    );
+    expect(ev('AND(A2:A3)', { 'Sheet1!A2': 'x', 'Sheet1!A3': 5 })).toBe(true);
+    expect(ev('AND({TRUE,FALSE})')).toBe(false);
+    expect(ev('AND(A1)')).toBe('#VALUE!');
+  });
+});
+
+describe('SEARCH wildcards', () => {
+  it('supports ? * ~', () => {
+    expect(ev('SEARCH("b?d","abcd")')).toBe(2);
+    expect(ev('SEARCH("b*","abcd")')).toBe(2);
+    expect(ev('SEARCH("~*","a*b")')).toBe(2);
+    expect(ev('SEARCH("H?llo","Hello")')).toBe(1);
+    expect(ev('SEARCH("b","İabc")')).toBe(3);
+    expect(ev('SEARCH("x","İx")')).toBe(2);
+  });
+});
+
+describe('SUBSTITUTE non-overlapping', () => {
+  it('advances past the match', () => {
+    expect(ev('SUBSTITUTE("aaaa","aa","X",2)')).toBe('aaX');
+    expect(ev('SUBSTITUTE("aaa","aa","X",2)')).toBe('aaa');
+    expect(ev('SUBSTITUTE("aaa","a","b",0)')).toBe('#VALUE!');
+    expect(ev('LEN(123)')).toBe(3);
+  });
+});
+
+describe('IF/IFERROR missing arguments', () => {
+  it('return 0', () => {
+    expect(ev('IF(TRUE,,2)')).toBe(0);
+    expect(ev('IF(FALSE,1,)')).toBe(0);
+    expect(ev('IFERROR(1/0,)')).toBe(0);
+    expect(ev('IF(FALSE,1)')).toBe(false);
   });
 });

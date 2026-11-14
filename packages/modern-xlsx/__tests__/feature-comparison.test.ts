@@ -2,14 +2,14 @@
  * Full in-depth feature comparison: modern-xlsx vs SheetJS (xlsx)
  *
  * This test suite demonstrates side-by-side feature parity, highlights
- * modern-xlsx advantages (styling, barcodes, tables, WASM speed), and
- * documents where SheetJS has features modern-xlsx does not (multi-format).
+ * modern-xlsx advantages (styling, barcodes, tables, validation and repair);
+ * speed is measured in __tests__/bench/read-write.bench.ts.
  *
  * Both libraries write an XLSX buffer and cross-read each other's output
  * where applicable — proving interoperability.
  */
 
-import { describe, expect, it } from 'vitest';
+import { assert, describe, expect, it } from 'vitest';
 import XLSX from 'xlsx';
 import {
   aoaToSheet,
@@ -34,7 +34,6 @@ import {
   sheetToHtml,
   sheetToJson,
   Workbook,
-  type Worksheet,
 } from '../src/index.js';
 
 // ---------------------------------------------------------------------------
@@ -106,10 +105,10 @@ describe('1. File I/O', () => {
     const wb = XLSX.read(modernBuf, { type: 'buffer' });
     expect(wb.SheetNames).toContain('Sheet1');
 
-    const ws = wb.Sheets.Sheet1;
+    const ws = wb.Sheets['Sheet1'];
     if (!ws) throw new Error('Sheet1 not found');
-    expect(ws.A1?.v).toBe('Name');
-    expect(ws.B2?.v).toBe(30);
+    expect(ws['A1']?.v).toBe('Name');
+    expect(ws['B2']?.v).toBe(30);
   });
 
   it('cross-read roundtrip: SheetJS -> modern-xlsx -> SheetJS', async () => {
@@ -120,8 +119,8 @@ describe('1. File I/O', () => {
     const rewritten = await wb.toBuffer();
     // SheetJS reads the re-written buffer
     const wb2 = XLSX.read(rewritten, { type: 'buffer' });
-    expect(wb2.Sheets.Sheet1?.A2?.v).toBe('Alice');
-    expect(wb2.Sheets.Sheet1?.B2?.v).toBe(30);
+    expect(wb2.Sheets['Sheet1']?.['A2']?.v).toBe('Alice');
+    expect(wb2.Sheets['Sheet1']?.['B2']?.v).toBe(30);
   });
 });
 
@@ -198,8 +197,8 @@ describe('3. Cell Operations', () => {
 
     // SheetJS
     const xlsxWs = XLSX.utils.aoa_to_sheet(data);
-    expect(xlsxWs.A1?.t).toBe('s');
-    expect(xlsxWs.A1?.v).toBe('hello');
+    expect(xlsxWs['A1']?.t).toBe('s');
+    expect(xlsxWs['A1']?.v).toBe('hello');
 
     // modern-xlsx
     const wb = new Workbook();
@@ -217,8 +216,8 @@ describe('3. Cell Operations', () => {
   it('both handle number cells', async () => {
     // SheetJS
     const xlsxWs = XLSX.utils.aoa_to_sheet([[42], [3.14], [-100]]);
-    expect(xlsxWs.A1?.t).toBe('n');
-    expect(xlsxWs.A1?.v).toBe(42);
+    expect(xlsxWs['A1']?.t).toBe('n');
+    expect(xlsxWs['A1']?.v).toBe(42);
 
     // modern-xlsx
     const wb = new Workbook();
@@ -238,8 +237,8 @@ describe('3. Cell Operations', () => {
   it('both handle boolean cells', async () => {
     // SheetJS
     const xlsxWs = XLSX.utils.aoa_to_sheet([[true], [false]]);
-    expect(xlsxWs.A1?.t).toBe('b');
-    expect(xlsxWs.A1?.v).toBe(true);
+    expect(xlsxWs['A1']?.t).toBe('b');
+    expect(xlsxWs['A1']?.v).toBe(true);
 
     // modern-xlsx
     const wb = new Workbook();
@@ -291,7 +290,7 @@ describe('3. Cell Operations', () => {
 
     // SheetJS
     const xlsxWs = XLSX.utils.aoa_to_sheet(unicodes.map((s) => [s]));
-    expect(xlsxWs.A1?.v).toBe('🎉 celebration');
+    expect(xlsxWs['A1']?.v).toBe('🎉 celebration');
 
     // modern-xlsx
     const wb = new Workbook();
@@ -316,8 +315,8 @@ describe('4. Formulas', () => {
   it('both write formulas that survive roundtrip', async () => {
     // SheetJS writes formula — verify it stores the formula in-memory
     const xlsxWs = XLSX.utils.aoa_to_sheet([[10], [20]]);
-    xlsxWs.A3 = { t: 'n', f: 'SUM(A1:A2)' };
-    expect(xlsxWs.A3?.f).toBe('SUM(A1:A2)');
+    xlsxWs['A3'] = { t: 'n', f: 'SUM(A1:A2)' };
+    expect(xlsxWs['A3']?.f).toBe('SUM(A1:A2)');
     const xlsxWb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(xlsxWb, xlsxWs, 'Sheet1');
 
@@ -329,6 +328,10 @@ describe('4. Formulas', () => {
     ws.cell('A3').formula = 'SUM(A1:A2)';
     ws.cell('B1').formula = 'AVERAGE(A1:A2)';
     ws.cell('C1').formula = 'MAX(A1:A2)';
+    // Cached results: a formula cell without a <v> is not read as a formula by SheetJS.
+    ws.cell('A3').value = 30;
+    ws.cell('B1').value = 15;
+    ws.cell('C1').value = 20;
 
     const buf = await modernWb.toBuffer();
     const wb2 = await readBuffer(buf);
@@ -338,7 +341,7 @@ describe('4. Formulas', () => {
 
     // SheetJS can read modern-xlsx formulas
     const xlsxWb3 = XLSX.read(buf, { type: 'buffer' });
-    expect(xlsxWb3.Sheets.Formulas?.A3?.f).toBe('SUM(A1:A2)');
+    expect(xlsxWb3.Sheets['Formulas']?.['A3']?.f).toBe('SUM(A1:A2)');
   });
 
   it('modern-xlsx formula with cached value', async () => {
@@ -349,7 +352,7 @@ describe('4. Formulas', () => {
     cell.formula = 'A1*2';
     cell.value = 100; // cached value
     expect(cell.formula).toBe('A1*2');
-    expect(cell.type).toBe('formulaStr');
+    expect(cell.type).toBe('number');
 
     const buf = await wb.toBuffer();
     const wb2 = await readBuffer(buf);
@@ -391,7 +394,7 @@ describe('5. Merge Cells', () => {
 
     // SheetJS can read modern-xlsx merges
     const xlsxWb2 = XLSX.read(buf, { type: 'buffer' });
-    const merges = xlsxWb2.Sheets.Merges?.['!merges'] ?? [];
+    const merges = xlsxWb2.Sheets['Merges']?.['!merges'] ?? [];
     expect(merges.length).toBe(2);
   });
 
@@ -485,15 +488,14 @@ describe('7. Frozen Panes', () => {
     const wb2 = await readBuffer(buf);
     expect(wb2.getSheet('Frozen')?.frozenPane).toEqual({ rows: 1, cols: 1 });
 
-    // SheetJS can read the freeze
+    // SheetJS reads the file and the cell data, but not <pane>
     const xlsxWb = XLSX.read(buf, { type: 'buffer' });
-    const _views = xlsxWb.Sheets.Frozen?.['!freeze'];
-    // SheetJS stores freeze info differently, but the file is valid
     expect(xlsxWb.SheetNames).toContain('Frozen');
+    expect(xlsxWb.Sheets['Frozen']?.['A1']?.v).toBe('Header');
   });
 
-  it('modern-xlsx reads SheetJS frozen pane', async () => {
-    // SheetJS creates a file with frozen pane
+  it('SheetJS output carries no frozen pane (CE 0.20.3 ignores !freeze)', async () => {
+    // '!freeze' is not a SheetJS key: SheetJS CE 0.20.3 writes no <pane>
     const xlsxWs = XLSX.utils.aoa_to_sheet([
       ['H1', 'H2'],
       ['A', 'B'],
@@ -504,8 +506,10 @@ describe('7. Frozen Panes', () => {
     const xlsxBuf = new Uint8Array(XLSX.write(xlsxWb, { type: 'buffer', bookType: 'xlsx' }));
 
     const wb = await readBuffer(xlsxBuf);
-    // The frozen pane data should be preserved if the SheetJS output includes it
+    // SheetJS CE 0.20.3 does not write <pane> ('!freeze' is not a SheetJS key),
+    // so there is no frozen pane to read back.
     expect(wb.sheetCount).toBe(1);
+    expect(wb.getSheet('Sheet1')?.frozenPane).toBeUndefined();
   });
 });
 
@@ -545,7 +549,7 @@ describe('8. Auto Filter', () => {
 
     // SheetJS reads modern-xlsx autofilter
     const xlsxWb2 = XLSX.read(buf, { type: 'buffer' });
-    expect(xlsxWb2.Sheets.Filtered?.['!autofilter']?.ref).toBe('A1:B2');
+    expect(xlsxWb2.Sheets['Filtered']?.['!autofilter']?.ref).toBe('A1:B2');
   });
 
   it('modern-xlsx autoFilter can be cleared', () => {
@@ -586,11 +590,11 @@ describe('9. Styling (modern-xlsx advantage)', () => {
     const buf = await wb.toBuffer();
     const wb2 = await readBuffer(buf);
     const xf = wb2.styles.cellXfs[headerStyle];
-    expect(xf).toBeDefined();
-    expect(wb2.styles.fonts[xf?.fontId]?.bold).toBe(true);
-    expect(wb2.styles.fonts[xf?.fontId]?.size).toBe(14);
-    expect(xf?.alignment?.horizontal).toBe('center');
-    expect(xf?.alignment?.wrapText).toBe(true);
+    assert.isDefined(xf);
+    expect(wb2.styles.fonts[xf.fontId]?.bold).toBe(true);
+    expect(wb2.styles.fonts[xf.fontId]?.size).toBe(14);
+    expect(xf.alignment?.horizontal).toBe('center');
+    expect(xf.alignment?.wrapText).toBe(true);
 
     // SheetJS community edition CANNOT set styles (requires Pro)
     // This demonstrates modern-xlsx's key advantage
@@ -626,7 +630,7 @@ describe('9. Styling (modern-xlsx advantage)', () => {
     // SheetJS community edition stores cell data but NOT styles
     const ws = XLSX.utils.aoa_to_sheet([['Hello']]);
     // ws['A1'].s would be the style object, but it's not available in community
-    expect(ws.A1?.s).toBeUndefined();
+    expect(ws['A1']?.s).toBeUndefined();
   });
 });
 
@@ -714,7 +718,18 @@ describe('11. Hyperlinks', () => {
     const buf = await wb.toBuffer();
     const wb2 = await readBuffer(buf);
     const ws2 = wb2.getSheet('Links');
-    expect(ws2?.hyperlinks.length).toBeGreaterThanOrEqual(1);
+    expect(ws2?.hyperlinks).toHaveLength(2);
+    const [external, internal] = ws2?.hyperlinks ?? [];
+    expect(external).toMatchObject({
+      cellRef: 'A1',
+      display: 'Visit Example',
+      tooltip: 'Opens example.com',
+    });
+    expect(internal).toMatchObject({
+      cellRef: 'A2',
+      location: 'Sheet2!A1',
+      display: 'Go to Sheet2',
+    });
   });
 
   it('modern-xlsx removeHyperlink works', () => {
@@ -743,7 +758,7 @@ describe('12. Comments', () => {
     const buf = await wb.toBuffer();
     const wb2 = await readBuffer(buf);
     const ws2 = wb2.getSheet('Comments');
-    expect(ws2?.comments.length).toBeGreaterThanOrEqual(1);
+    expect(ws2?.comments).toEqual([{ cellRef: 'A1', author: 'Alice', text: 'This is a note' }]);
   });
 
   it('modern-xlsx removeComment works', () => {
@@ -820,7 +835,7 @@ describe('14. Page Setup & Margins', () => {
     expect(ws2?.pageSetup?.fitToHeight).toBe(0);
   });
 
-  it('modern-xlsx sets page margins (local-only, not persisted to WASM)', () => {
+  it('modern-xlsx sets and round-trips page margins', async () => {
     const wb = new Workbook();
     const ws = wb.addSheet('Margins');
     ws.pageMargins = {
@@ -831,9 +846,15 @@ describe('14. Page Setup & Margins', () => {
       header: 0.3,
       footer: 0.3,
     };
-    // Margins are accessible locally via the TS API
-    expect(ws.pageMargins?.top).toBe(0.75);
-    expect(ws.pageMargins?.left).toBe(0.7);
+    const wb2 = await readBuffer(await wb.toBuffer());
+    expect(wb2.getSheet('Margins')?.pageMargins).toEqual({
+      top: 0.75,
+      bottom: 0.75,
+      left: 0.7,
+      right: 0.7,
+      header: 0.3,
+      footer: 0.3,
+    });
   });
 });
 
@@ -1011,13 +1032,16 @@ describe('18. Date Utilities', () => {
     expect(formatted).toContain('2026');
   });
 
-  it('both agree on Lotus 1-2-3 epoch bug boundary', () => {
-    // Serial 60 is the Lotus 1-2-3 bug date (Feb 29, 1900 — doesn't exist)
-    // Serial 61 = March 1, 1900
-    const d61 = serialToDate(61);
-    expect(d61.getUTCFullYear()).toBe(1900);
-    expect(d61.getUTCMonth()).toBe(2); // March
-    expect(d61.getUTCDate()).toBe(1);
+  it('Lotus 1-2-3 boundary (libraries differ at 60)', () => {
+    // Serial 60 is the Lotus 1-2-3 bug date (Feb 29, 1900 — doesn't exist).
+    // modern-xlsx maps it to Feb 28; SheetJS SSF renders Feb 29.
+    const iso = (serial: number) => serialToDate(serial).toISOString().slice(0, 10);
+    expect([59, 60, 61].map(iso)).toEqual(['1900-02-28', '1900-02-28', '1900-03-01']);
+    expect([59, 60, 61].map((n) => XLSX.SSF.format('yyyy-mm-dd', n))).toEqual([
+      '1900-02-28',
+      '1900-02-29',
+      '1900-03-01',
+    ]);
   });
 });
 
@@ -1042,9 +1066,9 @@ describe('19. Sheet Conversion Utilities', () => {
 
       // SheetJS
       const xlsxWs = XLSX.utils.json_to_sheet(data);
-      expect(xlsxWs.A1?.v).toBe('name');
-      expect(xlsxWs.A2?.v).toBe('Alice');
-      expect(xlsxWs.B3?.v).toBe(25);
+      expect(xlsxWs['A1']?.v).toBe('name');
+      expect(xlsxWs['A2']?.v).toBe('Alice');
+      expect(xlsxWs['B3']?.v).toBe(25);
     });
 
     it('both convert sheet to JSON', () => {
@@ -1089,8 +1113,8 @@ describe('19. Sheet Conversion Utilities', () => {
 
       // SheetJS
       const xlsxWs = XLSX.utils.aoa_to_sheet(aoa);
-      expect(xlsxWs.A1?.v).toBe('Name');
-      expect(xlsxWs.B2?.v).toBe(30);
+      expect(xlsxWs['A1']?.v).toBe('Name');
+      expect(xlsxWs['B2']?.v).toBe(30);
     });
 
     it('modern-xlsx aoaToSheet with origin offset', () => {
@@ -1342,982 +1366,5 @@ describe('24. Validation & Repair (modern-xlsx exclusive)', () => {
     expect(workbook).toBeDefined();
     expect(report).toBeDefined();
     expect(typeof repairCount).toBe('number');
-  });
-});
-
-// ==========================================================================
-// 25. PERFORMANCE COMPARISON
-// ==========================================================================
-
-describe('25. Performance Comparison', () => {
-  function generateData(rows: number, cols: number): unknown[][] {
-    const data: unknown[][] = [];
-    const header = Array.from({ length: cols }, (_, i) => `Col${i}`);
-    data.push(header);
-    for (let r = 0; r < rows; r++) {
-      const row: unknown[] = [];
-      for (let c = 0; c < cols; c++) {
-        if (c % 3 === 0) row.push(`String ${r}-${c}`);
-        else if (c % 3 === 1) row.push(r * 1000 + c);
-        else row.push(r % 2 === 0);
-      }
-      data.push(row);
-    }
-    return data;
-  }
-
-  /** Populate a Worksheet with AoA data (cell-by-cell). */
-  function populateSheet(ws: Worksheet, data: unknown[][], cols: string[]): void {
-    for (let r = 0; r < data.length; r++) {
-      const row = data[r];
-      if (!row) continue;
-      for (let c = 0; c < row.length; c++) {
-        setCellIfPrimitive(ws, `${cols[c]}${r + 1}`, row[c]);
-      }
-    }
-  }
-
-  function setCellIfPrimitive(ws: Worksheet, ref: string, val: unknown): void {
-    if (val == null) return;
-    if (typeof val === 'number' || typeof val === 'string' || typeof val === 'boolean') {
-      ws.cell(ref).value = val;
-    }
-  }
-
-  it('write 10K rows — modern-xlsx vs SheetJS', async () => {
-    const data = generateData(10_000, 10);
-    const cols = Array.from({ length: 10 }, (_, i) => columnToLetter(i));
-
-    // modern-xlsx (cell-by-cell)
-    const modernStart = performance.now();
-    const wb = new Workbook();
-    const ws = wb.addSheet('Data');
-    populateSheet(ws, data, cols);
-    const buf = await wb.toBuffer();
-    const modernTime = performance.now() - modernStart;
-
-    // SheetJS
-    const xlsxStart = performance.now();
-    const xlsxBuf = xlsxBufferFromAoa(data);
-    const xlsxTime = performance.now() - xlsxStart;
-
-    console.log('[Feature Comparison — Write 10K rows x 10 cols]');
-    console.log(`  modern-xlsx: ${modernTime.toFixed(1)}ms (${(buf.length / 1024).toFixed(0)}KB)`);
-    console.log(
-      `  SheetJS:     ${xlsxTime.toFixed(1)}ms (${(xlsxBuf.length / 1024).toFixed(0)}KB)`,
-    );
-    console.log(`  Ratio:       ${(xlsxTime / modernTime).toFixed(2)}x`);
-
-    expect(buf.length).toBeGreaterThan(0);
-    expect(xlsxBuf.length).toBeGreaterThan(0);
-  });
-
-  it('read 10K rows — modern-xlsx vs SheetJS', async () => {
-    const data = generateData(10_000, 10);
-    const xlsxBuf = xlsxBufferFromAoa(data);
-
-    // modern-xlsx read
-    const modernStart = performance.now();
-    const wb = await readBuffer(xlsxBuf);
-    const modernTime = performance.now() - modernStart;
-
-    // SheetJS read
-    const xlsxStart = performance.now();
-    XLSX.read(xlsxBuf, { type: 'buffer' });
-    const xlsxTime = performance.now() - xlsxStart;
-
-    console.log('[Feature Comparison — Read 10K rows x 10 cols]');
-    console.log(`  modern-xlsx: ${modernTime.toFixed(1)}ms`);
-    console.log(`  SheetJS:     ${xlsxTime.toFixed(1)}ms`);
-    console.log(`  Ratio:       ${(xlsxTime / modernTime).toFixed(2)}x`);
-
-    expect(wb.sheetCount).toBe(1);
-  });
-
-  it('aoaToSheet 50K rows — modern-xlsx vs SheetJS', () => {
-    const data = generateData(50_000, 5);
-
-    // modern-xlsx
-    const modernStart = performance.now();
-    const ws = aoaToSheet(data);
-    const modernTime = performance.now() - modernStart;
-
-    // SheetJS
-    const xlsxStart = performance.now();
-    XLSX.utils.aoa_to_sheet(data);
-    const xlsxTime = performance.now() - xlsxStart;
-
-    console.log('[Feature Comparison — aoaToSheet 50K rows x 5 cols]');
-    console.log(`  modern-xlsx: ${modernTime.toFixed(1)}ms`);
-    console.log(`  SheetJS:     ${xlsxTime.toFixed(1)}ms`);
-    console.log(`  Ratio:       ${(xlsxTime / modernTime).toFixed(2)}x`);
-
-    expect(ws.rows.length).toBeGreaterThan(0);
-  }, 30_000);
-
-  it('sheetToJson 10K rows — modern-xlsx vs SheetJS', () => {
-    const data = generateData(10_000, 10);
-    const cols = Array.from({ length: 10 }, (_, i) => columnToLetter(i));
-
-    // Build modern-xlsx sheet
-    const wb = new Workbook();
-    const ws = wb.addSheet('Data');
-    populateSheet(ws, data, cols);
-
-    // Build SheetJS sheet
-    const xlsxWs = XLSX.utils.aoa_to_sheet(data);
-
-    // modern-xlsx JSON
-    const modernStart = performance.now();
-    const json = sheetToJson(ws);
-    const modernTime = performance.now() - modernStart;
-
-    // SheetJS JSON
-    const xlsxStart = performance.now();
-    const xlsxJson = XLSX.utils.sheet_to_json(xlsxWs);
-    const xlsxTime = performance.now() - xlsxStart;
-
-    console.log('[Feature Comparison — sheetToJson 10K rows x 10 cols]');
-    console.log(`  modern-xlsx: ${modernTime.toFixed(1)}ms (${json.length} objects)`);
-    console.log(`  SheetJS:     ${xlsxTime.toFixed(1)}ms (${xlsxJson.length} objects)`);
-    console.log(`  Ratio:       ${(xlsxTime / modernTime).toFixed(2)}x`);
-
-    expect(json.length).toBeGreaterThan(0);
-    expect(xlsxJson.length).toBeGreaterThan(0);
-  });
-
-  it('sheetToCsv 10K rows — modern-xlsx vs SheetJS', () => {
-    const data = generateData(10_000, 10);
-    const cols = Array.from({ length: 10 }, (_, i) => columnToLetter(i));
-
-    // Build modern-xlsx sheet
-    const wb = new Workbook();
-    const ws = wb.addSheet('Data');
-    populateSheet(ws, data, cols);
-
-    // Build SheetJS sheet
-    const xlsxWs = XLSX.utils.aoa_to_sheet(data);
-
-    // modern-xlsx CSV
-    const modernStart = performance.now();
-    const csv = sheetToCsv(ws);
-    const modernTime = performance.now() - modernStart;
-
-    // SheetJS CSV
-    const xlsxStart = performance.now();
-    const xlsxCsv = XLSX.utils.sheet_to_csv(xlsxWs);
-    const xlsxTime = performance.now() - xlsxStart;
-
-    console.log('[Feature Comparison — sheetToCsv 10K rows x 10 cols]');
-    console.log(`  modern-xlsx: ${modernTime.toFixed(1)}ms (${(csv.length / 1024).toFixed(0)}KB)`);
-    console.log(
-      `  SheetJS:     ${xlsxTime.toFixed(1)}ms (${(xlsxCsv.length / 1024).toFixed(0)}KB)`,
-    );
-    console.log(`  Ratio:       ${(xlsxTime / modernTime).toFixed(2)}x`);
-
-    expect(csv.length).toBeGreaterThan(0);
-  });
-});
-
-// ==========================================================================
-// 26. EXHAUSTIVE FEATURE MATRIX
-// ==========================================================================
-
-describe('26. Exhaustive Feature Matrix', () => {
-  // Legend: ✅ = supported, ⭐ = supported + superior, 🔒 = Pro only, ❌ = not supported, 🔧 = partial
-
-  type Status = '✅' | '⭐' | '🔒' | '❌' | '🔧';
-  interface FeatureRow {
-    feature: string;
-    modern: Status;
-    sheetjs: Status;
-    notes?: string;
-  }
-
-  function printTable(title: string, rows: FeatureRow[]): void {
-    console.log(`\n${'='.repeat(80)}`);
-    console.log(`  ${title}`);
-    console.log(`${'='.repeat(80)}`);
-    console.log(`  ${'Feature'.padEnd(40)} modern-xlsx  SheetJS   Notes`);
-    console.log(`  ${'─'.repeat(40)} ${'─'.repeat(11)} ${'─'.repeat(9)} ${'─'.repeat(30)}`);
-    for (const r of rows) {
-      const notes = r.notes ?? '';
-      console.log(
-        `  ${r.feature.padEnd(40)} ${r.modern.padEnd(11)} ${r.sheetjs.padEnd(9)} ${notes}`,
-      );
-    }
-  }
-
-  it('1. Read Format Support (20 formats)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'XLSX (Office Open XML)', modern: '✅', sheetjs: '✅' },
-      {
-        feature: 'XLSM (Macro-enabled)',
-        modern: '❌',
-        sheetjs: '✅',
-        notes: 'Data only, no macros',
-      },
-      { feature: 'XLSB (Binary)', modern: '❌', sheetjs: '✅' },
-      {
-        feature: 'XLS (BIFF8/5/4/3/2)',
-        modern: '❌',
-        sheetjs: '✅',
-        notes: 'Legacy Excel 97-2003',
-      },
-      { feature: 'XLML (SpreadsheetML 2003)', modern: '❌', sheetjs: '✅' },
-      { feature: 'ODS (OpenDocument)', modern: '❌', sheetjs: '✅' },
-      { feature: 'FODS (Flat ODS)', modern: '❌', sheetjs: '✅' },
-      { feature: 'CSV', modern: '❌', sheetjs: '✅' },
-      { feature: 'TSV / TXT', modern: '❌', sheetjs: '✅' },
-      { feature: 'HTML tables', modern: '❌', sheetjs: '✅' },
-      { feature: 'SYLK', modern: '❌', sheetjs: '✅' },
-      { feature: 'DIF', modern: '❌', sheetjs: '✅' },
-      { feature: 'PRN', modern: '❌', sheetjs: '✅' },
-      { feature: 'ETH (EtherCalc)', modern: '❌', sheetjs: '✅' },
-      { feature: 'DBF (dBASE)', modern: '❌', sheetjs: '✅' },
-      { feature: 'WK1/WK3/WKS (Lotus)', modern: '❌', sheetjs: '✅' },
-      { feature: 'QPW (Quattro Pro)', modern: '❌', sheetjs: '✅' },
-      { feature: 'Numbers (Apple)', modern: '❌', sheetjs: '✅', notes: 'Requires numbers option' },
-    ];
-    printTable('READ FORMAT SUPPORT', rows);
-    expect(rows.length).toBe(18);
-  });
-
-  it('2. Write Format Support (23 formats)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'XLSX', modern: '⭐', sheetjs: '✅', notes: 'modern-xlsx: 8x smaller output' },
-      { feature: 'XLSM', modern: '❌', sheetjs: '✅' },
-      { feature: 'XLSB', modern: '❌', sheetjs: '✅' },
-      { feature: 'XLS (BIFF8)', modern: '❌', sheetjs: '✅' },
-      { feature: 'XLS (BIFF5)', modern: '❌', sheetjs: '✅' },
-      { feature: 'XLS (BIFF4/3/2)', modern: '❌', sheetjs: '✅' },
-      { feature: 'XLML', modern: '❌', sheetjs: '✅' },
-      { feature: 'ODS', modern: '❌', sheetjs: '✅' },
-      { feature: 'FODS', modern: '❌', sheetjs: '✅' },
-      { feature: 'CSV', modern: '❌', sheetjs: '✅', notes: 'modern-xlsx: string only' },
-      { feature: 'TXT', modern: '❌', sheetjs: '✅' },
-      { feature: 'SYLK', modern: '❌', sheetjs: '✅' },
-      { feature: 'HTML', modern: '❌', sheetjs: '✅', notes: 'modern-xlsx: string only' },
-      { feature: 'DIF', modern: '❌', sheetjs: '✅' },
-      { feature: 'RTF', modern: '❌', sheetjs: '✅' },
-      { feature: 'PRN', modern: '❌', sheetjs: '✅' },
-      { feature: 'ETH', modern: '❌', sheetjs: '✅' },
-      { feature: 'DBF', modern: '❌', sheetjs: '✅' },
-      { feature: 'WK3', modern: '❌', sheetjs: '✅' },
-      { feature: 'XLA', modern: '❌', sheetjs: '✅' },
-    ];
-    printTable('WRITE FORMAT SUPPORT', rows);
-    expect(rows.length).toBe(20);
-  });
-
-  it('3. I/O Operations (14 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Read from Uint8Array/Buffer', modern: '✅', sheetjs: '✅' },
-      { feature: 'Read from file path', modern: '✅', sheetjs: '✅' },
-      {
-        feature: 'Read from file (sync)',
-        modern: '❌',
-        sheetjs: '✅',
-        notes: 'modern-xlsx: async-only',
-      },
-      { feature: 'Write to Uint8Array/Buffer', modern: '✅', sheetjs: '✅' },
-      { feature: 'Write to file', modern: '✅', sheetjs: '✅' },
-      { feature: 'Write to file (sync)', modern: '❌', sheetjs: '✅' },
-      { feature: 'Write to file (async)', modern: '✅', sheetjs: '✅' },
-      {
-        feature: 'Write to Blob (browser)',
-        modern: '⭐',
-        sheetjs: '✅',
-        notes: 'modern-xlsx: native WASM Blob',
-      },
-      { feature: 'Parse CFB containers', modern: '❌', sheetjs: '✅' },
-      { feature: 'Parse ZIP directly', modern: '❌', sheetjs: '✅' },
-      { feature: 'Set custom FS module', modern: '❌', sheetjs: '✅' },
-      { feature: 'Set codepage tables', modern: '❌', sheetjs: '✅' },
-      {
-        feature: 'WASM initialization',
-        modern: '⭐',
-        sheetjs: '❌',
-        notes: 'Zero-copy acceleration',
-      },
-      { feature: 'WASM sync init', modern: '✅', sheetjs: '❌' },
-    ];
-    printTable('I/O OPERATIONS', rows);
-    expect(rows.length).toBe(14);
-  });
-
-  it('4. Workbook Operations (14 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Create new workbook', modern: '✅', sheetjs: '✅' },
-      { feature: 'Get sheet names', modern: '✅', sheetjs: '✅' },
-      {
-        feature: 'Get sheet count',
-        modern: '✅',
-        sheetjs: '🔧',
-        notes: 'SheetJS: .SheetNames.length',
-      },
-      { feature: 'Get sheet by name', modern: '✅', sheetjs: '✅' },
-      { feature: 'Get sheet by index', modern: '✅', sheetjs: '🔧' },
-      { feature: 'Add sheet', modern: '✅', sheetjs: '✅' },
-      { feature: 'Remove sheet', modern: '✅', sheetjs: '❌', notes: 'SheetJS: manual splice' },
-      { feature: 'Sheet visibility', modern: '❌', sheetjs: '✅' },
-      { feature: 'Date system (1900/1904)', modern: '✅', sheetjs: '✅' },
-      {
-        feature: 'Workbook views',
-        modern: '⭐',
-        sheetjs: '🔧',
-        notes: 'modern-xlsx: typed interface',
-      },
-      {
-        feature: 'Document properties',
-        modern: '⭐',
-        sheetjs: '🔧',
-        notes: 'modern-xlsx: typed interface',
-      },
-      { feature: 'Serialize to JSON', modern: '✅', sheetjs: '❌' },
-      { feature: 'Validate workbook', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Repair workbook', modern: '⭐', sheetjs: '❌' },
-    ];
-    printTable('WORKBOOK OPERATIONS', rows);
-    expect(rows.length).toBe(14);
-  });
-
-  it('5. Worksheet Operations (11 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Create new sheet', modern: '✅', sheetjs: '✅' },
-      {
-        feature: 'Sheet name property',
-        modern: '✅',
-        sheetjs: '❌',
-        notes: 'SheetJS: via SheetNames[]',
-      },
-      { feature: 'Access typed rows', modern: '⭐', sheetjs: '❌', notes: 'Typed RowData[]' },
-      { feature: 'Access columns', modern: '✅', sheetjs: '✅' },
-      { feature: 'Set column width', modern: '✅', sheetjs: '🔧' },
-      { feature: 'Set row height', modern: '✅', sheetjs: '🔧' },
-      { feature: 'Hide row', modern: '✅', sheetjs: '🔧' },
-      { feature: 'Hide column', modern: '🔧', sheetjs: '🔧' },
-      { feature: 'Sheet used range (!ref)', modern: '✅', sheetjs: '✅' },
-      { feature: 'Outline / grouping', modern: '❌', sheetjs: '🔧' },
-      { feature: 'Sheet tab color', modern: '✅', sheetjs: '🔧' },
-    ];
-    printTable('WORKSHEET OPERATIONS', rows);
-    expect(rows.length).toBe(11);
-  });
-
-  it('6. Cell Operations (16 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Read/write by reference', modern: '✅', sheetjs: '✅' },
-      { feature: 'Get cell (safe)', modern: '✅', sheetjs: '✅' },
-      { feature: 'String values', modern: '✅', sheetjs: '✅' },
-      { feature: 'Number values', modern: '✅', sheetjs: '✅' },
-      { feature: 'Boolean values', modern: '✅', sheetjs: '✅' },
-      { feature: 'Error values', modern: '✅', sheetjs: '✅' },
-      {
-        feature: 'Date values (native type)',
-        modern: '✅',
-        sheetjs: '✅',
-        notes: 'cell.dateValue getter',
-      },
-      { feature: 'Stub/empty cells (type "z")', modern: '✅', sheetjs: '✅' },
-      { feature: 'Inline strings', modern: '✅', sheetjs: '❌' },
-      { feature: 'Formula strings (type)', modern: '✅', sheetjs: '❌' },
-      {
-        feature: 'Cell type field',
-        modern: '⭐',
-        sheetjs: '✅',
-        notes: 'modern-xlsx: semantic types',
-      },
-      {
-        feature: 'Cell reference field',
-        modern: '✅',
-        sheetjs: '❌',
-        notes: 'Implicit from key in SheetJS',
-      },
-      { feature: 'Style index', modern: '⭐', sheetjs: '🔒', notes: 'SheetJS: Pro only (.s)' },
-      { feature: 'Formatted text', modern: '✅', sheetjs: '✅' },
-      { feature: 'Rich text (in cell)', modern: '🔧', sheetjs: '✅', notes: 'SheetJS: HTML in .r' },
-      {
-        feature: 'Number format override',
-        modern: '✅',
-        sheetjs: '✅',
-        notes: 'cell.numberFormat getter',
-      },
-    ];
-    printTable('CELL OPERATIONS', rows);
-    expect(rows.length).toBe(16);
-  });
-
-  it('7. Formulas (7 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Simple formulas', modern: '✅', sheetjs: '✅' },
-      { feature: 'Array formulas', modern: '✅', sheetjs: '✅' },
-      { feature: 'Shared formulas', modern: '✅', sheetjs: '❌' },
-      { feature: 'Dynamic array (SPILL)', modern: '✅', sheetjs: '✅', notes: 'cm="1" attribute' },
-      { feature: 'Formula reference (range)', modern: '✅', sheetjs: '✅' },
-      { feature: 'Sheet to formulae', modern: '✅', sheetjs: '✅' },
-      { feature: 'Calc chain', modern: '⭐', sheetjs: '🔧', notes: 'modern-xlsx: typed array' },
-    ];
-    printTable('FORMULAS', rows);
-    expect(rows.length).toBe(7);
-  });
-
-  it('8. Merge Cells (3 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Get merge ranges', modern: '✅', sheetjs: '✅' },
-      { feature: 'Add merge range', modern: '✅', sheetjs: '🔧', notes: 'SheetJS: manual push' },
-      { feature: 'Remove merge range', modern: '✅', sheetjs: '❌' },
-    ];
-    printTable('MERGE CELLS', rows);
-    expect(rows.length).toBe(3);
-  });
-
-  it('9. Styling (30 features)', () => {
-    const rows: FeatureRow[] = [
-      {
-        feature: 'Style system',
-        modern: '⭐',
-        sheetjs: '🔒',
-        notes: 'modern-xlsx FREE; SheetJS PAID',
-      },
-      { feature: 'Style builder (fluent API)', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Font (name, size, bold, italic)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Font color', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Font underline', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Font strikethrough', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Fill (solid pattern)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Fill (18 pattern types)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Fill (gradient)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Border (top/bottom/left/right)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Border (diagonal)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Border styles (13 types)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Border colors', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Alignment (horizontal)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Alignment (vertical)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Alignment (wrap text)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Alignment (text rotation)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Alignment (indent)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Alignment (shrink to fit)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Cell protection (locked/hidden)', modern: '⭐', sheetjs: '🔒' },
-      {
-        feature: 'Number format (custom)',
-        modern: '⭐',
-        sheetjs: '✅',
-        notes: 'SheetJS: per-cell .z',
-      },
-      { feature: 'Number format (built-in table)', modern: '⭐', sheetjs: '✅' },
-      { feature: 'DXF styles (differential)', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Cell styles (named)', modern: '⭐', sheetjs: '❌' },
-      { feature: 'CellXf (format records)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'NumFmt records', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Theme colors', modern: '⭐', sheetjs: '❌' },
-    ];
-    printTable('STYLING', rows);
-    expect(rows.length).toBe(27);
-  });
-
-  it('10. Frozen Panes & Auto Filter (6 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Freeze rows', modern: '✅', sheetjs: '✅' },
-      { feature: 'Freeze columns', modern: '✅', sheetjs: '✅' },
-      { feature: 'Freeze both', modern: '✅', sheetjs: '✅' },
-      { feature: 'Set auto filter range', modern: '✅', sheetjs: '✅' },
-      { feature: 'Filter column definitions', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Remove auto filter', modern: '✅', sheetjs: '🔧' },
-    ];
-    printTable('FROZEN PANES & AUTO FILTER', rows);
-    expect(rows.length).toBe(6);
-  });
-
-  it('11. Data Validation (12 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Add validation rule', modern: '⭐', sheetjs: '🔒', notes: 'modern-xlsx FREE' },
-      { feature: 'List validation (dropdown)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Whole number validation', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Decimal validation', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Date validation', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Time validation', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Text length validation', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Custom formula validation', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Validation operators', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Input prompt', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Error alert', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Remove validation', modern: '✅', sheetjs: '🔒' },
-    ];
-    printTable('DATA VALIDATION', rows);
-    expect(rows.length).toBe(12);
-  });
-
-  it('12. Conditional Formatting (7 features)', () => {
-    const rows: FeatureRow[] = [
-      {
-        feature: 'Conditional format rules',
-        modern: '⭐',
-        sheetjs: '🔒',
-        notes: 'modern-xlsx FREE',
-      },
-      { feature: 'Color scales (2/3 color)', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Data bars', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Icon sets', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'Cell value rules', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'DXF style references', modern: '⭐', sheetjs: '🔒' },
-      { feature: 'CFVO value objects', modern: '⭐', sheetjs: '🔒' },
-    ];
-    printTable('CONDITIONAL FORMATTING', rows);
-    expect(rows.length).toBe(7);
-  });
-
-  it('13. Hyperlinks (6 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Add external hyperlink', modern: '✅', sheetjs: '✅' },
-      { feature: 'Add internal link', modern: '✅', sheetjs: '✅' },
-      { feature: 'Link display text', modern: '✅', sheetjs: '🔧' },
-      { feature: 'Link tooltip', modern: '✅', sheetjs: '❌' },
-      { feature: 'Remove hyperlink', modern: '✅', sheetjs: '❌' },
-      {
-        feature: 'Get all hyperlinks',
-        modern: '✅',
-        sheetjs: '🔧',
-        notes: 'SheetJS: cell .l property',
-      },
-    ];
-    printTable('HYPERLINKS', rows);
-    expect(rows.length).toBe(6);
-  });
-
-  it('14. Comments (5 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Add comment', modern: '✅', sheetjs: '✅' },
-      { feature: 'Remove comment', modern: '✅', sheetjs: '❌' },
-      { feature: 'Get all comments', modern: '✅', sheetjs: '🔧', notes: 'SheetJS: cell .c array' },
-      { feature: 'Comment author', modern: '✅', sheetjs: '🔧' },
-      { feature: 'Comment text', modern: '✅', sheetjs: '🔧' },
-    ];
-    printTable('COMMENTS', rows);
-    expect(rows.length).toBe(5);
-  });
-
-  it('15. Named Ranges (5 features)', () => {
-    const rows: FeatureRow[] = [
-      {
-        feature: 'Get all named ranges',
-        modern: '⭐',
-        sheetjs: '🔧',
-        notes: 'modern-xlsx: typed array',
-      },
-      { feature: 'Add named range', modern: '✅', sheetjs: '❌' },
-      { feature: 'Get named range by name', modern: '✅', sheetjs: '❌' },
-      { feature: 'Remove named range', modern: '✅', sheetjs: '❌' },
-      { feature: 'Scoped named ranges', modern: '✅', sheetjs: '🔧' },
-    ];
-    printTable('NAMED RANGES', rows);
-    expect(rows.length).toBe(5);
-  });
-
-  it('16. Page Setup & Print (9 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Page orientation', modern: '✅', sheetjs: '❌' },
-      { feature: 'Paper size', modern: '✅', sheetjs: '❌' },
-      { feature: 'Fit to width/height', modern: '✅', sheetjs: '❌' },
-      { feature: 'Scale', modern: '✅', sheetjs: '❌' },
-      { feature: 'Page margins', modern: '✅', sheetjs: '✅' },
-      { feature: 'Header/footer margins', modern: '✅', sheetjs: '✅' },
-      { feature: 'Print area', modern: '❌', sheetjs: '❌' },
-      { feature: 'Page breaks', modern: '❌', sheetjs: '❌' },
-      { feature: 'Print titles (repeat rows)', modern: '❌', sheetjs: '❌' },
-    ];
-    printTable('PAGE SETUP & PRINT', rows);
-    expect(rows.length).toBe(9);
-  });
-
-  it('17. Sheet Protection (15 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Protect sheet', modern: '⭐', sheetjs: '✅' },
-      { feature: 'Protect objects', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Protect scenarios', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Protect format cells', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Protect format columns', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Protect format rows', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Protect insert columns', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Protect insert rows', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Protect delete columns', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Protect delete rows', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Protect sort', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Protect auto filter', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Select locked cells', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Select unlocked cells', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Password protection', modern: '❌', sheetjs: '🔧' },
-    ];
-    printTable('SHEET PROTECTION', rows);
-    expect(rows.length).toBe(15);
-  });
-
-  it('18. Document Properties (15 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Title', modern: '✅', sheetjs: '✅' },
-      { feature: 'Creator / Author', modern: '✅', sheetjs: '✅' },
-      { feature: 'Description / Subject', modern: '✅', sheetjs: '✅' },
-      { feature: 'Created date', modern: '✅', sheetjs: '✅' },
-      { feature: 'Modified date', modern: '✅', sheetjs: '✅' },
-      { feature: 'Keywords', modern: '✅', sheetjs: '✅' },
-      { feature: 'Category', modern: '✅', sheetjs: '✅' },
-      { feature: 'Last modified by', modern: '✅', sheetjs: '✅' },
-      { feature: 'Application name', modern: '✅', sheetjs: '✅' },
-      { feature: 'App version', modern: '✅', sheetjs: '✅' },
-      { feature: 'Company', modern: '✅', sheetjs: '✅' },
-      { feature: 'Manager', modern: '✅', sheetjs: '✅' },
-      { feature: 'Hyperlink base', modern: '✅', sheetjs: '❌' },
-      { feature: 'Revision', modern: '✅', sheetjs: '❌' },
-      { feature: 'Content status', modern: '✅', sheetjs: '❌' },
-    ];
-    printTable('DOCUMENT PROPERTIES', rows);
-    expect(rows.length).toBe(15);
-  });
-
-  it('19. Cell Reference Utilities (9 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Column index → letter', modern: '✅', sheetjs: '✅' },
-      { feature: 'Letter → column index', modern: '✅', sheetjs: '✅' },
-      { feature: 'Decode cell ref', modern: '✅', sheetjs: '✅' },
-      { feature: 'Encode cell ref', modern: '✅', sheetjs: '✅' },
-      { feature: 'Decode range', modern: '✅', sheetjs: '✅' },
-      { feature: 'Encode range', modern: '✅', sheetjs: '✅' },
-      { feature: 'Encode row', modern: '✅', sheetjs: '✅' },
-      { feature: 'Decode row', modern: '✅', sheetjs: '✅' },
-      { feature: 'Split cell ref ($A$1)', modern: '✅', sheetjs: '✅' },
-    ];
-    printTable('CELL REFERENCE UTILITIES', rows);
-    expect(rows.length).toBe(9);
-  });
-
-  it('20. Date Utilities (7 features)', () => {
-    const rows: FeatureRow[] = [
-      {
-        feature: 'Date → serial number',
-        modern: '⭐',
-        sheetjs: '❌',
-        notes: 'Temporal-like input',
-      },
-      { feature: 'Serial → Date', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Is date format code', modern: '⭐', sheetjs: '✅' },
-      { feature: 'Is date format ID', modern: '⭐', sheetjs: '🔧' },
-      { feature: 'Parse date code', modern: '❌', sheetjs: '✅', notes: 'Returns {y,m,d,H,M,S}' },
-      { feature: 'Is Temporal-like', modern: '✅', sheetjs: '❌' },
-      { feature: 'Lotus 1-2-3 bug handling', modern: '✅', sheetjs: '✅' },
-    ];
-    printTable('DATE UTILITIES', rows);
-    expect(rows.length).toBe(7);
-  });
-
-  it('21. Number Formatting / SSF (13 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Format cell value', modern: '✅', sheetjs: '✅' },
-      { feature: 'Built-in format table', modern: '✅', sheetjs: '✅' },
-      { feature: 'Load custom format', modern: '✅', sheetjs: '✅' },
-      { feature: 'Load format table (bulk)', modern: '✅', sheetjs: '✅' },
-      { feature: 'General format', modern: '✅', sheetjs: '✅' },
-      { feature: 'Number/percentage/scientific', modern: '✅', sheetjs: '✅' },
-      { feature: 'Fraction formats', modern: '✅', sheetjs: '✅' },
-      { feature: 'Date/time formats', modern: '✅', sheetjs: '✅' },
-      { feature: 'Multi-section formats', modern: '✅', sheetjs: '✅' },
-      { feature: 'Locale codes ([$-409])', modern: '🔧', sheetjs: '✅' },
-      { feature: 'Conditional sections', modern: '✅', sheetjs: '✅' },
-      { feature: 'Color codes ([Red], [Color3])', modern: '✅', sheetjs: '✅' },
-      {
-        feature: 'Rich format result (text+color)',
-        modern: '⭐',
-        sheetjs: '❌',
-        notes: 'formatCellRich()',
-      },
-    ];
-    printTable('NUMBER FORMATTING (SSF)', rows);
-    expect(rows.length).toBe(13);
-  });
-
-  it('22. Sheet Conversion Utilities (16 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'AoA → sheet', modern: '✅', sheetjs: '✅' },
-      { feature: 'JSON → sheet', modern: '✅', sheetjs: '✅' },
-      { feature: 'Sheet → JSON', modern: '✅', sheetjs: '✅' },
-      { feature: 'Sheet → CSV', modern: '✅', sheetjs: '✅' },
-      { feature: 'Sheet → HTML', modern: '✅', sheetjs: '✅' },
-      { feature: 'Sheet → TXT', modern: '✅', sheetjs: '✅' },
-      { feature: 'Sheet → formulae', modern: '✅', sheetjs: '✅' },
-      { feature: 'Sheet → row objects (alias)', modern: '❌', sheetjs: '✅' },
-      { feature: 'Add AoA to existing sheet', modern: '✅', sheetjs: '✅' },
-      { feature: 'Add JSON to existing sheet', modern: '✅', sheetjs: '✅' },
-      { feature: 'DOM table → sheet', modern: '❌', sheetjs: '✅' },
-      { feature: 'DOM table → book', modern: '❌', sheetjs: '✅' },
-      { feature: 'Format cell utility', modern: '✅', sheetjs: '✅' },
-      { feature: 'JSON → sheet options', modern: '✅', sheetjs: '✅' },
-      { feature: 'AoA → sheet options', modern: '✅', sheetjs: '✅' },
-      { feature: 'CSV/HTML options', modern: '✅', sheetjs: '✅' },
-    ];
-    printTable('SHEET CONVERSION UTILITIES', rows);
-    expect(rows.length).toBe(16);
-  });
-
-  it('23. Streaming (7 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Stream to JSON', modern: '❌', sheetjs: '✅' },
-      { feature: 'Stream to CSV', modern: '❌', sheetjs: '✅' },
-      { feature: 'Stream to HTML', modern: '❌', sheetjs: '✅' },
-      { feature: 'Stream to XLML', modern: '❌', sheetjs: '✅' },
-      { feature: 'Set Readable impl', modern: '❌', sheetjs: '✅' },
-      { feature: 'WASM streaming reader', modern: '⭐', sheetjs: '❌', notes: 'Rust SAX parser' },
-      {
-        feature: 'Parallel sheet parsing',
-        modern: '⭐',
-        sheetjs: '❌',
-        notes: 'rayon feature flag',
-      },
-    ];
-    printTable('STREAMING', rows);
-    expect(rows.length).toBe(7);
-  });
-
-  it('24. Rich Text (10 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Rich text builder', modern: '⭐', sheetjs: '❌', notes: 'Fluent API' },
-      { feature: 'Bold text runs', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Italic text runs', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Bold+italic runs', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Colored text runs', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Custom styled runs', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Build rich text array', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Plain text extraction', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Rich text in cells', modern: '🔧', sheetjs: '✅', notes: 'SheetJS: HTML-based' },
-      { feature: 'Rich text roundtrip', modern: '✅', sheetjs: '✅' },
-    ];
-    printTable('RICH TEXT', rows);
-    expect(rows.length).toBe(10);
-  });
-
-  it('25. Images & Charts (7 features)', () => {
-    const rows: FeatureRow[] = [
-      {
-        feature: 'Add image (PNG/JPEG/GIF)',
-        modern: '⭐',
-        sheetjs: '🔒',
-        notes: 'modern-xlsx FREE',
-      },
-      { feature: 'Image anchor (cell range)', modern: '⭐', sheetjs: '🔒' },
-      {
-        feature: 'Charts (read/preserve)',
-        modern: '🔧',
-        sheetjs: '🔒',
-        notes: 'Passthrough roundtrip',
-      },
-      { feature: 'Charts (create)', modern: '❌', sheetjs: '🔒' },
-      { feature: 'Drawings (roundtrip)', modern: '✅', sheetjs: '🔒' },
-      { feature: 'Tables (read)', modern: '❌', sheetjs: '🔒' },
-      { feature: 'Tables (create)', modern: '❌', sheetjs: '🔒' },
-    ];
-    printTable('IMAGES & CHARTS', rows);
-    expect(rows.length).toBe(7);
-  });
-
-  it('26. Barcode & QR Code (14 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'QR code encoding', modern: '⭐', sheetjs: '❌', notes: 'UNIQUE to modern-xlsx' },
-      { feature: 'Code 128 encoding', modern: '⭐', sheetjs: '❌' },
-      { feature: 'EAN-13 encoding', modern: '⭐', sheetjs: '❌' },
-      { feature: 'UPC-A encoding', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Code 39 encoding', modern: '⭐', sheetjs: '❌' },
-      { feature: 'PDF417 encoding', modern: '⭐', sheetjs: '❌' },
-      { feature: 'DataMatrix encoding', modern: '⭐', sheetjs: '❌' },
-      { feature: 'ITF-14 encoding', modern: '⭐', sheetjs: '❌' },
-      { feature: 'GS1-128 encoding', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Render barcode to PNG', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Embed barcode in sheet', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Barcode options', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Generate drawing XML', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Generate drawing rels', modern: '⭐', sheetjs: '❌' },
-    ];
-    printTable('BARCODE & QR CODE', rows);
-    expect(rows.length).toBe(14);
-  });
-
-  it('27. Table Layout Engine (8 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Draw styled table', modern: '⭐', sheetjs: '❌', notes: 'UNIQUE to modern-xlsx' },
-      { feature: 'Draw table from data', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Column definitions', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Header styling', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Zebra striping', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Auto column widths', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Custom cell styles', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Table result metadata', modern: '⭐', sheetjs: '❌' },
-    ];
-    printTable('TABLE LAYOUT ENGINE', rows);
-    expect(rows.length).toBe(8);
-  });
-
-  it('28. Shared Strings / SST (5 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'SST read', modern: '✅', sheetjs: '✅' },
-      { feature: 'SST write', modern: '✅', sheetjs: '✅' },
-      { feature: 'Rich text runs in SST', modern: '✅', sheetjs: '✅' },
-      { feature: 'SST deduplication', modern: '✅', sheetjs: '✅' },
-      {
-        feature: 'SST index auto-resolution',
-        modern: '⭐',
-        sheetjs: '✅',
-        notes: 'Transparent in readBuffer',
-      },
-    ];
-    printTable('SHARED STRINGS (SST)', rows);
-    expect(rows.length).toBe(5);
-  });
-
-  it('29. Validation & Repair (6 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Validate workbook', modern: '⭐', sheetjs: '❌', notes: 'UNIQUE to modern-xlsx' },
-      { feature: 'Validation report', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Issue categories', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Issue severity levels', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Auto-repair', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Repair summary', modern: '⭐', sheetjs: '❌' },
-    ];
-    printTable('VALIDATION & REPAIR', rows);
-    expect(rows.length).toBe(6);
-  });
-
-  it('30. Web Worker Support (4 features)', () => {
-    const rows: FeatureRow[] = [
-      {
-        feature: 'Dedicated worker API',
-        modern: '⭐',
-        sheetjs: '❌',
-        notes: 'UNIQUE to modern-xlsx',
-      },
-      { feature: 'Worker options', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Off-main-thread processing', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Transferable buffers', modern: '⭐', sheetjs: '❌' },
-    ];
-    printTable('WEB WORKER SUPPORT', rows);
-    expect(rows.length).toBe(4);
-  });
-
-  it('31. Performance & Architecture (20 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'Core language', modern: '⭐', sheetjs: '✅', notes: 'Rust WASM vs JavaScript' },
-      { feature: 'XML parsing', modern: '⭐', sheetjs: '✅', notes: 'quick-xml SAX' },
-      { feature: 'ZIP handling', modern: '⭐', sheetjs: '✅', notes: 'Native Rust zip crate' },
-      { feature: 'Output file size', modern: '⭐', sheetjs: '✅', notes: '~8x smaller' },
-      { feature: 'Read speed (10K rows)', modern: '⭐', sheetjs: '✅', notes: '~4.6x faster' },
-      { feature: 'Write speed (10K rows)', modern: '⭐', sheetjs: '✅', notes: '~1.3x faster' },
-      { feature: 'aoaToSheet (50K rows)', modern: '⭐', sheetjs: '✅', notes: '~2x faster' },
-      { feature: 'sheetToJson (10K rows)', modern: '⭐', sheetjs: '✅', notes: '~2x faster' },
-      { feature: 'sheetToCsv (10K rows)', modern: '⭐', sheetjs: '✅', notes: '~2.4x faster' },
-      { feature: 'Tree-shakeable (ESM)', modern: '✅', sheetjs: '🔧' },
-      {
-        feature: 'Zero runtime deps',
-        modern: '⭐',
-        sheetjs: '❌',
-        notes: 'SheetJS bundles CFB, SSF',
-      },
-      { feature: 'TypeScript types', modern: '⭐', sheetjs: '🔧', notes: '109+ exported types' },
-      {
-        feature: 'Bundle size (minified)',
-        modern: '🔧',
-        sheetjs: '✅',
-        notes: '~300KB WASM vs ~200KB JS',
-      },
-      { feature: 'Async-first', modern: '✅', sheetjs: '❌' },
-      { feature: 'Sync API', modern: '❌', sheetjs: '✅' },
-      { feature: 'Browser support', modern: '✅', sheetjs: '✅' },
-      { feature: 'Node.js support', modern: '✅', sheetjs: '✅' },
-      { feature: 'Deno support', modern: '✅', sheetjs: '🔧' },
-      { feature: 'Bun support', modern: '✅', sheetjs: '🔧' },
-      { feature: 'Multi-threading (rayon)', modern: '⭐', sheetjs: '❌' },
-    ];
-    printTable('PERFORMANCE & ARCHITECTURE', rows);
-    expect(rows.length).toBe(20);
-  });
-
-  it('32. API Design (6 features)', () => {
-    const rows: FeatureRow[] = [
-      { feature: 'API style', modern: '⭐', sheetjs: '✅', notes: 'Class-based vs POJO' },
-      { feature: 'Cell access', modern: '⭐', sheetjs: '✅', notes: 'Getter/setter vs raw prop' },
-      { feature: 'Method chaining', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Null safety', modern: '⭐', sheetjs: '❌' },
-      { feature: 'Error types', modern: '⭐', sheetjs: '❌', notes: 'Rust thiserror' },
-      { feature: 'Version constant', modern: '✅', sheetjs: '✅' },
-    ];
-    printTable('API DESIGN', rows);
-    expect(rows.length).toBe(6);
-  });
-
-  it('FINAL SCORECARD — prints aggregate totals', () => {
-    const scorecard = [
-      { category: 'Read format support', modern: 1, sheetjs: 18, winner: 'SheetJS' },
-      { category: 'Write format support', modern: 1, sheetjs: 20, winner: 'SheetJS' },
-      { category: 'I/O operations', modern: 8, sheetjs: 10, winner: 'SheetJS' },
-      { category: 'Workbook operations', modern: 13, sheetjs: 8, winner: 'modern-xlsx' },
-      { category: 'Worksheet operations', modern: 9, sheetjs: 7, winner: 'modern-xlsx' },
-      { category: 'Cell operations', modern: 15, sheetjs: 12, winner: 'modern-xlsx' },
-      { category: 'Formulas', modern: 7, sheetjs: 5, winner: 'modern-xlsx' },
-      { category: 'Merge cells', modern: 3, sheetjs: 2, winner: 'modern-xlsx' },
-      { category: 'Styling (free)', modern: 27, sheetjs: 2, winner: 'modern-xlsx' },
-      { category: 'Frozen panes & auto filter', modern: 6, sheetjs: 5, winner: 'modern-xlsx' },
-      { category: 'Data validation', modern: 12, sheetjs: 0, winner: 'modern-xlsx' },
-      { category: 'Conditional formatting', modern: 7, sheetjs: 0, winner: 'modern-xlsx' },
-      { category: 'Hyperlinks', modern: 6, sheetjs: 3, winner: 'modern-xlsx' },
-      { category: 'Comments', modern: 5, sheetjs: 3, winner: 'modern-xlsx' },
-      { category: 'Named ranges', modern: 5, sheetjs: 1, winner: 'modern-xlsx' },
-      { category: 'Page setup & print', modern: 6, sheetjs: 2, winner: 'modern-xlsx' },
-      { category: 'Sheet protection', modern: 14, sheetjs: 2, winner: 'modern-xlsx' },
-      { category: 'Document properties', modern: 15, sheetjs: 12, winner: 'modern-xlsx' },
-      { category: 'Cell reference utilities', modern: 9, sheetjs: 9, winner: 'Tie' },
-      { category: 'Date utilities', modern: 5, sheetjs: 3, winner: 'modern-xlsx' },
-      { category: 'Number formatting (SSF)', modern: 13, sheetjs: 11, winner: 'modern-xlsx' },
-      { category: 'Sheet conversion utilities', modern: 13, sheetjs: 14, winner: 'SheetJS' },
-      { category: 'Streaming', modern: 2, sheetjs: 5, winner: 'SheetJS' },
-      { category: 'Rich text', modern: 9, sheetjs: 2, winner: 'modern-xlsx' },
-      { category: 'Images & charts', modern: 3, sheetjs: 0, winner: 'modern-xlsx' },
-      { category: 'Barcode & QR code', modern: 14, sheetjs: 0, winner: 'modern-xlsx' },
-      { category: 'Table layout engine', modern: 8, sheetjs: 0, winner: 'modern-xlsx' },
-      { category: 'Shared strings (SST)', modern: 5, sheetjs: 5, winner: 'Tie' },
-      { category: 'Validation & repair', modern: 6, sheetjs: 0, winner: 'modern-xlsx' },
-      { category: 'Web worker support', modern: 4, sheetjs: 0, winner: 'modern-xlsx' },
-      { category: 'Performance & architecture', modern: 17, sheetjs: 10, winner: 'modern-xlsx' },
-      { category: 'API design', modern: 6, sheetjs: 3, winner: 'modern-xlsx' },
-    ];
-
-    const modernWins = scorecard.filter((s) => s.winner === 'modern-xlsx').length;
-    const sheetjsWins = scorecard.filter((s) => s.winner === 'SheetJS').length;
-    const ties = scorecard.filter((s) => s.winner === 'Tie').length;
-    const totalModern = scorecard.reduce((s, r) => s + r.modern, 0);
-    const totalSheetjs = scorecard.reduce((s, r) => s + r.sheetjs, 0);
-
-    console.log(`\n${'═'.repeat(80)}`);
-    console.log('  FINAL SCORECARD — modern-xlsx vs SheetJS (xlsx)');
-    console.log(`${'═'.repeat(80)}`);
-    console.log(`  ${'Category'.padEnd(35)} modern-xlsx  SheetJS   Winner`);
-    console.log(`  ${'─'.repeat(35)} ${'─'.repeat(11)} ${'─'.repeat(9)} ${'─'.repeat(15)}`);
-    for (const s of scorecard) {
-      const w =
-        s.winner === 'modern-xlsx'
-          ? '⭐ modern-xlsx'
-          : s.winner === 'SheetJS'
-            ? '  SheetJS'
-            : '  Tie';
-      console.log(
-        `  ${s.category.padEnd(35)} ${String(s.modern).padEnd(11)} ${String(s.sheetjs).padEnd(9)} ${w}`,
-      );
-    }
-    console.log(`  ${'─'.repeat(35)} ${'─'.repeat(11)} ${'─'.repeat(9)} ${'─'.repeat(15)}`);
-    console.log(
-      `  ${'TOTAL'.padEnd(35)} ${String(totalModern).padEnd(11)} ${String(totalSheetjs).padEnd(9)}`,
-    );
-    console.log('');
-    console.log(`  Categories won: modern-xlsx ${modernWins}, SheetJS ${sheetjsWins}, Tie ${ties}`);
-    console.log(`  Total features: modern-xlsx ${totalModern}, SheetJS ${totalSheetjs}`);
-    console.log(`${'═'.repeat(80)}`);
-
-    expect(scorecard.length).toBe(32);
-    expect(modernWins).toBeGreaterThan(sheetjsWins);
-    expect(totalModern).toBeGreaterThan(totalSheetjs);
   });
 });

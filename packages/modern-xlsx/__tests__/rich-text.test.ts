@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { assert, describe, expect, it } from 'vitest';
 import { RichTextBuilder, readBuffer, Workbook } from '../src/index.js';
-import type { RichTextRun } from '../src/types.js';
+import type { RichTextRun } from '../src/model/types.js';
+import { buildZip, readZipText } from './helpers/zip.js';
 
 describe('RichTextBuilder', () => {
   it('builds plain and bold runs', () => {
@@ -63,6 +64,16 @@ describe('RichTextBuilder', () => {
   it('plainText() returns concatenated text', () => {
     const builder = new RichTextBuilder().bold('Hello').text(' ').italic('World');
     expect(builder.plainText()).toBe('Hello World');
+  });
+
+  it('.build() returns a frozen copy of the runs array', () => {
+    const builder = new RichTextBuilder();
+    builder.text('A').bold('B');
+    const runs1 = builder.build();
+    const runs2 = builder.build();
+    expect(runs1).toEqual(runs2);
+    expect(runs1).not.toBe(runs2); // different array instances
+    expect(Object.isFrozen(runs1)).toBe(true);
   });
 });
 
@@ -159,6 +170,7 @@ describe('Rich text roundtrip', () => {
 
     // Plain text cell should not have rich text
     const cell2 = ws2?.cell('A2');
+    assert.isDefined(cell2);
     expect(cell2.value).toBe('plain text');
     expect(cell2.richText).toBeUndefined();
   });
@@ -214,7 +226,7 @@ describe('Rich text roundtrip', () => {
       strike: true,
       fontName: 'Arial',
       fontSize: 16,
-      color: 'FF0000',
+      color: 'FFFF0000',
     });
   });
 
@@ -233,5 +245,39 @@ describe('Rich text roundtrip', () => {
     expect(ws2?.cell('A1').richText?.[0]).toMatchObject({ text: 'bold', bold: true });
     expect(ws2?.cell('A2').richText?.[0]).toMatchObject({ text: 'italic', italic: true });
     expect(ws2?.cell('A3').richText).toBeUndefined();
+  });
+
+  it('attaches runs by shared-string index, not by equal text', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    ws.cell('A1').value = 'x';
+    ws.cell('B1').value = 'y';
+    const parts = readZipText(await wb.toBuffer());
+    const sheetPath = Object.keys(parts).find((p) => p.startsWith('xl/worksheets/sheet'));
+    assert.isDefined(sheetPath);
+
+    // Two SST entries with the same text 'A': index 0 plain, index 1 rich.
+    parts['xl/sharedStrings.xml'] =
+      '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="2" uniqueCount="2">' +
+      '<si><t>A</t></si><si><r><rPr><b/></rPr><t>A</t></r></si></sst>';
+    parts[sheetPath] =
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>' +
+      '</sheetData></worksheet>';
+
+    const wb2 = await readBuffer(
+      buildZip(
+        Object.entries(parts).map(
+          ([name, text]) => [name, new TextEncoder().encode(text)] as const,
+        ),
+        { method: 'stored' },
+      ),
+    );
+    const ws2 = wb2.getSheet('Sheet1');
+    assert.isDefined(ws2);
+    expect(ws2.cell('A1').value).toBe('A');
+    expect(ws2.cell('A1').richText).toBeUndefined();
+    expect(ws2.cell('B1').value).toBe('A');
+    expect(ws2.cell('B1').richText).toEqual([{ text: 'A', bold: true }]);
   });
 });

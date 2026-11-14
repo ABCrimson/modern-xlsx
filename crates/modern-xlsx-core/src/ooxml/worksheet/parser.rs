@@ -1,24 +1,85 @@
+//! The SAX helpers for both worksheet read paths, and their entry points.
+//! Both run the shared driver (`driver::drive`): `WorksheetXml::parse`,
+//! `parse_with_sst` and `parse_with_sst_within` with the struct sink
+//! (`sink_struct::StructSink`), which builds the typed model, and
+//! `parse_to_json_within` with the JSON sink (`sink_json::JsonSink`), which
+//! writes rows and cells straight to a JSON buffer. The `_within` variants
+//! count the text they copy from the SST and the sheet's relationships in a
+//! read's `ExpansionBudget`. The driver and the sinks share the helpers below.
+
 use core::hint::cold_path;
 
-use quick_xml::events::{BytesStart, Event};
-use quick_xml::Reader;
+use quick_xml::events::BytesStart;
+use quick_xml::events::attributes::Attribute;
 
-use super::json::{cell_type_json_str, json_escape_to, write_f64_json};
+use super::driver::{SheetMeta, drive};
+use super::sink_json::JsonSink;
+use super::sink_struct::StructSink;
 use super::{
-    AutoFilter, Cell, CellType, Cfvo, ColorScale, ColumnInfo, ConditionalFormatting,
-    ConditionalFormattingRule, CustomFilter, CustomFilters, DataBar, DataValidation, FilterColumn,
-    FrozenPane, HeaderFooter, Hyperlink, IconSet, OutlineProperties, PageBreak, PageBreaks,
-    PageSetup, PaneSelection, ParseState, Row, SheetProtection, SheetViewData, Sparkline,
-    SparklineGroup, SplitPane, WorksheetXml, parse_col_element,
+    CellType, Cfvo, ColumnInfo, ConditionalFormattingRule, DataValidation, FrozenPane,
+    HeaderFooter, HfPart, Hyperlink, OutlineProperties, PageBreak, PageMargins, PageSetup,
+    PaneSelection, ParseState, SheetContext, SheetProtection, SheetViewData, SparklineGroup,
+    SplitPane, WorksheetXml,
 };
-use crate::ooxml::push_entity;
+use crate::dates::{DateSystem, iso8601_to_serial};
+use crate::ooxml::color::{Color, split_color};
+use crate::ooxml::relationships::TargetMode;
+use crate::ooxml::shared_strings::{
+    ExpansionBudget, RichTextRun, SharedStringTable, runs_json_floor,
+};
+use crate::ooxml::xml::{XsdBuf, attr_str, attrs, fmt_xsd_double, parse_attr};
 use crate::{ModernXlsxError, Result};
 
 // ---------------------------------------------------------------------------
-// Extracted helper functions — shared between parse_with_sst and parse_to_json
+// Helper functions shared by the driver and the sinks
 // ---------------------------------------------------------------------------
+//
+// String attributes are decoded with `attr_str` (entities and character
+// references resolved once), numeric attributes with `parse_attr` (a present
+// but malformed value is `XmlParse`; an absent one keeps its default), and
+// xsd:boolean attributes with `Attribute::as_bool` (`1`/`true`/`0`/`false`;
+// any other value keeps the schema default). Attribute lists are walked with
+// `attrs` (a malformed list is `XmlParse`).
 
-/// Parse the `t` attribute value into a `CellType`.
+/// An SST entry as [`resolve_sst`] returns it: its plain text and, for a rich
+/// `<si>`, its runs.
+pub(super) type SstEntry<'s> = (&'s String, Option<&'s Vec<RichTextRun>>);
+
+/// Resolve a shared-string cell's `<v>` text to its SST entry: the plain text
+/// and, for a rich `<si>`, its runs. Only the index is trimmed (xsd:int
+/// collapses white space); `None` when there is no SST or no such entry.
+///
+/// The caller copies what this returns into the cell, so the entry's bytes
+/// (and, for a rich entry, [`runs_json_floor`] of its runs) are counted in
+/// `budget` first.
+///
+/// # Errors
+///
+/// `SizeLimit` when the count passes the budget.
+#[inline]
+pub(super) fn resolve_sst<'s>(
+    sst: Option<&'s SharedStringTable>,
+    v: &str,
+    budget: &mut ExpansionBudget,
+) -> Result<Option<SstEntry<'s>>> {
+    let Some(sst) = sst else { return Ok(None) };
+    let Ok(idx) = v.trim_ascii().parse::<usize>() else {
+        return Ok(None);
+    };
+    let Some(text) = sst.strings.get(idx) else {
+        return Ok(None);
+    };
+    budget.spend(text.len())?;
+    let runs = sst.rich_runs.get(idx).and_then(Option::as_ref);
+    if let Some(runs) = runs {
+        budget.spend(runs_json_floor(runs))?;
+    }
+    Ok(Some((text, runs)))
+}
+
+/// Parse the `t` attribute value into a `CellType`. `n` and anything unknown
+/// are numbers, and so is `d` (an ISO 8601 date) until its `<v>` is converted
+/// by [`iso_date_cell`].
 #[inline]
 fn parse_cell_type_attr(val: &str) -> CellType {
     match val {
@@ -32,246 +93,475 @@ fn parse_cell_type_attr(val: &str) -> CellType {
 }
 
 /// Return value for row attribute parsing.
-struct RowAttrs {
-    index: u32,
-    height: Option<f64>,
-    hidden: bool,
-    outline_level: Option<u8>,
-    collapsed: bool,
+#[derive(Clone, Copy, Default)]
+pub(super) struct RowAttrs {
+    /// `r`, the 1-based row number: 0 here when `r` is absent, until the
+    /// driver numbers the row after the previous one.
+    pub(super) index: u32,
+    /// Whether `r` was present. Internal to the driver: `RowData` keeps only
+    /// the index.
+    pub(super) has_r: bool,
+    pub(super) height: Option<f64>,
+    pub(super) custom_height: bool,
+    pub(super) hidden: bool,
+    pub(super) outline_level: Option<u8>,
+    pub(super) collapsed: bool,
+    /// `s`, kept only when `customFormat` is true.
+    pub(super) style_index: Option<u32>,
 }
 
-/// Parse `<row>` attributes into structured data.
+/// Parse `<row>` attributes into structured data. The `s` style index counts
+/// only when `customFormat` is true (ECMA-376 Part 1, §18.3.1.73).
 #[inline]
-fn parse_row_attrs(e: &BytesStart<'_>) -> RowAttrs {
-    let mut ra = RowAttrs {
-        index: 0,
-        height: None,
-        hidden: false,
-        outline_level: None,
-        collapsed: false,
-    };
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        match ln.as_ref() {
+pub(super) fn parse_row_attrs(e: &BytesStart<'_>) -> Result<RowAttrs> {
+    let mut ra = RowAttrs::default();
+    let mut style = None;
+    let mut custom_format = false;
+    for attr in attrs(e) {
+        let attr = attr?;
+        match attr.key.local_name().as_ref() {
             "r" => {
-                let val = attr.value.as_ref();
-                ra.index = val.parse::<u32>().unwrap_or(0);
+                ra.index = parse_attr("row", &attr)?;
+                ra.has_r = true;
             }
-            "ht" => {
-                let val = attr.value.as_ref();
-                ra.height = val.parse::<f64>().ok();
+            "s" => style = Some(parse_attr::<u32>("row", &attr)?),
+            "customFormat" => {
+                if let Some(b) = attr.as_bool() {
+                    custom_format = b;
+                }
+            }
+            "ht" => ra.height = Some(parse_attr("row", &attr)?),
+            "customHeight" => {
+                if let Some(b) = attr.as_bool() {
+                    ra.custom_height = b;
+                }
             }
             "hidden" => {
-                let val = attr.value.as_ref();
-                ra.hidden = val == "1" || val.eq_ignore_ascii_case("true");
+                if let Some(b) = attr.as_bool() {
+                    ra.hidden = b;
+                }
             }
             "outlineLevel" => {
-                ra.outline_level = attr.value.parse::<u8>().ok()
-                    .filter(|&v| v > 0);
+                ra.outline_level = Some(parse_attr::<u8>("row", &attr)?).filter(|&v| v > 0);
             }
             "collapsed" => {
-                ra.collapsed = attr.value.as_ref() == "1";
+                if let Some(b) = attr.as_bool() {
+                    ra.collapsed = b;
+                }
             }
             _ => {}
         }
     }
-    ra
+    ra.style_index = style.filter(|_| custom_format);
+    Ok(ra)
 }
 
-/// Return value for cell attribute parsing.
-struct CellAttrs {
-    reference: String,
-    cell_type: CellType,
-    style_index: Option<u32>,
-}
-
-/// Parse `<c>` attributes (reference, type, style index).
-#[inline]
-fn parse_cell_attrs(e: &BytesStart<'_>) -> CellAttrs {
-    let mut ca = CellAttrs {
-        reference: String::new(),
-        cell_type: CellType::Number,
+/// Parse a `<col>` element into a [`ColumnInfo`]. Absent attributes keep the
+/// defaults (`min`/`max` 1, `width` 8.43, flags false, no outline, no style);
+/// a present but malformed number is `XmlParse`. An explicit `style="0"` is
+/// kept as `Some(0)`, like a cell's `s="0"`.
+pub(super) fn parse_col_element(e: &BytesStart<'_>) -> Result<ColumnInfo> {
+    let mut col = ColumnInfo {
+        min: 1,
+        max: 1,
+        width: 8.43,
+        hidden: false,
+        custom_width: false,
+        outline_level: None,
+        collapsed: false,
         style_index: None,
+        best_fit: false,
+        phonetic: false,
     };
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        match ln.as_ref() {
+    for attr in attrs(e) {
+        let attr = attr?;
+        match attr.key.local_name().as_ref() {
+            "min" => col.min = parse_attr("col", &attr)?,
+            "max" => col.max = parse_attr("col", &attr)?,
+            "width" => col.width = parse_attr("col", &attr)?,
+            "style" => col.style_index = Some(parse_attr::<u32>("col", &attr)?),
+            "hidden" => {
+                if let Some(b) = attr.as_bool() {
+                    col.hidden = b;
+                }
+            }
+            "bestFit" => {
+                if let Some(b) = attr.as_bool() {
+                    col.best_fit = b;
+                }
+            }
+            "customWidth" => {
+                if let Some(b) = attr.as_bool() {
+                    col.custom_width = b;
+                }
+            }
+            "phonetic" => {
+                if let Some(b) = attr.as_bool() {
+                    col.phonetic = b;
+                }
+            }
+            "outlineLevel" => {
+                col.outline_level = Some(parse_attr::<u8>("col", &attr)?).filter(|&v| v > 0);
+            }
+            "collapsed" => {
+                if let Some(b) = attr.as_bool() {
+                    col.collapsed = b;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(col)
+}
+
+/// Cell attributes filled in place by [`parse_cell_attrs_into`].
+#[derive(Default)]
+pub(super) struct CellAttrs {
+    /// `r`: empty here when the attribute is absent, until the driver fills
+    /// in the next position in the row.
+    pub(super) reference: String,
+    pub(super) cell_type: CellType,
+    /// `t="d"`: the `<v>` holds an ISO 8601 date.
+    pub(super) iso_date: bool,
+    pub(super) style_index: Option<u32>,
+    /// `cm`: the cell-metadata index.
+    pub(super) cell_metadata: Option<u32>,
+}
+
+/// Parse `<c>` attributes (reference, type, style index, cell metadata) into
+/// `ca`. Every field is reset first, so one `CellAttrs` serves every cell and
+/// its reference buffer is reused. Attributes match by local name and quick-xml
+/// rejects only an identical QName, so `r` and a prefixed `x:r` can both
+/// appear: the last one wins, as for every other attribute.
+#[inline]
+pub(super) fn parse_cell_attrs_into(e: &BytesStart<'_>, ca: &mut CellAttrs) -> Result<()> {
+    ca.reference.clear();
+    ca.cell_type = CellType::default();
+    ca.iso_date = false;
+    ca.style_index = None;
+    ca.cell_metadata = None;
+    for attr in attrs(e) {
+        let attr = attr?;
+        match attr.key.local_name().as_ref() {
             "r" => {
-                ca.reference =
-                    attr.value.into_owned();
+                ca.reference.clear();
+                ca.reference.push_str(&attr_str(&attr)?);
             }
             "t" => {
-                let val = attr.value.as_ref();
-                ca.cell_type = parse_cell_type_attr(val);
+                let t = attr_str(&attr)?;
+                ca.iso_date = t == "d";
+                ca.cell_type = parse_cell_type_attr(&t);
             }
-            "s" => {
-                let val = attr.value.as_ref();
-                ca.style_index = val.parse::<u32>().ok();
-            }
+            "s" => ca.style_index = Some(parse_attr("c", &attr)?),
+            "cm" => ca.cell_metadata = Some(parse_attr("c", &attr)?),
             _ => {}
         }
     }
-    ca
+    Ok(())
 }
 
-/// Mutable state for formula attributes that are collected across `<f>` parsing.
-struct FormulaState {
-    formula_type: Option<String>,
-    formula_ref: Option<String>,
-    shared_index: Option<u32>,
-    dynamic_array: Option<bool>,
-    formula_r1: Option<String>,
-    formula_r2: Option<String>,
-    formula_dt2d: Option<bool>,
-    formula_dtr1: Option<bool>,
-    formula_dtr2: Option<bool>,
+/// The type and value of a `t="d"` cell from its `<v>` text: a number cell
+/// holding the serial in `date_system`, or, when the text is not an ISO 8601
+/// value that date system holds, a `t="str"` cell keeping the text.
+pub(super) fn iso_date_cell(
+    text: String,
+    date_system: DateSystem,
+    xsd: &mut XsdBuf,
+) -> Result<(CellType, String)> {
+    Ok(match iso8601_to_serial(&text, date_system) {
+        Some(serial) => (
+            CellType::Number,
+            fmt_xsd_double(serial, xsd, "t=\"d\" cell serial")?.to_owned(),
+        ),
+        None => (CellType::FormulaStr, text),
+    })
+}
+
+/// The elements of `list`, moved out and shrunk to their exact length,
+/// leaving `list` empty without a buffer. A child list moved as it grew would
+/// keep the spare capacity of its growth (at least four slots), so a flood of
+/// one-child elements would hold four times what it stores.
+pub(super) fn take_exact<T>(list: &mut Vec<T>) -> Vec<T> {
+    let mut out = std::mem::take(list);
+    out.shrink_to_fit();
+    out
+}
+
+/// The colour-scale stop colours to keep beside the rgb strings: every stop's
+/// full colour when any stop holds more than an `rgb`, else none, moved out
+/// by [`take_exact`].
+pub(super) fn stop_color_specs(stops: &mut Vec<Color>) -> Vec<Color> {
+    if stops.iter().any(Color::has_non_rgb) {
+        take_exact(stops)
+    } else {
+        stops.clear();
+        Vec::new()
+    }
+}
+
+/// The verbatim `<ext>` element at `data[start..end]`, without the white space
+/// before it, borrowed from `data`; the caller inserts the namespace
+/// declarations it inherits (`xml::inherited_declarations`).
+///
+/// # Errors
+///
+/// `XmlParse` when the span is not UTF-8.
+pub(super) fn captured_ext(data: &[u8], start: u64, end: u64) -> Result<&str> {
+    let span = data.get(start as usize..end as usize).unwrap_or_default();
+    let text = std::str::from_utf8(span).map_err(|e| {
+        cold_path();
+        ModernXlsxError::XmlParse(format!("worksheet <ext> is not UTF-8: {e}"))
+    })?;
+    Ok(text.trim_start())
+}
+
+/// The formula attributes of a cell's `<f>`, plus the `<c cm>` cell-metadata
+/// index, which travels with them because both set `dynamic_array`.
+#[derive(Default)]
+pub(super) struct FormulaState {
+    pub(super) formula_type: Option<String>,
+    pub(super) formula_ref: Option<String>,
+    pub(super) shared_index: Option<u32>,
+    pub(super) cell_metadata: Option<u32>,
+    pub(super) dynamic_array: Option<bool>,
+    pub(super) formula_r1: Option<String>,
+    pub(super) formula_r2: Option<String>,
+    pub(super) formula_dt2d: Option<bool>,
+    pub(super) formula_dtr: Option<bool>,
+    pub(super) formula_del1: Option<bool>,
+    pub(super) formula_del2: Option<bool>,
+    pub(super) formula_dtr1: Option<bool>,
+    pub(super) formula_dtr2: Option<bool>,
+}
+
+impl FormulaState {
+    /// Record the `<c cm>` index; any cell metadata marks a dynamic array.
+    pub(super) fn set_cell_metadata(&mut self, cm: Option<u32>) {
+        if cm.is_some() {
+            self.cell_metadata = cm;
+            self.dynamic_array = Some(true);
+        }
+    }
+
+    /// Take every field that `from` holds into `self`, replacing the field
+    /// there. `parse_formula_attrs` only ever sets a field, so merging the
+    /// attributes of one `<f>` (parsed from defaults) into `self` leaves
+    /// `self` as parsing that `<f>` straight into it would.
+    pub(super) fn merge_from(&mut self, from: &mut Self) {
+        fn take_set<T>(into: &mut Option<T>, from: &mut Option<T>) {
+            if from.is_some() {
+                *into = from.take();
+            }
+        }
+        // Exhaustive, so a new field cannot be left out.
+        let Self {
+            formula_type,
+            formula_ref,
+            shared_index,
+            cell_metadata,
+            dynamic_array,
+            formula_r1,
+            formula_r2,
+            formula_dt2d,
+            formula_dtr,
+            formula_del1,
+            formula_del2,
+            formula_dtr1,
+            formula_dtr2,
+        } = from;
+        take_set(&mut self.formula_type, formula_type);
+        take_set(&mut self.formula_ref, formula_ref);
+        take_set(&mut self.shared_index, shared_index);
+        take_set(&mut self.cell_metadata, cell_metadata);
+        take_set(&mut self.dynamic_array, dynamic_array);
+        take_set(&mut self.formula_r1, formula_r1);
+        take_set(&mut self.formula_r2, formula_r2);
+        take_set(&mut self.formula_dt2d, formula_dt2d);
+        take_set(&mut self.formula_dtr, formula_dtr);
+        take_set(&mut self.formula_del1, formula_del1);
+        take_set(&mut self.formula_del2, formula_del2);
+        take_set(&mut self.formula_dtr1, formula_dtr1);
+        take_set(&mut self.formula_dtr2, formula_dtr2);
+    }
 }
 
 /// Parse `<f>` (formula) element attributes into the given state fields.
+///
+/// The `CT_CellFormula` flags `dt2D`, `dtr`, `del1` and `del2` are kept when
+/// true; `del1`/`del2` also set the 1.x `formula_dtr1`/`formula_dtr2`. The
+/// 1.2.x writer put `cm`, `dtr1` and `dtr2` on `<f>`, outside the schema;
+/// they are still read: `cm="1"` into `dynamic_array`, `dtr1` and `dtr2`
+/// into the 1.x fields.
 #[inline]
-fn parse_formula_attrs(e: &BytesStart<'_>, fs: &mut FormulaState) {
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        let val = attr.value.as_ref();
-        match ln.as_ref() {
-            "t" => fs.formula_type = Some(val.to_owned()),
-            "ref" => fs.formula_ref = Some(val.to_owned()),
-            "si" => fs.shared_index = val.parse::<u32>().ok(),
-            "cm" if val == "1" => {
-                fs.dynamic_array = Some(true);
+pub(super) fn parse_formula_attrs(e: &BytesStart<'_>, fs: &mut FormulaState) -> Result<()> {
+    for attr in attrs(e) {
+        let attr = attr?;
+        let on = || attr.as_bool() == Some(true);
+        match attr.key.local_name().as_ref() {
+            "t" => fs.formula_type = Some(attr_str(&attr)?.into_owned()),
+            "ref" => fs.formula_ref = Some(attr_str(&attr)?.into_owned()),
+            "si" => fs.shared_index = Some(parse_attr("f", &attr)?),
+            "r1" => fs.formula_r1 = Some(attr_str(&attr)?.into_owned()),
+            "r2" => fs.formula_r2 = Some(attr_str(&attr)?.into_owned()),
+            "dt2D" if on() => fs.formula_dt2d = Some(true),
+            "dtr" if on() => fs.formula_dtr = Some(true),
+            "del1" if on() => (fs.formula_del1, fs.formula_dtr1) = (Some(true), Some(true)),
+            "del2" if on() => (fs.formula_del2, fs.formula_dtr2) = (Some(true), Some(true)),
+            "cm" => {
+                if parse_attr::<u32>("f", &attr)? == 1 {
+                    fs.dynamic_array = Some(true);
+                }
             }
-            "r1" => fs.formula_r1 = Some(val.to_owned()),
-            "r2" => fs.formula_r2 = Some(val.to_owned()),
-            "dt2D" if val == "1" || val.eq_ignore_ascii_case("true") => {
-                fs.formula_dt2d = Some(true);
-            }
-            "dtr1" if val == "1" || val.eq_ignore_ascii_case("true") => {
-                fs.formula_dtr1 = Some(true);
-            }
-            "dtr2" if val == "1" || val.eq_ignore_ascii_case("true") => {
-                fs.formula_dtr2 = Some(true);
-            }
+            "dtr1" if on() => fs.formula_dtr1 = Some(true),
+            "dtr2" if on() => fs.formula_dtr2 = Some(true),
             _ => {}
         }
     }
+    Ok(())
 }
 
-/// Parse `<sheetView>` attributes. Returns `(SheetViewData, has_non_default)`.
-fn parse_sheet_view_attrs(e: &BytesStart<'_>) -> (SheetViewData, bool) {
+/// Parse `<sheetView>` attributes. Returns `(SheetViewData, has_non_default)`,
+/// where `has_non_default` is true when any value differs from its schema
+/// default.
+pub(super) fn parse_sheet_view_attrs(e: &BytesStart<'_>) -> Result<(SheetViewData, bool)> {
     let mut sv = SheetViewData::default();
-    let mut has_non_default = false;
-    for attr in e.attributes().flatten() {
-        let val = attr.value.as_ref();
-        match attr.key.local_name().as_ref() {
-            "showGridLines" if val == "0" => { sv.show_grid_lines = false; has_non_default = true; }
-            "showRowColHeaders" if val == "0" => { sv.show_row_col_headers = false; has_non_default = true; }
-            "showZeros" if val == "0" => { sv.show_zeros = false; has_non_default = true; }
-            "rightToLeft" if val == "1" => { sv.right_to_left = true; has_non_default = true; }
-            "tabSelected" if val == "1" => { sv.tab_selected = true; has_non_default = true; }
-            "showRuler" if val == "0" => { sv.show_ruler = false; has_non_default = true; }
-            "showOutlineSymbols" if val == "0" => { sv.show_outline_symbols = false; has_non_default = true; }
-            "showWhiteSpace" if val == "0" => { sv.show_white_space = false; has_non_default = true; }
-            "defaultGridColor" if val == "0" => { sv.default_grid_color = false; has_non_default = true; }
-            "zoomScale" => { sv.zoom_scale = val.parse().ok(); has_non_default = true; }
-            "zoomScaleNormal" => { sv.zoom_scale_normal = val.parse().ok(); has_non_default = true; }
-            "zoomScalePageLayoutView" => { sv.zoom_scale_page_layout_view = val.parse().ok(); has_non_default = true; }
-            "zoomScaleSheetLayoutView" => { sv.zoom_scale_sheet_layout_view = val.parse().ok(); has_non_default = true; }
-            "colorId" => { sv.color_id = val.parse().ok(); has_non_default = true; }
-            "view" if val != "normal" => { sv.view = Some(val.to_owned()); has_non_default = true; }
-            _ => {}
+    for attr in attrs(e) {
+        let attr = attr?;
+        let flag = match attr.key.local_name().as_ref() {
+            "showGridLines" => &mut sv.show_grid_lines,
+            "showRowColHeaders" => &mut sv.show_row_col_headers,
+            "showZeros" => &mut sv.show_zeros,
+            "rightToLeft" => &mut sv.right_to_left,
+            "tabSelected" => &mut sv.tab_selected,
+            "showRuler" => &mut sv.show_ruler,
+            "showOutlineSymbols" => &mut sv.show_outline_symbols,
+            "showWhiteSpace" => &mut sv.show_white_space,
+            "defaultGridColor" => &mut sv.default_grid_color,
+            "zoomScale" => {
+                sv.zoom_scale = Some(parse_attr("sheetView", &attr)?);
+                continue;
+            }
+            "zoomScaleNormal" => {
+                sv.zoom_scale_normal = Some(parse_attr("sheetView", &attr)?);
+                continue;
+            }
+            "zoomScalePageLayoutView" => {
+                sv.zoom_scale_page_layout_view = Some(parse_attr("sheetView", &attr)?);
+                continue;
+            }
+            "zoomScaleSheetLayoutView" => {
+                sv.zoom_scale_sheet_layout_view = Some(parse_attr("sheetView", &attr)?);
+                continue;
+            }
+            "colorId" => {
+                sv.color_id = Some(parse_attr("sheetView", &attr)?);
+                continue;
+            }
+            "view" => {
+                let view = attr_str(&attr)?;
+                if view != "normal" {
+                    sv.view = Some(view.into_owned());
+                }
+                continue;
+            }
+            _ => continue,
+        };
+        if let Some(b) = attr.as_bool() {
+            *flag = b;
         }
     }
-    (sv, has_non_default)
+    let has_non_default = sv != SheetViewData::default();
+    Ok((sv, has_non_default))
 }
 
 /// Parse `<selection>` attributes into a `PaneSelection`.
 #[inline]
-fn parse_selection_attrs(e: &BytesStart<'_>) -> PaneSelection {
-    let mut sel_pane = None::<String>;
-    let mut sel_active = None::<String>;
-    let mut sel_sqref = None::<String>;
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        match ln.as_ref() {
-            "pane" => {
-                sel_pane = Some(attr.value.into_owned());
-            }
-            "activeCell" => {
-                sel_active = Some(attr.value.into_owned());
-            }
-            "sqref" => {
-                sel_sqref = Some(attr.value.into_owned());
-            }
-            _ => {}
-        }
+pub(super) fn parse_selection_attrs(e: &BytesStart<'_>) -> Result<PaneSelection> {
+    let mut sel = PaneSelection {
+        pane: None,
+        active_cell: None,
+        sqref: None,
+    };
+    for attr in attrs(e) {
+        let attr = attr?;
+        let slot = match attr.key.local_name().as_ref() {
+            "pane" => &mut sel.pane,
+            "activeCell" => &mut sel.active_cell,
+            "sqref" => &mut sel.sqref,
+            _ => continue,
+        };
+        *slot = Some(attr_str(&attr)?.into_owned());
     }
-    PaneSelection {
-        pane: sel_pane,
-        active_cell: sel_active,
-        sqref: sel_sqref,
-    }
+    Ok(sel)
 }
 
 /// Parse `<pane>` attributes into frozen pane or split pane.
-fn parse_pane_attrs(e: &BytesStart<'_>) -> (Option<FrozenPane>, Option<SplitPane>) {
-    let mut y_split_raw = String::new();
-    let mut x_split_raw = String::new();
-    let mut state_val = String::new();
+pub(super) fn parse_pane_attrs(
+    e: &BytesStart<'_>,
+) -> Result<(Option<FrozenPane>, Option<SplitPane>)> {
+    let mut y_split = None::<Attribute<'_>>;
+    let mut x_split = None::<Attribute<'_>>;
+    let mut frozen = false;
     let mut top_left_cell_val = None::<String>;
     let mut active_pane_val = None::<String>;
 
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        match ln.as_ref() {
-            "ySplit" => {
-                y_split_raw = attr.value.into_owned();
-            }
-            "xSplit" => {
-                x_split_raw = attr.value.into_owned();
-            }
-            "state" => {
-                state_val = attr.value.into_owned();
-            }
-            "topLeftCell" => {
-                top_left_cell_val = Some(attr.value.into_owned());
-            }
-            "activePane" => {
-                active_pane_val = Some(attr.value.into_owned());
-            }
+    for attr in attrs(e) {
+        let attr = attr?;
+        match attr.key.local_name().as_ref() {
+            "ySplit" => y_split = Some(attr),
+            "xSplit" => x_split = Some(attr),
+            "state" => frozen = attr_str(&attr)? == "frozen",
+            "topLeftCell" => top_left_cell_val = Some(attr_str(&attr)?.into_owned()),
+            "activePane" => active_pane_val = Some(attr_str(&attr)?.into_owned()),
             _ => {}
         }
     }
 
-    if state_val == "frozen" {
-        let y: u32 = y_split_raw.parse().unwrap_or(0);
-        let x: u32 = x_split_raw.parse().unwrap_or(0);
+    if frozen {
+        let y: u32 = y_split
+            .map(|a| parse_attr("pane", &a))
+            .transpose()?
+            .unwrap_or(0);
+        let x: u32 = x_split
+            .map(|a| parse_attr("pane", &a))
+            .transpose()?
+            .unwrap_or(0);
         if y > 0 || x > 0 {
-            return (Some(FrozenPane { rows: y, cols: x }), None);
+            return Ok((Some(FrozenPane { rows: y, cols: x }), None));
         }
     } else {
-        let y: f64 = y_split_raw.parse().unwrap_or(0.0);
-        let x: f64 = x_split_raw.parse().unwrap_or(0.0);
+        let y: f64 = y_split
+            .map(|a| parse_attr("pane", &a))
+            .transpose()?
+            .unwrap_or(0.0);
+        let x: f64 = x_split
+            .map(|a| parse_attr("pane", &a))
+            .transpose()?
+            .unwrap_or(0.0);
         if y > 0.0 || x > 0.0 {
-            return (
+            return Ok((
                 None,
                 Some(SplitPane {
-                    horizontal: if y > 0.0 { Some(y) } else { None },
-                    vertical: if x > 0.0 { Some(x) } else { None },
+                    horizontal: (y > 0.0).then_some(y),
+                    vertical: (x > 0.0).then_some(x),
                     top_left_cell: top_left_cell_val,
                     active_pane: active_pane_val,
                 }),
-            );
+            ));
         }
     }
-    (None, None)
+    Ok((None, None))
 }
 
 /// Parse `<dataValidation>` attributes into a `DataValidation`.
-fn parse_data_validation_attrs(e: &BytesStart<'_>) -> DataValidation {
+pub(super) fn parse_data_validation_attrs(e: &BytesStart<'_>) -> Result<DataValidation> {
     let mut dv = DataValidation {
         sqref: String::new(),
         validation_type: None,
         operator: None,
+        error_style: None,
+        ime_mode: None,
+        show_drop_down: None,
         formula1: None,
         formula2: None,
         allow_blank: None,
@@ -282,287 +572,468 @@ fn parse_data_validation_attrs(e: &BytesStart<'_>) -> DataValidation {
         prompt_title: None,
         prompt: None,
     };
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        let val = attr.value.as_ref();
-        match ln.as_ref() {
-            "sqref" => dv.sqref = val.to_owned(),
-            "type" => dv.validation_type = Some(val.to_owned()),
-            "operator" => dv.operator = Some(val.to_owned()),
-            "allowBlank" => {
-                dv.allow_blank = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-            }
-            "showErrorMessage" => {
-                dv.show_error_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-            }
-            "errorTitle" => dv.error_title = Some(val.to_owned()),
-            "error" => dv.error_message = Some(val.to_owned()),
-            "showInputMessage" => {
-                dv.show_input_message = Some(val == "1" || val.eq_ignore_ascii_case("true"));
-            }
-            "promptTitle" => dv.prompt_title = Some(val.to_owned()),
-            "prompt" => dv.prompt = Some(val.to_owned()),
+    for attr in attrs(e) {
+        let attr = attr?;
+        match attr.key.local_name().as_ref() {
+            "sqref" => dv.sqref = attr_str(&attr)?.into_owned(),
+            "type" => dv.validation_type = Some(attr_str(&attr)?.into_owned()),
+            "operator" => dv.operator = Some(attr_str(&attr)?.into_owned()),
+            "errorStyle" => dv.error_style = Some(attr_str(&attr)?.into_owned()),
+            "imeMode" => dv.ime_mode = Some(attr_str(&attr)?.into_owned()),
+            "showDropDown" => dv.show_drop_down = attr.as_bool(),
+            "allowBlank" => dv.allow_blank = attr.as_bool(),
+            "showErrorMessage" => dv.show_error_message = attr.as_bool(),
+            "errorTitle" => dv.error_title = Some(attr_str(&attr)?.into_owned()),
+            "error" => dv.error_message = Some(attr_str(&attr)?.into_owned()),
+            "showInputMessage" => dv.show_input_message = attr.as_bool(),
+            "promptTitle" => dv.prompt_title = Some(attr_str(&attr)?.into_owned()),
+            "prompt" => dv.prompt = Some(attr_str(&attr)?.into_owned()),
             _ => {}
         }
     }
-    dv
+    Ok(dv)
 }
 
 /// Parse `<cfRule>` attributes into a `ConditionalFormattingRule`.
 #[inline]
-fn parse_cf_rule_attrs(e: &BytesStart<'_>) -> ConditionalFormattingRule {
+pub(super) fn parse_cf_rule_attrs(e: &BytesStart<'_>) -> Result<ConditionalFormattingRule> {
     let mut rule = ConditionalFormattingRule {
         rule_type: String::new(),
         priority: 0,
         operator: None,
         formula: None,
+        additional_formulas: Vec::new(),
         dxf_id: None,
+        stop_if_true: None,
+        above_average: None,
+        percent: None,
+        bottom: None,
+        text: None,
+        time_period: None,
+        rank: None,
+        std_dev: None,
+        equal_average: None,
         color_scale: None,
         data_bar: None,
         icon_set: None,
     };
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        let val = attr.value.as_ref();
-        match ln.as_ref() {
-            "type" => rule.rule_type = val.to_owned(),
-            "priority" => {
-                rule.priority = val.parse::<u32>().unwrap_or(0);
-            }
-            "operator" => rule.operator = Some(val.to_owned()),
-            "dxfId" => {
-                rule.dxf_id = val.parse::<u32>().ok();
-            }
+    for attr in attrs(e) {
+        let attr = attr?;
+        match attr.key.local_name().as_ref() {
+            "type" => rule.rule_type = attr_str(&attr)?.into_owned(),
+            "priority" => rule.priority = parse_attr("cfRule", &attr)?,
+            "operator" => rule.operator = Some(attr_str(&attr)?.into_owned()),
+            "dxfId" => rule.dxf_id = Some(parse_attr("cfRule", &attr)?),
+            "stopIfTrue" => rule.stop_if_true = attr.as_bool(),
+            "aboveAverage" => rule.above_average = attr.as_bool(),
+            "percent" => rule.percent = attr.as_bool(),
+            "bottom" => rule.bottom = attr.as_bool(),
+            "equalAverage" => rule.equal_average = attr.as_bool(),
+            "rank" => rule.rank = Some(parse_attr("cfRule", &attr)?),
+            "stdDev" => rule.std_dev = Some(parse_attr("cfRule", &attr)?),
+            "text" => rule.text = Some(attr_str(&attr)?.into_owned()),
+            "timePeriod" => rule.time_period = Some(attr_str(&attr)?.into_owned()),
             _ => {}
         }
     }
-    rule
+    Ok(rule)
 }
 
 /// Parse `<hyperlink>` attributes into a `Hyperlink`.
+///
+/// `r:id` (an `id` whose prefix is in `rel_prefixes`, the prefixes the
+/// `<worksheet>` declarations bind to the relationships namespace;
+/// CT_Hyperlink has no unprefixed one) becomes `target` when it names an
+/// external relationship in `ctx.rels`; any other `r:id`, and an `id` under
+/// any other prefix, is ignored. `rel_prefixes` is sorted and deduplicated,
+/// so the prefix lookup is one binary search: a part that declares many
+/// prefixes costs a search logarithmic in them per hyperlink, and no hasher
+/// lets prefixes the file chooses collide.
+///
+/// One relationship may be named by any number of hyperlinks, each getting a
+/// copy of its target, so the target the hyperlink keeps is counted in
+/// `budget`.
+///
+/// # Errors
+///
+/// `XmlParse` for a malformed attribute; `SizeLimit` when the count passes
+/// the budget.
 #[inline]
-fn parse_hyperlink_attrs(e: &BytesStart<'_>) -> Hyperlink {
+pub(super) fn parse_hyperlink_attrs(
+    e: &BytesStart<'_>,
+    ctx: &SheetContext<'_>,
+    rel_prefixes: &[String],
+    budget: &mut ExpansionBudget,
+) -> Result<Hyperlink> {
     let mut hl = Hyperlink {
         cell_ref: String::new(),
+        target: None,
         location: None,
         display: None,
         tooltip: None,
     };
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        let val = attr.value.as_ref();
-        match ln.as_ref() {
-            "ref" => hl.cell_ref = val.to_owned(),
-            "location" => hl.location = Some(val.to_owned()),
-            "display" => hl.display = Some(val.to_owned()),
-            "tooltip" => hl.tooltip = Some(val.to_owned()),
+    for attr in attrs(e) {
+        let attr = attr?;
+        match attr.key.local_name().as_ref() {
+            "ref" => hl.cell_ref = attr_str(&attr)?.into_owned(),
+            "id" if attr.key.prefix().is_some_and(|p| {
+                rel_prefixes
+                    .binary_search_by(|q| q.as_str().cmp(p.as_ref()))
+                    .is_ok()
+            }) =>
+            {
+                let r_id = attr_str(&attr)?;
+                hl.target = ctx
+                    .rels
+                    .and_then(|rels| rels.get_by_id(&r_id))
+                    .filter(|rel| rel.target_mode == TargetMode::External)
+                    .map(|rel| rel.target.clone().into_owned());
+            }
+            "location" => hl.location = Some(attr_str(&attr)?.into_owned()),
+            "display" => hl.display = Some(attr_str(&attr)?.into_owned()),
+            "tooltip" => hl.tooltip = Some(attr_str(&attr)?.into_owned()),
             _ => {}
         }
     }
-    hl
+    // Counted once, after the loop: a second `r:id` replaces the first copy.
+    if let Some(target) = &hl.target {
+        budget.spend(target.len())?;
+    }
+    Ok(hl)
 }
 
-/// Parse `<pageSetup>` attributes into a `PageSetup`.
+/// Merge `<pageSetup>` attributes into `ps`.
+///
+/// `<pageMargins>` precedes `<pageSetup>` in the file and lands in the same
+/// `PageSetup`, so the attributes are merged, never replaced.
 #[inline]
-fn parse_page_setup_attrs(e: &BytesStart<'_>) -> PageSetup {
-    let mut ps = PageSetup {
-        paper_size: None,
-        orientation: None,
-        fit_to_width: None,
-        fit_to_height: None,
-        scale: None,
-        first_page_number: None,
-        horizontal_dpi: None,
-        vertical_dpi: None,
-    };
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        let val = attr.value.as_ref();
-        match ln.as_ref() {
-            "paperSize" => ps.paper_size = val.parse::<u32>().ok(),
-            "orientation" => ps.orientation = Some(val.to_owned()),
-            "fitToWidth" => ps.fit_to_width = val.parse::<u32>().ok(),
-            "fitToHeight" => ps.fit_to_height = val.parse::<u32>().ok(),
-            "scale" => ps.scale = val.parse::<u32>().ok(),
-            "firstPageNumber" => ps.first_page_number = val.parse::<u32>().ok(),
-            "horizontalDpi" => ps.horizontal_dpi = val.parse::<u32>().ok(),
-            "verticalDpi" => ps.vertical_dpi = val.parse::<u32>().ok(),
-            _ => {}
-        }
+pub(super) fn merge_page_setup_attrs(e: &BytesStart<'_>, ps: &mut PageSetup) -> Result<()> {
+    for attr in attrs(e) {
+        let attr = attr?;
+        let slot = match attr.key.local_name().as_ref() {
+            "paperSize" => &mut ps.paper_size,
+            "orientation" => {
+                ps.orientation = Some(attr_str(&attr)?.into_owned());
+                continue;
+            }
+            "fitToWidth" => &mut ps.fit_to_width,
+            "fitToHeight" => &mut ps.fit_to_height,
+            "scale" => &mut ps.scale,
+            "firstPageNumber" => &mut ps.first_page_number,
+            "horizontalDpi" => &mut ps.horizontal_dpi,
+            "verticalDpi" => &mut ps.vertical_dpi,
+            _ => continue,
+        };
+        *slot = Some(parse_attr("pageSetup", &attr)?);
     }
-    ps
+    Ok(())
 }
 
-/// Parse `<sheetProtection>` attributes into a `SheetProtection`.
-fn parse_sheet_protection_attrs(e: &BytesStart<'_>) -> SheetProtection {
-    let mut sp = SheetProtection {
-        sheet: false,
-        objects: false,
-        scenarios: false,
-        password: None,
-        format_cells: false,
-        format_columns: false,
-        format_rows: false,
-        insert_columns: false,
-        insert_rows: false,
-        delete_columns: false,
-        delete_rows: false,
-        sort: false,
-        auto_filter: false,
-    };
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        let val = attr.value.as_ref();
-        let as_bool = val == "1" || val.eq_ignore_ascii_case("true");
-        match ln.as_ref() {
-            "sheet" => sp.sheet = as_bool,
-            "objects" => sp.objects = as_bool,
-            "scenarios" => sp.scenarios = as_bool,
-            "password" => sp.password = Some(val.to_owned()),
-            "formatCells" => sp.format_cells = as_bool,
-            "formatColumns" => sp.format_columns = as_bool,
-            "formatRows" => sp.format_rows = as_bool,
-            "insertColumns" => sp.insert_columns = as_bool,
-            "insertRows" => sp.insert_rows = as_bool,
-            "deleteColumns" => sp.delete_columns = as_bool,
-            "deleteRows" => sp.delete_rows = as_bool,
-            "sort" => sp.sort = as_bool,
-            "autoFilter" => sp.auto_filter = as_bool,
-            _ => {}
+/// Parse `<pageMargins>` attributes into a `PageMargins`.
+#[inline]
+pub(super) fn parse_page_margins_attrs(e: &BytesStart<'_>) -> Result<PageMargins> {
+    let mut pm = PageMargins::default();
+    for attr in attrs(e) {
+        let attr = attr?;
+        let slot = match attr.key.local_name().as_ref() {
+            "top" => &mut pm.top,
+            "bottom" => &mut pm.bottom,
+            "left" => &mut pm.left,
+            "right" => &mut pm.right,
+            "header" => &mut pm.header,
+            "footer" => &mut pm.footer,
+            _ => continue,
+        };
+        *slot = Some(parse_attr("pageMargins", &attr)?);
+    }
+    Ok(pm)
+}
+
+/// Parse `<sheetProtection>` attributes into a `SheetProtection`, starting from
+/// the schema default of every attribute (`SheetProtection::default`).
+pub(super) fn parse_sheet_protection_attrs(e: &BytesStart<'_>) -> Result<SheetProtection> {
+    let mut sp = SheetProtection::default();
+    for attr in attrs(e) {
+        let attr = attr?;
+        let flag = match attr.key.local_name().as_ref() {
+            "password" => {
+                sp.password = Some(attr_str(&attr)?.into_owned());
+                continue;
+            }
+            "algorithmName" => {
+                sp.algorithm_name = Some(attr_str(&attr)?.into_owned());
+                continue;
+            }
+            "hashValue" => {
+                sp.hash_value = Some(attr_str(&attr)?.into_owned());
+                continue;
+            }
+            "saltValue" => {
+                sp.salt_value = Some(attr_str(&attr)?.into_owned());
+                continue;
+            }
+            "spinCount" => {
+                sp.spin_count = Some(parse_attr("sheetProtection", &attr)?);
+                continue;
+            }
+            "sheet" => &mut sp.sheet,
+            "objects" => &mut sp.objects,
+            "scenarios" => &mut sp.scenarios,
+            "formatCells" => &mut sp.format_cells,
+            "formatColumns" => &mut sp.format_columns,
+            "formatRows" => &mut sp.format_rows,
+            "insertColumns" => &mut sp.insert_columns,
+            "insertRows" => &mut sp.insert_rows,
+            "insertHyperlinks" => &mut sp.insert_hyperlinks,
+            "deleteColumns" => &mut sp.delete_columns,
+            "deleteRows" => &mut sp.delete_rows,
+            "selectLockedCells" => &mut sp.select_locked_cells,
+            "sort" => &mut sp.sort,
+            "autoFilter" => &mut sp.auto_filter,
+            "pivotTables" => &mut sp.pivot_tables,
+            "selectUnlockedCells" => &mut sp.select_unlocked_cells,
+            _ => continue,
+        };
+        if let Some(b) = attr.as_bool() {
+            *flag = b;
         }
     }
-    sp
+    Ok(sp)
 }
 
 /// Parse `<cfvo>` attributes into a `Cfvo`.
 #[inline]
-fn parse_cfvo_attrs(e: &BytesStart<'_>) -> Cfvo {
-    let mut cfvo_type = String::new();
-    let mut cfvo_val: Option<String> = None;
-    for attr in e.attributes().flatten() {
-        let ln = attr.key.local_name();
-        let v = attr.value.as_ref();
-        match ln.as_ref() {
-            "type" => cfvo_type = v.to_owned(),
-            "val" => cfvo_val = Some(v.to_owned()),
+pub(super) fn parse_cfvo_attrs(e: &BytesStart<'_>) -> Result<Cfvo> {
+    let mut cfvo = Cfvo {
+        cfvo_type: String::new(),
+        val: None,
+    };
+    for attr in attrs(e) {
+        let attr = attr?;
+        match attr.key.local_name().as_ref() {
+            "type" => cfvo.cfvo_type = attr_str(&attr)?.into_owned(),
+            "val" => cfvo.val = Some(attr_str(&attr)?.into_owned()),
             _ => {}
         }
     }
-    Cfvo { cfvo_type, val: cfvo_val }
+    Ok(cfvo)
 }
 
 /// Parse `<headerFooter>` attributes into a `HeaderFooter`.
 #[inline]
-fn parse_header_footer_attrs(e: &BytesStart<'_>) -> HeaderFooter {
+pub(super) fn parse_header_footer_attrs(e: &BytesStart<'_>) -> Result<HeaderFooter> {
     let mut hf = HeaderFooter::default();
-    for attr in e.attributes().flatten() {
-        match attr.key.as_ref() {
-            "differentOddEven" => hf.different_odd_even = attr.value.as_ref() == "1",
-            "differentFirst" => hf.different_first = attr.value.as_ref() == "1",
-            "scaleWithDoc" => hf.scale_with_doc = attr.value.as_ref() != "0",
-            "alignWithMargins" => hf.align_with_margins = attr.value.as_ref() != "0",
-            _ => {}
+    for attr in attrs(e) {
+        let attr = attr?;
+        let flag = match attr.key.as_ref() {
+            "differentOddEven" => &mut hf.different_odd_even,
+            "differentFirst" => &mut hf.different_first,
+            "scaleWithDoc" => &mut hf.scale_with_doc,
+            "alignWithMargins" => &mut hf.align_with_margins,
+            _ => continue,
+        };
+        if let Some(b) = attr.as_bool() {
+            *flag = b;
         }
     }
-    hf
+    Ok(hf)
 }
 
 /// Parse `<outlinePr>` attributes into an `OutlineProperties`.
 #[inline]
-fn parse_outline_pr_attrs(e: &BytesStart<'_>) -> OutlineProperties {
-    let mut op = OutlineProperties { summary_below: true, summary_right: true };
-    for attr in e.attributes().flatten() {
-        match attr.key.as_ref() {
-            "summaryBelow" => op.summary_below = attr.value.as_ref() != "0",
-            "summaryRight" => op.summary_right = attr.value.as_ref() != "0",
-            _ => {}
+pub(super) fn parse_outline_pr_attrs(e: &BytesStart<'_>) -> Result<OutlineProperties> {
+    let mut op = OutlineProperties {
+        summary_below: true,
+        summary_right: true,
+    };
+    for attr in attrs(e) {
+        let attr = attr?;
+        let flag = match attr.key.as_ref() {
+            "summaryBelow" => &mut op.summary_below,
+            "summaryRight" => &mut op.summary_right,
+            _ => continue,
+        };
+        if let Some(b) = attr.as_bool() {
+            *flag = b;
         }
     }
-    op
+    Ok(op)
 }
 
 /// Parse `<brk>` (break) attributes into a `PageBreak`.
 #[inline]
-fn parse_brk_attrs(e: &BytesStart<'_>) -> PageBreak {
-    let mut brk = PageBreak { id: 0, min: None, max: None, man: false };
-    for attr in e.attributes().flatten() {
-        let val = attr.value.as_ref();
+pub(super) fn parse_brk_attrs(e: &BytesStart<'_>) -> Result<PageBreak> {
+    let mut brk = PageBreak {
+        id: 0,
+        min: None,
+        max: None,
+        man: false,
+    };
+    for attr in attrs(e) {
+        let attr = attr?;
         match attr.key.local_name().as_ref() {
-            "id" => brk.id = val.parse().unwrap_or(0),
-            "min" => brk.min = val.parse().ok(),
-            "max" => brk.max = val.parse().ok(),
-            "man" => brk.man = val == "1" || val.eq_ignore_ascii_case("true"),
+            "id" => brk.id = parse_attr("brk", &attr)?,
+            "min" => brk.min = Some(parse_attr("brk", &attr)?),
+            "max" => brk.max = Some(parse_attr("brk", &attr)?),
+            "man" => {
+                if let Some(b) = attr.as_bool() {
+                    brk.man = b;
+                }
+            }
             _ => {}
         }
     }
-    brk
+    Ok(brk)
 }
 
 /// Parse `<sparklineGroup>` attributes into a `SparklineGroup`.
-fn parse_sparkline_group_attrs(e: &BytesStart<'_>) -> SparklineGroup {
+pub(super) fn parse_sparkline_group_attrs(e: &BytesStart<'_>) -> Result<SparklineGroup> {
     let mut group = SparklineGroup::default();
-    for attr in e.attributes().flatten() {
-        let val = attr.value.as_ref();
-        match attr.key.local_name().as_ref() {
-            "type" => group.sparkline_type = val.to_owned(),
-            "displayEmptyCellsAs" => group.display_empty_cells_as = Some(val.to_owned()),
-            "markers" => group.markers = val == "1" || val.eq_ignore_ascii_case("true"),
-            "high" => group.high = val == "1" || val.eq_ignore_ascii_case("true"),
-            "low" => group.low = val == "1" || val.eq_ignore_ascii_case("true"),
-            "first" => group.first = val == "1" || val.eq_ignore_ascii_case("true"),
-            "last" => group.last = val == "1" || val.eq_ignore_ascii_case("true"),
-            "negative" => group.negative = val == "1" || val.eq_ignore_ascii_case("true"),
-            "displayXAxis" => group.display_x_axis = val == "1" || val.eq_ignore_ascii_case("true"),
-            "lineWeight" => group.line_weight = val.parse::<f64>().ok(),
-            "manualMin" => group.manual_min = val.parse::<f64>().ok(),
-            "manualMax" => group.manual_max = val.parse::<f64>().ok(),
-            "rightToLeft" => group.right_to_left = val == "1" || val.eq_ignore_ascii_case("true"),
-            _ => {}
+    for attr in attrs(e) {
+        let attr = attr?;
+        let flag = match attr.key.local_name().as_ref() {
+            "type" => {
+                group.sparkline_type = attr_str(&attr)?.into_owned();
+                continue;
+            }
+            "displayEmptyCellsAs" => {
+                group.display_empty_cells_as = Some(attr_str(&attr)?.into_owned());
+                continue;
+            }
+            "lineWeight" => {
+                group.line_weight = Some(parse_attr("sparklineGroup", &attr)?);
+                continue;
+            }
+            "manualMin" => {
+                group.manual_min = Some(parse_attr("sparklineGroup", &attr)?);
+                continue;
+            }
+            "manualMax" => {
+                group.manual_max = Some(parse_attr("sparklineGroup", &attr)?);
+                continue;
+            }
+            "minAxisType" => {
+                group.min_axis_type = Some(attr_str(&attr)?.into_owned());
+                continue;
+            }
+            "maxAxisType" => {
+                group.max_axis_type = Some(attr_str(&attr)?.into_owned());
+                continue;
+            }
+            "dateAxis" => &mut group.date_axis,
+            "displayHidden" => &mut group.display_hidden,
+            "markers" => &mut group.markers,
+            "high" => &mut group.high,
+            "low" => &mut group.low,
+            "first" => &mut group.first,
+            "last" => &mut group.last,
+            "negative" => &mut group.negative,
+            "displayXAxis" => &mut group.display_x_axis,
+            "rightToLeft" => &mut group.right_to_left,
+            _ => continue,
+        };
+        if let Some(b) = attr.as_bool() {
+            *flag = b;
         }
     }
-    group
+    Ok(group)
 }
 
-/// Extract the value of a single named attribute from a `BytesStart`.
+/// The first attribute of `e` whose local name is `name`.
 #[inline]
-fn find_attr_str(e: &BytesStart<'_>, name: &str) -> Option<String> {
-    e.attributes().flatten()
-        .find(|a| a.key.local_name().as_ref() == name)
-        .map(|a| a.value.into_owned())
-}
-
-/// Parse sparkline color elements (self-closing) from a `BytesStart` into a group.
-#[inline]
-fn apply_sparkline_color(group: &mut SparklineGroup, local: &str, e: &BytesStart<'_>) {
-    if let Some(attr) = e.attributes().flatten()
-        .find(|a| a.key.local_name().as_ref() == "rgb")
-    {
-        let rgb = attr.value.into_owned();
-        match local {
-            "colorSeries" => group.color_series = Some(rgb),
-            "colorNegative" => group.color_negative = Some(rgb),
-            "colorAxis" => group.color_axis = Some(rgb),
-            "colorMarkers" => group.color_markers = Some(rgb),
-            "colorFirst" => group.color_first = Some(rgb),
-            "colorLast" => group.color_last = Some(rgb),
-            "colorHigh" => group.color_high = Some(rgb),
-            "colorLow" => group.color_low = Some(rgb),
-            _ => {}
+pub(super) fn find_attr<'a>(e: &'a BytesStart<'_>, name: &str) -> Result<Option<Attribute<'a>>> {
+    for attr in attrs(e) {
+        let attr = attr?;
+        if attr.key.local_name().as_ref() == name {
+            return Ok(Some(attr));
         }
+    }
+    Ok(None)
+}
+
+/// The decoded value of the attribute of `e` whose local name is `name`.
+#[inline]
+pub(super) fn find_attr_str(e: &BytesStart<'_>, name: &str) -> Result<Option<String>> {
+    find_attr(e, name)?
+        .map(|a| attr_str(&a).map(std::borrow::Cow::into_owned))
+        .transpose()
+}
+
+/// Whether `<ext>` element `e` holds sparkline groups: its `uri` is the x14
+/// sparklineGroups URI or the one 1.2.x wrote, compared ignoring ASCII case
+/// (GUID hex digits are case-insensitive). No `uri` is `Ok(false)`.
+pub(super) fn is_sparkline_ext(e: &BytesStart<'_>) -> Result<bool> {
+    let Some(a) = find_attr(e, "uri")? else {
+        return Ok(false);
+    };
+    let uri = attr_str(&a)?;
+    Ok([super::SPARKLINE_EXT_URI, super::LEGACY_SPARKLINE_EXT_URI]
+        .iter()
+        .any(|known| uri.eq_ignore_ascii_case(known)))
+}
+
+/// Parse a sparkline colour element (self-closing or a start/end pair) from a
+/// `BytesStart` into a group: its `rgb` into the legacy string field and, when it has a theme,
+/// indexed, tint or auto attribute, the full colour into the `*_spec` field.
+#[inline]
+pub(super) fn apply_sparkline_color(
+    group: &mut SparklineGroup,
+    local: &str,
+    e: &BytesStart<'_>,
+) -> Result<()> {
+    let (rgb_slot, spec_slot) = match local {
+        "colorSeries" => (&mut group.color_series, &mut group.color_series_spec),
+        "colorNegative" => (&mut group.color_negative, &mut group.color_negative_spec),
+        "colorAxis" => (&mut group.color_axis, &mut group.color_axis_spec),
+        "colorMarkers" => (&mut group.color_markers, &mut group.color_markers_spec),
+        "colorFirst" => (&mut group.color_first, &mut group.color_first_spec),
+        "colorLast" => (&mut group.color_last, &mut group.color_last_spec),
+        "colorHigh" => (&mut group.color_high, &mut group.color_high_spec),
+        "colorLow" => (&mut group.color_low, &mut group.color_low_spec),
+        _ => return Ok(()),
+    };
+    (*rgb_slot, *spec_slot) = split_color(Color::from_attrs(e)?);
+    Ok(())
+}
+
+/// The buffer that character data (text, CDATA and entity references) in
+/// `state` accumulates into, or `None` for a structural state, whose text is
+/// only inter-element whitespace and is dropped. Under `<is>` only `<t>` runs
+/// collect text; `<rPh>` phonetic text and the whitespace between runs do not.
+#[inline]
+pub(super) fn text_sink<'b>(
+    state: ParseState,
+    text: &'b mut String,
+    header_footer: &'b mut String,
+    sparkline_formula: &'b mut String,
+    sparkline_sqref: &'b mut String,
+    sparkline_dates: &'b mut String,
+) -> Option<&'b mut String> {
+    match state {
+        ParseState::InCellValue
+        | ParseState::InCellFormula
+        | ParseState::InInlineStrT
+        | ParseState::InDVFormula1
+        | ParseState::InDVFormula2
+        | ParseState::InCfRuleFormula => Some(text),
+        ParseState::HeaderFooterChild(_) => Some(header_footer),
+        ParseState::SparklineFormula => Some(sparkline_formula),
+        ParseState::SparklineSqref => Some(sparkline_sqref),
+        ParseState::SparklineDateRange => Some(sparkline_dates),
+        _ => None,
     }
 }
 
-/// Assign a header/footer text field by child index.
+/// Assign a header/footer text field by child part.
 #[inline]
-fn assign_hf_field(hf: &mut HeaderFooter, idx: u8, text: Option<String>) {
-    match idx {
-        0 => hf.odd_header = text,
-        1 => hf.odd_footer = text,
-        2 => hf.even_header = text,
-        3 => hf.even_footer = text,
-        4 => hf.first_header = text,
-        5 => hf.first_footer = text,
-        _ => {}
+pub(super) fn assign_hf_field(hf: &mut HeaderFooter, part: HfPart, text: Option<String>) {
+    match part {
+        HfPart::OddHeader => hf.odd_header = text,
+        HfPart::OddFooter => hf.odd_footer = text,
+        HfPart::EvenHeader => hf.even_header = text,
+        HfPart::EvenFooter => hf.even_footer = text,
+        HfPart::FirstHeader => hf.first_header = text,
+        HfPart::FirstFooter => hf.first_footer = text,
     }
 }
 
@@ -572,759 +1043,66 @@ fn assign_hf_field(hf: &mut HeaderFooter, idx: u8, text: Option<String>) {
 
 impl WorksheetXml {
     /// Parse a worksheet XML file from raw bytes.
+    /// `t="d"` cells are read in the 1900 date system.
     pub fn parse(data: &[u8]) -> Result<Self> {
-        Self::parse_with_sst(data, None)
+        Self::parse_with_sst(data, None, &SheetContext::default())
     }
 
     /// Parse a worksheet XML file, optionally resolving shared string indices
-    /// inline during parsing. This avoids a costly post-parse pass and
-    /// eliminates intermediate index-string allocations for SharedString cells.
-    pub fn parse_with_sst(data: &[u8], sst: Option<&crate::ooxml::shared_strings::SharedStringTable>) -> Result<Self> {
-        let mut reader = Reader::from_reader(data);
-        reader.config_mut().trim_text(true);
+    /// inline during parsing: a SharedString cell gets its SST entry's text as
+    /// `value` and, for a rich entry, that entry's runs as `rich_text`, so
+    /// there is no second pass over the cells and no index string is kept
+    /// for a SharedString cell. A `t="d"` cell becomes
+    /// a number cell holding its serial in `ctx.date_system`. The text copied
+    /// from the SST is not counted ([`Self::parse_with_sst_within`] counts it).
+    pub(crate) fn parse_with_sst(
+        data: &[u8],
+        sst: Option<&SharedStringTable>,
+        ctx: &SheetContext<'_>,
+    ) -> Result<Self> {
+        Self::parse_with_sst_within(data, sst, ctx, &mut ExpansionBudget::new(usize::MAX))
+    }
 
+    /// [`Self::parse_with_sst`], counting in `budget` the text it copies into
+    /// cells (SST entries) and hyperlinks (relationship targets), and the
+    /// worksheet namespace declarations re-declared on each kept `<ext>`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::parse_with_sst`], and `SizeLimit` when the count passes the
+    /// budget.
+    pub(crate) fn parse_with_sst_within(
+        data: &[u8],
+        sst: Option<&SharedStringTable>,
+        ctx: &SheetContext<'_>,
+        budget: &mut ExpansionBudget,
+    ) -> Result<Self> {
         // Pre-allocate buffers proportional to input size for fewer reallocations.
-        let estimated_rows = (data.len() / 200).max(64); // ~200 bytes per row heuristic
-        let mut buf = Vec::with_capacity(512);
-
-        let mut dimension: Option<String> = None;
-        let mut rows: Vec<Row> = Vec::with_capacity(estimated_rows);
-        let mut merge_cells: Vec<String> = Vec::new();
-        let mut auto_filter: Option<AutoFilter> = None;
-        let mut frozen_pane: Option<FrozenPane> = None;
-        let mut split_pane = None::<SplitPane>;
-        let mut pane_selections = Vec::<PaneSelection>::new();
-        let mut sheet_view = None::<SheetViewData>;
-        let mut columns: Vec<ColumnInfo> = Vec::new();
-        let mut data_validations: Vec<DataValidation> = Vec::new();
-        let mut conditional_formatting: Vec<ConditionalFormatting> = Vec::new();
-        let mut hyperlinks: Vec<Hyperlink> = Vec::new();
-        let mut page_setup: Option<PageSetup> = None;
-        let mut sheet_protection: Option<SheetProtection> = None;
-        let mut tab_color: Option<String> = None;
-        let mut header_footer: Option<HeaderFooter> = None;
-        let mut hf_text_buf = String::new();
-        let mut page_breaks: Option<PageBreaks> = None;
-        let mut outline_properties: Option<OutlineProperties> = None;
-
-        // Sparkline/extLst parsing state.
-        let mut sparkline_groups: Vec<SparklineGroup> = Vec::new();
-        let mut preserved_extensions: Vec<String> = Vec::new();
-        let mut current_sparkline_group: Option<SparklineGroup> = None;
-        let mut current_sparklines: Vec<Sparkline> = Vec::new();
-        let mut current_sparkline_formula = String::new();
-        let mut current_sparkline_sqref = String::new();
-        let mut ext_other_buf = String::new();
-
-        let mut state = ParseState::Root;
-
-        // Current row being built.
-        let mut cur_row_index: u32 = 0;
-        let mut cur_row_height: Option<f64> = None;
-        let mut cur_row_hidden = false;
-        let mut cur_row_outline_level: Option<u8> = None;
-        let mut cur_row_collapsed = false;
-        let mut cur_row_cells: Vec<Cell> = Vec::with_capacity(16);
-
-        // Current cell being built.
-        let mut cur_cell_ref = String::new();
-        let mut cur_cell_type = CellType::Number;
-        let mut cur_cell_style: Option<u32> = None;
-        let mut cur_cell_value: Option<String> = None;
-        let mut cur_cell_formula: Option<String> = None;
-        let mut cur_cell_inline_string: Option<String> = None;
-        let mut cur_formula = FormulaState {
-            formula_type: None,
-            formula_ref: None,
-            shared_index: None,
-            dynamic_array: None,
-            formula_r1: None,
-            formula_r2: None,
-            formula_dt2d: None,
-            formula_dtr1: None,
-            formula_dtr2: None,
-        };
-
-        // Buffers for text content.
-        let mut text_buf = String::with_capacity(256);
-
-        // Current data validation being built.
-        let mut cur_dv: Option<DataValidation> = None;
-
-        // Current conditional formatting being built.
-        let mut cur_cf_sqref = String::new();
-        let mut cur_cf_rules: Vec<ConditionalFormattingRule> = Vec::new();
-        let mut cur_cf_rule: Option<ConditionalFormattingRule> = None;
-
-        // Current auto filter being built.
-        let mut cur_af_range = String::new();
-        let mut cur_af_columns: Vec<FilterColumn> = Vec::new();
-        let mut cur_filter_col_id: u32 = 0;
-        let mut cur_filter_vals: Vec<String> = Vec::new();
-        let mut cur_custom_filters: Option<CustomFilters> = None;
-        let mut cur_custom_filter_and: bool = false;
-        let mut cur_custom_filter_items: Vec<CustomFilter> = Vec::new();
-
-        // Conditional formatting sub-element state.
-        let mut cur_cfvos: Vec<Cfvo> = Vec::new();
-        let mut cur_cf_colors: Vec<String> = Vec::new();
-        let mut cur_cf_bar_color = String::new();
-        let mut cur_icon_set_type: Option<String> = None;
-
-        loop {
-            match reader.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) => {
-                    let local = e.local_name();
-                    match (state, local.as_ref()) {
-                        (ParseState::Root, "sheetPr") => {
-                            state = ParseState::SheetPr;
-                        }
-                        (ParseState::Root, "sheetViews") => {
-                            state = ParseState::SheetViews;
-                        }
-                        (ParseState::SheetViews, "sheetView") => {
-                            state = ParseState::SheetView;
-                            let (sv, has_non_default) = parse_sheet_view_attrs(e);
-                            if has_non_default {
-                                sheet_view = Some(sv);
-                            }
-                        }
-                        (ParseState::SheetView, "selection") => {
-                            pane_selections.push(parse_selection_attrs(e));
-                        }
-                        (ParseState::Root, "cols") => {
-                            state = ParseState::Cols;
-                        }
-                        (ParseState::Root, "sheetData") => {
-                            state = ParseState::SheetData;
-                        }
-                        (ParseState::SheetData, "row") => {
-                            state = ParseState::InRow;
-                            let ra = parse_row_attrs(e);
-                            cur_row_index = ra.index;
-                            cur_row_height = ra.height;
-                            cur_row_hidden = ra.hidden;
-                            cur_row_outline_level = ra.outline_level;
-                            cur_row_collapsed = ra.collapsed;
-                            cur_row_cells.clear();
-                        }
-                        (ParseState::InRow, "c") => {
-                            state = ParseState::InCell;
-                            let ca = parse_cell_attrs(e);
-                            cur_cell_ref = ca.reference;
-                            cur_cell_type = ca.cell_type;
-                            cur_cell_style = ca.style_index;
-                            cur_cell_value = None;
-                            cur_cell_formula = None;
-                            cur_cell_inline_string = None;
-                            cur_formula = FormulaState {
-                                formula_type: None,
-                                formula_ref: None,
-                                shared_index: None,
-                                dynamic_array: None,
-                                formula_r1: None,
-                                formula_r2: None,
-                                formula_dt2d: None,
-                                formula_dtr1: None,
-                                formula_dtr2: None,
-                            };
-                        }
-                        (ParseState::InCell, "v") => {
-                            state = ParseState::InCellValue;
-                            text_buf.clear();
-                        }
-                        (ParseState::InCell, "f") => {
-                            state = ParseState::InCellFormula;
-                            text_buf.clear();
-                            parse_formula_attrs(e, &mut cur_formula);
-                        }
-                        (ParseState::InCell, "is") => {
-                            state = ParseState::InInlineStr;
-                        }
-                        (ParseState::InInlineStr, "t") => {
-                            state = ParseState::InInlineStrT;
-                            text_buf.clear();
-                        }
-                        (ParseState::Root, "mergeCells") => {
-                            state = ParseState::MergeCells;
-                        }
-                        (ParseState::Root, "dataValidations") => {
-                            state = ParseState::InDataValidations;
-                        }
-                        (ParseState::InDataValidations, "dataValidation") => {
-                            state = ParseState::InDataValidation;
-                            cur_dv = Some(parse_data_validation_attrs(e));
-                        }
-                        (ParseState::InDataValidation, "formula1") => {
-                            state = ParseState::InDVFormula1;
-                            text_buf.clear();
-                        }
-                        (ParseState::InDataValidation, "formula2") => {
-                            state = ParseState::InDVFormula2;
-                            text_buf.clear();
-                        }
-                        (ParseState::Root, "conditionalFormatting") => {
-                            state = ParseState::InConditionalFormatting;
-                            cur_cf_sqref.clear();
-                            cur_cf_rules.clear();
-                            if let Some(val) = find_attr_str(e, "sqref") {
-                                cur_cf_sqref = val;
-                            }
-                        }
-                        (ParseState::InConditionalFormatting, "cfRule") => {
-                            state = ParseState::InCfRule;
-                            cur_cf_rule = Some(parse_cf_rule_attrs(e));
-                        }
-                        (ParseState::InCfRule, "formula") => {
-                            state = ParseState::InCfRuleFormula;
-                            text_buf.clear();
-                        }
-                        (ParseState::InCfRule, "colorScale") => {
-                            state = ParseState::InColorScale;
-                            cur_cfvos.clear();
-                            cur_cf_colors.clear();
-                        }
-                        (ParseState::InCfRule, "dataBar") => {
-                            state = ParseState::InDataBar;
-                            cur_cfvos.clear();
-                            cur_cf_bar_color.clear();
-                        }
-                        (ParseState::InCfRule, "iconSet") => {
-                            state = ParseState::InIconSet;
-                            cur_cfvos.clear();
-                            cur_icon_set_type = find_attr_str(e, "iconSet");
-                        }
-                        (ParseState::Root, "hyperlinks") => {
-                            state = ParseState::InHyperlinks;
-                        }
-                        (ParseState::Root, "autoFilter") => {
-                            state = ParseState::InAutoFilter;
-                            cur_af_range.clear();
-                            cur_af_columns.clear();
-                            if let Some(val) = find_attr_str(e, "ref") {
-                                cur_af_range = val;
-                            }
-                        }
-                        (ParseState::InAutoFilter, "filterColumn") => {
-                            state = ParseState::InFilterColumn;
-                            cur_filter_col_id = find_attr_str(e, "colId")
-                                .and_then(|v| v.parse::<u32>().ok())
-                                .unwrap_or(0);
-                            cur_filter_vals.clear();
-                            cur_custom_filters = None;
-                        }
-                        (ParseState::InFilterColumn, "filters") => {
-                            state = ParseState::InFilters;
-                        }
-                        (ParseState::InFilterColumn, "customFilters") => {
-                            state = ParseState::InCustomFilters;
-                            cur_custom_filter_and = find_attr_str(e, "and")
-                                .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
-                            cur_custom_filter_items.clear();
-                        }
-                        (ParseState::Root, "headerFooter") => {
-                            header_footer = Some(parse_header_footer_attrs(e));
-                            state = ParseState::HeaderFooter;
-                        }
-                        (ParseState::HeaderFooter, "oddHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(0); }
-                        (ParseState::HeaderFooter, "oddFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(1); }
-                        (ParseState::HeaderFooter, "evenHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(2); }
-                        (ParseState::HeaderFooter, "evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
-                        (ParseState::HeaderFooter, "firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
-                        (ParseState::HeaderFooter, "firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
-
-                        // ---- rowBreaks / colBreaks ----
-                        (ParseState::Root, "rowBreaks") => {
-                            page_breaks.get_or_insert_with(PageBreaks::default);
-                            state = ParseState::InRowBreaks;
-                        }
-                        (ParseState::Root, "colBreaks") => {
-                            page_breaks.get_or_insert_with(PageBreaks::default);
-                            state = ParseState::InColBreaks;
-                        }
-
-                        // ---- extLst / sparklines ----
-                        (ParseState::Root, "extLst") => {
-                            state = ParseState::ExtLst;
-                        }
-                        (ParseState::ExtLst, "ext") => {
-                            let is_sparkline_ext = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == "uri")
-                                .is_some_and(|attr| {
-                                    let uri = attr.value.as_ref();
-                                    uri.contains("05C60535")
-                                });
-                            if is_sparkline_ext {
-                                state = ParseState::ExtSparklines;
-                            } else {
-                                ext_other_buf.clear();
-                                state = ParseState::ExtOther(1);
-                            }
-                        }
-                        (ParseState::ExtSparklines, "sparklineGroups") => {
-                            state = ParseState::SparklineGroups;
-                        }
-                        (ParseState::SparklineGroups, "sparklineGroup") => {
-                            current_sparkline_group = Some(parse_sparkline_group_attrs(e));
-                            state = ParseState::SparklineGroup;
-                        }
-                        (ParseState::SparklineGroup, "sparklines") => {
-                            state = ParseState::Sparklines;
-                        }
-                        (ParseState::Sparklines, "sparkline") => {
-                            current_sparkline_formula.clear();
-                            current_sparkline_sqref.clear();
-                            state = ParseState::SparklineItem;
-                        }
-                        (ParseState::SparklineItem, "f") => {
-                            state = ParseState::SparklineFormula;
-                        }
-                        (ParseState::SparklineItem, "sqref") => {
-                            state = ParseState::SparklineSqref;
-                        }
-                        (ParseState::ExtOther(_), _) => {
-                            if let ParseState::ExtOther(ref mut depth) = state {
-                                *depth += 1;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(Event::Empty(ref e)) => {
-                    let local = e.local_name();
-                    match (state, local.as_ref()) {
-                        (ParseState::Root, "dimension") => {
-                            dimension = find_attr_str(e, "ref");
-                        }
-                        (ParseState::SheetPr, "tabColor") => {
-                            tab_color = find_attr_str(e, "rgb");
-                        }
-                        (ParseState::SheetPr, "outlinePr") => {
-                            outline_properties = Some(parse_outline_pr_attrs(e));
-                        }
-                        (ParseState::Root, "autoFilter") => {
-                            auto_filter = Some(AutoFilter {
-                                range: find_attr_str(e, "ref").unwrap_or_default(),
-                                filter_columns: Vec::new(),
-                            });
-                        }
-                        (ParseState::SheetView, "pane") => {
-                            let (fp, sp) = parse_pane_attrs(e);
-                            if fp.is_some() { frozen_pane = fp; }
-                            if sp.is_some() { split_pane = sp; }
-                        }
-                        (ParseState::SheetView, "selection") => {
-                            pane_selections.push(parse_selection_attrs(e));
-                        }
-                        (ParseState::SheetViews, "sheetView") => {
-                            let (sv, has_non_default) = parse_sheet_view_attrs(e);
-                            if has_non_default {
-                                sheet_view = Some(sv);
-                            }
-                        }
-                        (ParseState::Cols, "col") => {
-                            columns.push(parse_col_element(e));
-                        }
-                        (ParseState::MergeCells, "mergeCell") => {
-                            if let Some(val) = find_attr_str(e, "ref") {
-                                merge_cells.push(val);
-                            }
-                        }
-                        (ParseState::InRow, "c") => {
-                            // Self-closing <c ... /> — cell with no child elements.
-                            let ca = parse_cell_attrs(e);
-                            cur_row_cells.push(Cell {
-                                reference: ca.reference,
-                                cell_type: ca.cell_type,
-                                style_index: ca.style_index,
-                                ..Default::default()
-                            });
-                        }
-                        (ParseState::SheetData, "row") => {
-                            // Self-closing <row ... /> — empty row.
-                            let ra = parse_row_attrs(e);
-                            rows.push(Row {
-                                index: ra.index,
-                                cells: Vec::new(),
-                                height: ra.height,
-                                hidden: ra.hidden,
-                                outline_level: ra.outline_level,
-                                collapsed: ra.collapsed,
-                            });
-                        }
-                        (ParseState::InCell, "v") => {
-                            // Empty <v/> — no value.
-                        }
-                        (ParseState::InCell, "f") => {
-                            // Empty <f/> — parse attributes even on self-closing.
-                            parse_formula_attrs(e, &mut cur_formula);
-                        }
-                        (ParseState::InDataValidations, "dataValidation") => {
-                            // Self-closing <dataValidation ... /> with no formula children.
-                            data_validations.push(parse_data_validation_attrs(e));
-                        }
-                        (ParseState::InConditionalFormatting, "cfRule") => {
-                            // Self-closing <cfRule ... /> with no formula child.
-                            cur_cf_rules.push(parse_cf_rule_attrs(e));
-                        }
-                        // Hyperlink (self-closing).
-                        (ParseState::InHyperlinks, "hyperlink") => {
-                            hyperlinks.push(parse_hyperlink_attrs(e));
-                        }
-                        // pageSetup (always self-closing).
-                        (ParseState::Root, "pageSetup") => {
-                            page_setup = Some(parse_page_setup_attrs(e));
-                        }
-                        // sheetProtection (always self-closing).
-                        (ParseState::Root, "sheetProtection") => {
-                            sheet_protection = Some(parse_sheet_protection_attrs(e));
-                        }
-                        // brk (page break, always self-closing).
-                        (ParseState::InRowBreaks, "brk") => {
-                            if let Some(ref mut pb) = page_breaks {
-                                pb.row_breaks.push(parse_brk_attrs(e));
-                            }
-                        }
-                        (ParseState::InColBreaks, "brk") => {
-                            if let Some(ref mut pb) = page_breaks {
-                                pb.col_breaks.push(parse_brk_attrs(e));
-                            }
-                        }
-                        // cfvo in colorScale/dataBar/iconSet.
-                        (ParseState::InColorScale | ParseState::InDataBar | ParseState::InIconSet, "cfvo") => {
-                            cur_cfvos.push(parse_cfvo_attrs(e));
-                        }
-                        // color in colorScale.
-                        (ParseState::InColorScale, "color") => {
-                            if let Some(val) = find_attr_str(e, "rgb") {
-                                cur_cf_colors.push(val);
-                            }
-                        }
-                        // color in dataBar.
-                        (ParseState::InDataBar, "color") => {
-                            if let Some(val) = find_attr_str(e, "rgb") {
-                                cur_cf_bar_color = val;
-                            }
-                        }
-                        // filter values.
-                        (ParseState::InFilters, "filter") => {
-                            if let Some(val) = find_attr_str(e, "val") {
-                                cur_filter_vals.push(val);
-                            }
-                        }
-                        // custom filter values (self-closing <customFilter>).
-                        (ParseState::InCustomFilters, "customFilter") => {
-                            let val = find_attr_str(e, "val").unwrap_or_default();
-                            let operator = find_attr_str(e, "operator");
-                            cur_custom_filter_items.push(CustomFilter { operator, val });
-                        }
-                        // Sparkline color elements (self-closing).
-                        (ParseState::SparklineGroup, _) => {
-                            if let Some(ref mut group) = current_sparkline_group {
-                                apply_sparkline_color(group, local.as_ref(), e);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(Event::Text(ref e)) => {
-                    match state {
-                        ParseState::InCellValue
-                        | ParseState::InCellFormula
-                        | ParseState::InInlineStrT
-                        | ParseState::InDVFormula1
-                        | ParseState::InDVFormula2
-                        | ParseState::InCfRuleFormula => {
-                            text_buf.push_str(e.as_ref());
-                        }
-                        ParseState::HeaderFooterChild(_) => {
-                            hf_text_buf.push_str(e.as_ref());
-                        }
-                        ParseState::SparklineFormula => {
-                            current_sparkline_formula.push_str(e.as_ref());
-                        }
-                        ParseState::SparklineSqref => {
-                            current_sparkline_sqref.push_str(e.as_ref());
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(Event::GeneralRef(ref e)) => {
-                    match state {
-                        ParseState::InCellValue
-                        | ParseState::InCellFormula
-                        | ParseState::InInlineStrT
-                        | ParseState::InDVFormula1
-                        | ParseState::InDVFormula2
-                        | ParseState::InCfRuleFormula => {
-                            push_entity(&mut text_buf, e.as_ref());
-                        }
-                        ParseState::HeaderFooterChild(_) => {
-                            push_entity(&mut hf_text_buf, e.as_ref());
-                        }
-                        ParseState::SparklineFormula => {
-                            push_entity(&mut current_sparkline_formula, e.as_ref());
-                        }
-                        ParseState::SparklineSqref => {
-                            push_entity(&mut current_sparkline_sqref, e.as_ref());
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(Event::End(ref e)) => {
-                    let local = e.local_name();
-                    match (state, local.as_ref()) {
-                        (ParseState::InCellValue, "v") => {
-                            // If this is a SharedString cell and we have the SST,
-                            // resolve the index directly instead of storing the raw index.
-                            // This avoids an extra pass AND eliminates the intermediate
-                            // index-string allocation.
-                            if cur_cell_type == CellType::SharedString
-                                && let Some(sst_ref) = sst
-                                    && let Ok(idx) = text_buf.parse::<usize>()
-                                        && let Some(resolved) = sst_ref.strings.get(idx) {
-                                            cur_cell_value = Some(resolved.clone());
-                                            text_buf.clear();
-                                            state = ParseState::InCell;
-                                            continue;
-                                        }
-                            cur_cell_value = Some(std::mem::take(&mut text_buf));
-                            state = ParseState::InCell;
-                        }
-                        (ParseState::InCellFormula, "f") => {
-                            cur_cell_formula = Some(std::mem::take(&mut text_buf));
-                            state = ParseState::InCell;
-                        }
-                        (ParseState::InInlineStrT, "t") => {
-                            let text = std::mem::take(&mut text_buf);
-                            cur_cell_inline_string = Some(text.clone());
-                            cur_cell_value = Some(text);
-                            state = ParseState::InInlineStr;
-                        }
-                        (ParseState::InInlineStr, "is") => {
-                            state = ParseState::InCell;
-                        }
-                        (ParseState::InCell, "c") => {
-                            cur_row_cells.push(Cell {
-                                reference: std::mem::take(&mut cur_cell_ref),
-                                cell_type: cur_cell_type,
-                                style_index: cur_cell_style.take(),
-                                value: cur_cell_value.take(),
-                                formula: cur_cell_formula.take(),
-                                formula_type: cur_formula.formula_type.take(),
-                                formula_ref: cur_formula.formula_ref.take(),
-                                shared_index: cur_formula.shared_index.take(),
-                                inline_string: cur_cell_inline_string.take(),
-                                dynamic_array: cur_formula.dynamic_array.take(),
-                                formula_r1: cur_formula.formula_r1.take(),
-                                formula_r2: cur_formula.formula_r2.take(),
-                                formula_dt2d: cur_formula.formula_dt2d.take(),
-                                formula_dtr1: cur_formula.formula_dtr1.take(),
-                                formula_dtr2: cur_formula.formula_dtr2.take(),
-                                rich_text: None,
-                            });
-                            state = ParseState::InRow;
-                        }
-                        (ParseState::InRow, "row") => {
-                            rows.push(Row {
-                                index: cur_row_index,
-                                cells: std::mem::take(&mut cur_row_cells),
-                                height: cur_row_height.take(),
-                                hidden: cur_row_hidden,
-                                outline_level: cur_row_outline_level.take(),
-                                collapsed: cur_row_collapsed,
-                            });
-                            state = ParseState::SheetData;
-                        }
-                        (ParseState::SheetData, "sheetData") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::SheetPr, "sheetPr") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::SheetView, "sheetView") => {
-                            state = ParseState::SheetViews;
-                        }
-                        (ParseState::SheetViews, "sheetViews") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::Cols, "cols") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::MergeCells, "mergeCells") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InDVFormula1, "formula1") => {
-                            if let Some(ref mut dv) = cur_dv {
-                                dv.formula1 = Some(std::mem::take(&mut text_buf));
-                            }
-                            state = ParseState::InDataValidation;
-                        }
-                        (ParseState::InDVFormula2, "formula2") => {
-                            if let Some(ref mut dv) = cur_dv {
-                                dv.formula2 = Some(std::mem::take(&mut text_buf));
-                            }
-                            state = ParseState::InDataValidation;
-                        }
-                        (ParseState::InDataValidation, "dataValidation") => {
-                            if let Some(dv) = cur_dv.take() {
-                                data_validations.push(dv);
-                            }
-                            state = ParseState::InDataValidations;
-                        }
-                        (ParseState::InDataValidations, "dataValidations") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InCfRuleFormula, "formula") => {
-                            if let Some(ref mut rule) = cur_cf_rule {
-                                rule.formula = Some(std::mem::take(&mut text_buf));
-                            }
-                            state = ParseState::InCfRule;
-                        }
-                        (ParseState::InCfRule, "cfRule") => {
-                            if let Some(rule) = cur_cf_rule.take() {
-                                cur_cf_rules.push(rule);
-                            }
-                            state = ParseState::InConditionalFormatting;
-                        }
-                        (ParseState::InConditionalFormatting, "conditionalFormatting") => {
-                            conditional_formatting.push(ConditionalFormatting {
-                                sqref: std::mem::take(&mut cur_cf_sqref),
-                                rules: std::mem::take(&mut cur_cf_rules),
-                            });
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InHyperlinks, "hyperlinks") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InAutoFilter, "autoFilter") => {
-                            auto_filter = Some(AutoFilter {
-                                range: std::mem::take(&mut cur_af_range),
-                                filter_columns: std::mem::take(&mut cur_af_columns),
-                            });
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InFilters, "filters") => {
-                            state = ParseState::InFilterColumn;
-                        }
-                        (ParseState::InCustomFilters, "customFilters") => {
-                            cur_custom_filters = Some(CustomFilters {
-                                and_op: cur_custom_filter_and,
-                                filters: std::mem::take(&mut cur_custom_filter_items),
-                            });
-                            state = ParseState::InFilterColumn;
-                        }
-                        (ParseState::InFilterColumn, "filterColumn") => {
-                            cur_af_columns.push(FilterColumn {
-                                col_id: cur_filter_col_id,
-                                filters: std::mem::take(&mut cur_filter_vals),
-                                custom_filters: cur_custom_filters.take(),
-                            });
-                            state = ParseState::InAutoFilter;
-                        }
-                        (ParseState::InColorScale, "colorScale") => {
-                            if let Some(ref mut rule) = cur_cf_rule {
-                                rule.color_scale = Some(ColorScale {
-                                    cfvos: std::mem::take(&mut cur_cfvos),
-                                    colors: std::mem::take(&mut cur_cf_colors),
-                                });
-                            }
-                            state = ParseState::InCfRule;
-                        }
-                        (ParseState::InDataBar, "dataBar") => {
-                            if let Some(ref mut rule) = cur_cf_rule {
-                                rule.data_bar = Some(DataBar {
-                                    cfvos: std::mem::take(&mut cur_cfvos),
-                                    color: std::mem::take(&mut cur_cf_bar_color),
-                                });
-                            }
-                            state = ParseState::InCfRule;
-                        }
-                        (ParseState::InIconSet, "iconSet") => {
-                            if let Some(ref mut rule) = cur_cf_rule {
-                                rule.icon_set = Some(IconSet {
-                                    icon_set_type: cur_icon_set_type.take(),
-                                    cfvos: std::mem::take(&mut cur_cfvos),
-                                });
-                            }
-                            state = ParseState::InCfRule;
-                        }
-                        (ParseState::HeaderFooterChild(idx), _) => {
-                            reader.config_mut().trim_text(true);
-                            if let Some(ref mut hf) = header_footer {
-                                let text = if hf_text_buf.is_empty() { None } else { Some(std::mem::take(&mut hf_text_buf)) };
-                                assign_hf_field(hf, idx, text);
-                            }
-                            state = ParseState::HeaderFooter;
-                        }
-                        (ParseState::HeaderFooter, "headerFooter") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InRowBreaks, "rowBreaks") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InColBreaks, "colBreaks") => {
-                            state = ParseState::Root;
-                        }
-
-                        // ---- extLst / sparklines end ----
-                        (ParseState::SparklineFormula, "f") => {
-                            state = ParseState::SparklineItem;
-                        }
-                        (ParseState::SparklineSqref, "sqref") => {
-                            state = ParseState::SparklineItem;
-                        }
-                        (ParseState::SparklineItem, "sparkline") => {
-                            current_sparklines.push(Sparkline {
-                                formula: std::mem::take(&mut current_sparkline_formula),
-                                sqref: std::mem::take(&mut current_sparkline_sqref),
-                            });
-                            state = ParseState::Sparklines;
-                        }
-                        (ParseState::Sparklines, "sparklines") => {
-                            state = ParseState::SparklineGroup;
-                        }
-                        (ParseState::SparklineGroup, "sparklineGroup") => {
-                            if let Some(mut group) = current_sparkline_group.take() {
-                                group.sparklines = std::mem::take(&mut current_sparklines);
-                                sparkline_groups.push(group);
-                            }
-                            state = ParseState::SparklineGroups;
-                        }
-                        (ParseState::SparklineGroups, "sparklineGroups") => {
-                            state = ParseState::ExtSparklines;
-                        }
-                        (ParseState::ExtSparklines, "ext") => {
-                            state = ParseState::ExtLst;
-                        }
-                        (ParseState::ExtLst, "extLst") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::ExtOther(depth), _) => {
-                            if depth <= 1 {
-                                let ext_xml = std::mem::take(&mut ext_other_buf);
-                                if !ext_xml.is_empty() {
-                                    preserved_extensions.push(ext_xml);
-                                }
-                                state = ParseState::ExtLst;
-                            } else {
-                                state = ParseState::ExtOther(depth - 1);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(Event::Eof) => break,
-                Err(err) => {
-                    cold_path();
-                    return Err(ModernXlsxError::XmlParse(format!(
-                        "error parsing worksheet XML: {err}"
-                    )));
-                }
-                _ => {}
-            }
-            buf.clear();
-        }
+        let estimated_rows = (data.len() / 200).clamp(64, 1 << 16); // one row per 200 bytes, clamped
+        let mut sink = StructSink::new(sst, ctx.date_system, estimated_rows);
+        let SheetMeta {
+            dimension,
+            merge_cells,
+            auto_filter,
+            frozen_pane,
+            split_pane,
+            pane_selections,
+            sheet_view,
+            columns,
+            data_validations,
+            conditional_formatting,
+            hyperlinks,
+            page_setup,
+            sheet_protection,
+            tab_color,
+            tab_color_spec,
+            header_footer,
+            page_breaks,
+            outline_properties,
+            sparkline_groups,
+            preserved_extensions,
+        } = drive(data, ctx, &mut sink, budget)?;
+        let rows = sink.into_rows();
 
         Ok(WorksheetXml {
             dimension,
@@ -1343,6 +1121,7 @@ impl WorksheetXml {
             sheet_protection,
             comments: Vec::new(),
             tab_color,
+            tab_color_spec,
             tables: Vec::new(),
             header_footer,
             page_breaks,
@@ -1359,968 +1138,333 @@ impl WorksheetXml {
 
     /// Parse worksheet XML and write the result directly as a JSON object to `out`.
     ///
-    /// This is a WASM-optimized alternative to `parse_with_sst()` + `serde_json::to_string()`.
-    /// Instead of creating millions of intermediate `Cell`/`Row`/`String` objects,
-    /// row and cell data is written directly to the JSON output buffer during parsing.
-    /// Metadata (merge cells, columns, etc.) is still collected in small structs and
-    /// serialized at the end via `serde_json` since they are negligible in size.
+    /// The alternative to `parse_with_sst()` followed by `serde_json::to_string()`
+    /// that `reader::read_xlsx_json` uses: the driver runs with a `JsonSink`,
+    /// which writes each row and cell to `out` as it is read, with no `Row` or
+    /// `Cell` built. The metadata (merge cells, columns, hyperlinks, ...) is
+    /// collected into its structs by the driver and written after the rows,
+    /// mostly through `serde_json`. The
+    /// `read_json_100k_rows` group in `benches/read_write.rs` times the two
+    /// read paths (`read_xlsx` plus `serde_json::to_string` against
+    /// `read_xlsx_json`) on a 100,000-row workbook.
     ///
-    /// For a 100K-row workbook, this eliminates ~1M `Cell` struct allocations,
-    /// ~100K `Vec<Cell>` allocations, and ~2M `String` allocations, which is the
-    /// primary cause of poor WASM performance due to frequent `memory.grow` calls.
-    pub fn parse_to_json(
+    /// `budget` counts the text copied into cells (SST entries) and
+    /// hyperlinks (relationship targets), and the worksheet namespace
+    /// declarations re-declared on each kept `<ext>`, and its limit is the
+    /// `max_json_length` that `out` is held to after each shared string a
+    /// `<v>` names and each cell, row, comment, hyperlink and kept extension.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::parse_with_sst`]; `SizeLimit` when the count passes the
+    /// budget or `out` grows past its limit; `Json` when serde_json fails.
+    pub(crate) fn parse_to_json_within(
         data: &[u8],
-        sst: Option<&crate::ooxml::shared_strings::SharedStringTable>,
+        sst: Option<&SharedStringTable>,
         comments: &[crate::ooxml::comments::Comment],
         tables: &[crate::ooxml::tables::TableDefinition],
+        ctx: &SheetContext<'_>,
+        out: &mut String,
+        budget: &mut ExpansionBudget,
+    ) -> Result<()> {
+        let mut sink = JsonSink::new(out, sst, ctx.date_system, budget.limit);
+        let meta = drive(data, ctx, &mut sink, budget)?;
+        sink.finish(&meta, comments, tables)
+    }
+
+    /// [`Self::parse_to_json_within`] without a limit, for the tests that
+    /// compare the two read paths.
+    #[cfg(test)]
+    pub(crate) fn parse_to_json(
+        data: &[u8],
+        sst: Option<&SharedStringTable>,
+        comments: &[crate::ooxml::comments::Comment],
+        tables: &[crate::ooxml::tables::TableDefinition],
+        ctx: &SheetContext<'_>,
         out: &mut String,
     ) -> Result<()> {
-        let mut reader = Reader::from_reader(data);
-        reader.config_mut().trim_text(true);
-
-        let mut buf = Vec::with_capacity(512);
-        let mut text_buf = String::with_capacity(256);
-        let mut itoa_buf = itoa::Buffer::new();
-
-        // Metadata (small, collected as structs, serialized at the end).
-        let mut dimension: Option<String> = None;
-        let mut merge_cells: Vec<String> = Vec::new();
-        let mut auto_filter: Option<AutoFilter> = None;
-        let mut frozen_pane: Option<FrozenPane> = None;
-        let mut split_pane = None::<SplitPane>;
-        let mut pane_selections = Vec::<PaneSelection>::new();
-        let mut sheet_view = None::<SheetViewData>;
-        let mut columns: Vec<ColumnInfo> = Vec::new();
-        let mut data_validations: Vec<DataValidation> = Vec::new();
-        let mut conditional_formatting: Vec<ConditionalFormatting> = Vec::new();
-        let mut hyperlinks: Vec<Hyperlink> = Vec::new();
-        let mut page_setup: Option<PageSetup> = None;
-        let mut sheet_protection: Option<SheetProtection> = None;
-        let mut tab_color: Option<String> = None;
-        let mut header_footer: Option<HeaderFooter> = None;
-        let mut hf_text_buf = String::new();
-        let mut page_breaks: Option<PageBreaks> = None;
-        let mut outline_properties: Option<OutlineProperties> = None;
-
-        // Sparkline/extLst parsing state.
-        let mut sparkline_groups: Vec<SparklineGroup> = Vec::new();
-        let mut current_sparkline_group: Option<SparklineGroup> = None;
-        let mut current_sparklines: Vec<Sparkline> = Vec::new();
-        let mut current_sparkline_formula = String::new();
-        let mut current_sparkline_sqref = String::new();
-
-        // Row/cell streaming state (reused each row/cell, no accumulation).
-        let mut state = ParseState::Root;
-        let mut first_row = true;
-        let mut first_cell = true;
-        let mut cur_row_height: Option<f64> = None;
-        let mut cur_row_hidden = false;
-        let mut cur_row_outline_level: Option<u8> = None;
-        let mut cur_row_collapsed = false;
-
-        // Cell attribute storage (reused each cell via clear, keeps allocation).
-        let mut cur_cell_ref = String::with_capacity(10);
-        let mut cur_cell_type = CellType::Number;
-        #[allow(unused_assignments)]
-        let mut cur_cell_style: Option<u32> = None;
-        let mut cur_formula = FormulaState {
-            formula_type: None,
-            formula_ref: None,
-            shared_index: None,
-            dynamic_array: None,
-            formula_r1: None,
-            formula_r2: None,
-            formula_dt2d: None,
-            formula_dtr1: None,
-            formula_dtr2: None,
-        };
-
-        // Metadata builder state (same as parse_with_sst).
-        let mut cur_dv: Option<DataValidation> = None;
-        let mut cur_cf_sqref = String::new();
-        let mut cur_cf_rules: Vec<ConditionalFormattingRule> = Vec::new();
-        let mut cur_cf_rule: Option<ConditionalFormattingRule> = None;
-        let mut cur_af_range = String::new();
-        let mut cur_af_columns: Vec<FilterColumn> = Vec::new();
-        let mut cur_filter_col_id: u32 = 0;
-        let mut cur_filter_vals: Vec<String> = Vec::new();
-        let mut cur_custom_filters: Option<CustomFilters> = None;
-        let mut cur_custom_filter_and: bool = false;
-        let mut cur_custom_filter_items: Vec<CustomFilter> = Vec::new();
-        let mut cur_cfvos: Vec<Cfvo> = Vec::new();
-        let mut cur_cf_colors: Vec<String> = Vec::new();
-        let mut cur_cf_bar_color = String::new();
-        let mut cur_icon_set_type: Option<String> = None;
-
-        // Start the worksheet JSON object with rows array first.
-        out.push_str("{\"rows\":[");
-
-        loop {
-            match reader.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) => {
-                    let local = e.local_name();
-                    match (state, local.as_ref()) {
-                        // ---- Sheet properties (metadata) ----
-                        (ParseState::Root, "sheetPr") => state = ParseState::SheetPr,
-
-                        // ---- Sheet views / pane (metadata) ----
-                        (ParseState::Root, "sheetViews") => state = ParseState::SheetViews,
-                        (ParseState::SheetViews, "sheetView") => {
-                            state = ParseState::SheetView;
-                            let (sv, has_non_default) = parse_sheet_view_attrs(e);
-                            if has_non_default {
-                                sheet_view = Some(sv);
-                            }
-                        }
-                        (ParseState::SheetView, "selection") => {
-                            pane_selections.push(parse_selection_attrs(e));
-                        }
-                        (ParseState::Root, "cols") => state = ParseState::Cols,
-
-                        // ---- Sheet data (rows/cells -> streamed to JSON) ----
-                        (ParseState::Root, "sheetData") => state = ParseState::SheetData,
-
-                        (ParseState::SheetData, "row") => {
-                            state = ParseState::InRow;
-                            let ra = parse_row_attrs(e);
-                            cur_row_height = ra.height;
-                            cur_row_hidden = ra.hidden;
-                            cur_row_outline_level = ra.outline_level;
-                            cur_row_collapsed = ra.collapsed;
-
-                            // Write row JSON start.
-                            if !first_row { out.push(','); }
-                            first_row = false;
-                            out.push_str("{\"index\":");
-                            out.push_str(itoa_buf.format(ra.index));
-                            out.push_str(",\"cells\":[");
-                            first_cell = true;
-                        }
-
-                        (ParseState::InRow, "c") => {
-                            state = ParseState::InCell;
-                            cur_cell_ref.clear();
-                            cur_cell_type = CellType::Number;
-                            cur_cell_style = None;
-                            cur_formula = FormulaState {
-                                formula_type: None,
-                                formula_ref: None,
-                                shared_index: None,
-                                dynamic_array: None,
-                                formula_r1: None,
-                                formula_r2: None,
-                                formula_dt2d: None,
-                                formula_dtr1: None,
-                                formula_dtr2: None,
-                            };
-
-                            for attr in e.attributes().flatten() {
-                                let ln = attr.key.local_name();
-                                match ln.as_ref() {
-                                    "r" => {
-                                        cur_cell_ref.push_str(
-                                            attr.value.as_ref(),
-                                        );
-                                    }
-                                    "t" => {
-                                        let val = attr.value.as_ref();
-                                        cur_cell_type = parse_cell_type_attr(val);
-                                    }
-                                    "s" => {
-                                        let val = attr.value.as_ref();
-                                        cur_cell_style = val.parse::<u32>().ok();
-                                    }
-                                    _ => {}
-                                }
-                            }
-
-                            // Write cell JSON header (reference + cellType + optional styleIndex).
-                            if !first_cell { out.push(','); }
-                            first_cell = false;
-                            out.push_str("{\"reference\":\"");
-                            json_escape_to(out, &cur_cell_ref);
-                            out.push_str("\",\"cellType\":\"");
-                            out.push_str(cell_type_json_str(cur_cell_type));
-                            out.push('"');
-                            if let Some(si) = cur_cell_style {
-                                out.push_str(",\"styleIndex\":");
-                                out.push_str(itoa_buf.format(si));
-                            }
-                        }
-
-                        (ParseState::InCell, "v") => {
-                            state = ParseState::InCellValue;
-                            text_buf.clear();
-                        }
-                        (ParseState::InCell, "f") => {
-                            state = ParseState::InCellFormula;
-                            text_buf.clear();
-                            parse_formula_attrs(e, &mut cur_formula);
-                        }
-                        (ParseState::InCell, "is") => state = ParseState::InInlineStr,
-                        (ParseState::InInlineStr, "t") => {
-                            state = ParseState::InInlineStrT;
-                            text_buf.clear();
-                        }
-
-                        // ---- Merge cells (metadata) ----
-                        (ParseState::Root, "mergeCells") => state = ParseState::MergeCells,
-
-                        // ---- Data validations (metadata) ----
-                        (ParseState::Root, "dataValidations") => state = ParseState::InDataValidations,
-                        (ParseState::InDataValidations, "dataValidation") => {
-                            state = ParseState::InDataValidation;
-                            cur_dv = Some(parse_data_validation_attrs(e));
-                        }
-                        (ParseState::InDataValidation, "formula1") => {
-                            state = ParseState::InDVFormula1;
-                            text_buf.clear();
-                        }
-                        (ParseState::InDataValidation, "formula2") => {
-                            state = ParseState::InDVFormula2;
-                            text_buf.clear();
-                        }
-
-                        // ---- Conditional formatting (metadata) ----
-                        (ParseState::Root, "conditionalFormatting") => {
-                            state = ParseState::InConditionalFormatting;
-                            cur_cf_sqref.clear();
-                            cur_cf_rules.clear();
-                            if let Some(val) = find_attr_str(e, "sqref") {
-                                cur_cf_sqref = val;
-                            }
-                        }
-                        (ParseState::InConditionalFormatting, "cfRule") => {
-                            state = ParseState::InCfRule;
-                            cur_cf_rule = Some(parse_cf_rule_attrs(e));
-                        }
-                        (ParseState::InCfRule, "formula") => {
-                            state = ParseState::InCfRuleFormula;
-                            text_buf.clear();
-                        }
-                        (ParseState::InCfRule, "colorScale") => {
-                            state = ParseState::InColorScale;
-                            cur_cfvos.clear();
-                            cur_cf_colors.clear();
-                        }
-                        (ParseState::InCfRule, "dataBar") => {
-                            state = ParseState::InDataBar;
-                            cur_cfvos.clear();
-                            cur_cf_bar_color.clear();
-                        }
-                        (ParseState::InCfRule, "iconSet") => {
-                            state = ParseState::InIconSet;
-                            cur_cfvos.clear();
-                            cur_icon_set_type = find_attr_str(e, "iconSet");
-                        }
-
-                        // ---- Hyperlinks (metadata) ----
-                        (ParseState::Root, "hyperlinks") => state = ParseState::InHyperlinks,
-
-                        // ---- Auto filter (metadata) ----
-                        (ParseState::Root, "autoFilter") => {
-                            state = ParseState::InAutoFilter;
-                            cur_af_range.clear();
-                            cur_af_columns.clear();
-                            if let Some(val) = find_attr_str(e, "ref") {
-                                cur_af_range = val;
-                            }
-                        }
-                        (ParseState::InAutoFilter, "filterColumn") => {
-                            state = ParseState::InFilterColumn;
-                            cur_filter_col_id = find_attr_str(e, "colId")
-                                .and_then(|v| v.parse::<u32>().ok())
-                                .unwrap_or(0);
-                            cur_filter_vals.clear();
-                            cur_custom_filters = None;
-                        }
-                        (ParseState::InFilterColumn, "filters") => state = ParseState::InFilters,
-                        (ParseState::InFilterColumn, "customFilters") => {
-                            state = ParseState::InCustomFilters;
-                            cur_custom_filter_and = find_attr_str(e, "and")
-                                .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
-                            cur_custom_filter_items.clear();
-                        }
-
-                        (ParseState::Root, "headerFooter") => {
-                            header_footer = Some(parse_header_footer_attrs(e));
-                            state = ParseState::HeaderFooter;
-                        }
-                        (ParseState::HeaderFooter, "oddHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(0); }
-                        (ParseState::HeaderFooter, "oddFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(1); }
-                        (ParseState::HeaderFooter, "evenHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(2); }
-                        (ParseState::HeaderFooter, "evenFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(3); }
-                        (ParseState::HeaderFooter, "firstHeader") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(4); }
-                        (ParseState::HeaderFooter, "firstFooter") => { hf_text_buf.clear(); reader.config_mut().trim_text(false); state = ParseState::HeaderFooterChild(5); }
-
-                        // ---- rowBreaks / colBreaks ----
-                        (ParseState::Root, "rowBreaks") => {
-                            page_breaks.get_or_insert_with(PageBreaks::default);
-                            state = ParseState::InRowBreaks;
-                        }
-                        (ParseState::Root, "colBreaks") => {
-                            page_breaks.get_or_insert_with(PageBreaks::default);
-                            state = ParseState::InColBreaks;
-                        }
-
-                        // ---- extLst / sparklines ----
-                        (ParseState::Root, "extLst") => {
-                            state = ParseState::ExtLst;
-                        }
-                        (ParseState::ExtLst, "ext") => {
-                            let is_sparkline_ext = e.attributes().flatten()
-                                .find(|a| a.key.local_name().as_ref() == "uri")
-                                .is_some_and(|attr| {
-                                    let uri = attr.value.as_ref();
-                                    uri.contains("05C60535")
-                                });
-                            if is_sparkline_ext {
-                                state = ParseState::ExtSparklines;
-                            } else {
-                                state = ParseState::ExtOther(1);
-                            }
-                        }
-                        (ParseState::ExtSparklines, "sparklineGroups") => {
-                            state = ParseState::SparklineGroups;
-                        }
-                        (ParseState::SparklineGroups, "sparklineGroup") => {
-                            current_sparkline_group = Some(parse_sparkline_group_attrs(e));
-                            state = ParseState::SparklineGroup;
-                        }
-                        (ParseState::SparklineGroup, "sparklines") => {
-                            state = ParseState::Sparklines;
-                        }
-                        (ParseState::Sparklines, "sparkline") => {
-                            current_sparkline_formula.clear();
-                            current_sparkline_sqref.clear();
-                            state = ParseState::SparklineItem;
-                        }
-                        (ParseState::SparklineItem, "f") => {
-                            state = ParseState::SparklineFormula;
-                        }
-                        (ParseState::SparklineItem, "sqref") => {
-                            state = ParseState::SparklineSqref;
-                        }
-                        (ParseState::ExtOther(_), _) => {
-                            if let ParseState::ExtOther(ref mut depth) = state {
-                                *depth += 1;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
-                Ok(Event::Empty(ref e)) => {
-                    let local = e.local_name();
-                    match (state, local.as_ref()) {
-                        (ParseState::Root, "dimension") => {
-                            dimension = find_attr_str(e, "ref");
-                        }
-                        (ParseState::SheetPr, "tabColor") => {
-                            tab_color = find_attr_str(e, "rgb");
-                        }
-                        (ParseState::SheetPr, "outlinePr") => {
-                            outline_properties = Some(parse_outline_pr_attrs(e));
-                        }
-                        (ParseState::Root, "autoFilter") => {
-                            auto_filter = Some(AutoFilter {
-                                range: find_attr_str(e, "ref").unwrap_or_default(),
-                                filter_columns: Vec::new(),
-                            });
-                        }
-                        (ParseState::SheetView, "pane") => {
-                            let (fp, sp) = parse_pane_attrs(e);
-                            if fp.is_some() { frozen_pane = fp; }
-                            if sp.is_some() { split_pane = sp; }
-                        }
-                        (ParseState::SheetView, "selection") => {
-                            pane_selections.push(parse_selection_attrs(e));
-                        }
-                        (ParseState::SheetViews, "sheetView") => {
-                            // Self-closing <sheetView ... /> — parse attributes.
-                            let (sv, has_non_default) = parse_sheet_view_attrs(e);
-                            if has_non_default {
-                                sheet_view = Some(sv);
-                            }
-                        }
-                        (ParseState::Cols, "col") => columns.push(parse_col_element(e)),
-                        (ParseState::MergeCells, "mergeCell") => {
-                            if let Some(val) = find_attr_str(e, "ref") {
-                                merge_cells.push(val);
-                            }
-                        }
-                        // Self-closing <c ... /> — cell with no children.
-                        (ParseState::InRow, "c") => {
-                            let ca = parse_cell_attrs(e);
-                            if !first_cell { out.push(','); }
-                            first_cell = false;
-                            out.push_str("{\"reference\":\"");
-                            json_escape_to(out, &ca.reference);
-                            out.push_str("\",\"cellType\":\"");
-                            out.push_str(cell_type_json_str(ca.cell_type));
-                            out.push('"');
-                            if let Some(si) = ca.style_index {
-                                out.push_str(",\"styleIndex\":");
-                                out.push_str(itoa_buf.format(si));
-                            }
-                            out.push('}');
-                        }
-                        // Self-closing <row ... /> — empty row.
-                        (ParseState::SheetData, "row") => {
-                            let ra = parse_row_attrs(e);
-                            if !first_row { out.push(','); }
-                            first_row = false;
-                            out.push_str("{\"index\":");
-                            out.push_str(itoa_buf.format(ra.index));
-                            out.push_str(",\"cells\":[]");
-                            if let Some(h) = ra.height {
-                                out.push_str(",\"height\":");
-                                write_f64_json(out, h);
-                            }
-                            if ra.hidden {
-                                out.push_str(",\"hidden\":true");
-                            }
-                            if let Some(level) = ra.outline_level {
-                                out.push_str(",\"outlineLevel\":");
-                                out.push_str(itoa_buf.format(level));
-                            }
-                            if ra.collapsed {
-                                out.push_str(",\"collapsed\":true");
-                            }
-                            out.push('}');
-                        }
-                        (ParseState::InCell, "v") => { /* Empty <v/> — no value */ }
-                        (ParseState::InCell, "f") => {
-                            parse_formula_attrs(e, &mut cur_formula);
-                        }
-                        (ParseState::InDataValidations, "dataValidation") => {
-                            data_validations.push(parse_data_validation_attrs(e));
-                        }
-                        (ParseState::InConditionalFormatting, "cfRule") => {
-                            cur_cf_rules.push(parse_cf_rule_attrs(e));
-                        }
-                        (ParseState::InHyperlinks, "hyperlink") => {
-                            hyperlinks.push(parse_hyperlink_attrs(e));
-                        }
-                        (ParseState::Root, "pageSetup") => {
-                            page_setup = Some(parse_page_setup_attrs(e));
-                        }
-                        (ParseState::Root, "sheetProtection") => {
-                            sheet_protection = Some(parse_sheet_protection_attrs(e));
-                        }
-                        // brk (page break, always self-closing).
-                        (ParseState::InRowBreaks, "brk") => {
-                            if let Some(ref mut pb) = page_breaks {
-                                pb.row_breaks.push(parse_brk_attrs(e));
-                            }
-                        }
-                        (ParseState::InColBreaks, "brk") => {
-                            if let Some(ref mut pb) = page_breaks {
-                                pb.col_breaks.push(parse_brk_attrs(e));
-                            }
-                        }
-                        (ParseState::InColorScale | ParseState::InDataBar | ParseState::InIconSet, "cfvo") => {
-                            cur_cfvos.push(parse_cfvo_attrs(e));
-                        }
-                        (ParseState::InColorScale, "color") => {
-                            if let Some(val) = find_attr_str(e, "rgb") {
-                                cur_cf_colors.push(val);
-                            }
-                        }
-                        (ParseState::InDataBar, "color") => {
-                            if let Some(val) = find_attr_str(e, "rgb") {
-                                cur_cf_bar_color = val;
-                            }
-                        }
-                        (ParseState::InFilters, "filter") => {
-                            if let Some(val) = find_attr_str(e, "val") {
-                                cur_filter_vals.push(val);
-                            }
-                        }
-                        (ParseState::InCustomFilters, "customFilter") => {
-                            let val = find_attr_str(e, "val").unwrap_or_default();
-                            let operator = find_attr_str(e, "operator");
-                            cur_custom_filter_items.push(CustomFilter { operator, val });
-                        }
-                        // Sparkline color elements (self-closing).
-                        (ParseState::SparklineGroup, _) => {
-                            if let Some(ref mut group) = current_sparkline_group {
-                                apply_sparkline_color(group, local.as_ref(), e);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
-                Ok(Event::Text(ref e)) => {
-                    match state {
-                        ParseState::InCellValue
-                        | ParseState::InCellFormula
-                        | ParseState::InInlineStrT
-                        | ParseState::InDVFormula1
-                        | ParseState::InDVFormula2
-                        | ParseState::InCfRuleFormula => {
-                            text_buf.push_str(e.as_ref());
-                        }
-                        ParseState::HeaderFooterChild(_) => {
-                            hf_text_buf.push_str(e.as_ref());
-                        }
-                        ParseState::SparklineFormula => {
-                            current_sparkline_formula.push_str(e.as_ref());
-                        }
-                        ParseState::SparklineSqref => {
-                            current_sparkline_sqref.push_str(e.as_ref());
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(Event::GeneralRef(ref e)) => {
-                    match state {
-                        ParseState::InCellValue
-                        | ParseState::InCellFormula
-                        | ParseState::InInlineStrT
-                        | ParseState::InDVFormula1
-                        | ParseState::InDVFormula2
-                        | ParseState::InCfRuleFormula => {
-                            push_entity(&mut text_buf, e.as_ref());
-                        }
-                        ParseState::HeaderFooterChild(_) => {
-                            push_entity(&mut hf_text_buf, e.as_ref());
-                        }
-                        ParseState::SparklineFormula => {
-                            push_entity(&mut current_sparkline_formula, e.as_ref());
-                        }
-                        ParseState::SparklineSqref => {
-                            push_entity(&mut current_sparkline_sqref, e.as_ref());
-                        }
-                        _ => {}
-                    }
-                }
-
-                Ok(Event::End(ref e)) => {
-                    let local = e.local_name();
-                    match (state, local.as_ref()) {
-                        // ---- Cell value end -> write JSON directly ----
-                        (ParseState::InCellValue, "v") => {
-                            if cur_cell_type == CellType::SharedString
-                                && let Some(sst_ref) = sst
-                                    && let Ok(idx) = text_buf.parse::<usize>()
-                                        && let Some(resolved) = sst_ref.strings.get(idx) {
-                                            out.push_str(",\"value\":\"");
-                                            json_escape_to(out, resolved);
-                                            out.push('"');
-                                            text_buf.clear();
-                                            state = ParseState::InCell;
-                                            continue;
-                                        }
-                            out.push_str(",\"value\":\"");
-                            json_escape_to(out, &text_buf);
-                            out.push('"');
-                            text_buf.clear();
-                            state = ParseState::InCell;
-                        }
-
-                        // ---- Formula end -> write JSON directly ----
-                        (ParseState::InCellFormula, "f") => {
-                            out.push_str(",\"formula\":\"");
-                            json_escape_to(out, &text_buf);
-                            out.push('"');
-                            text_buf.clear();
-                            write_formula_json_fields(out, &mut itoa_buf, &mut cur_formula);
-                            state = ParseState::InCell;
-                        }
-
-                        // ---- Inline string end -> write both value and inlineString ----
-                        (ParseState::InInlineStrT, "t") => {
-                            out.push_str(",\"value\":\"");
-                            json_escape_to(out, &text_buf);
-                            out.push_str("\",\"inlineString\":\"");
-                            json_escape_to(out, &text_buf);
-                            out.push('"');
-                            text_buf.clear();
-                            state = ParseState::InInlineStr;
-                        }
-                        (ParseState::InInlineStr, "is") => state = ParseState::InCell,
-
-                        // ---- Cell end -> close cell JSON object ----
-                        (ParseState::InCell, "c") => {
-                            // Write formula attributes even if no formula text was present
-                            // (happens with self-closing <f/> parsed in Empty handler).
-                            if cur_formula.formula_type.is_some()
-                                || cur_formula.formula_ref.is_some()
-                                || cur_formula.shared_index.is_some()
-                            {
-                                if let Some(ref ft) = cur_formula.formula_type.take() {
-                                    out.push_str(",\"formulaType\":\"");
-                                    json_escape_to(out, ft);
-                                    out.push('"');
-                                }
-                                if let Some(ref fr) = cur_formula.formula_ref.take() {
-                                    out.push_str(",\"formulaRef\":\"");
-                                    json_escape_to(out, fr);
-                                    out.push('"');
-                                }
-                                if let Some(si) = cur_formula.shared_index.take() {
-                                    out.push_str(",\"sharedIndex\":");
-                                    out.push_str(itoa_buf.format(si));
-                                }
-                            }
-                            if cur_formula.dynamic_array.take() == Some(true) {
-                                out.push_str(",\"dynamicArray\":true");
-                            }
-                            if let Some(ref r1) = cur_formula.formula_r1.take() {
-                                out.push_str(",\"formulaR1\":\"");
-                                json_escape_to(out, r1);
-                                out.push('"');
-                            }
-                            if let Some(ref r2) = cur_formula.formula_r2.take() {
-                                out.push_str(",\"formulaR2\":\"");
-                                json_escape_to(out, r2);
-                                out.push('"');
-                            }
-                            if cur_formula.formula_dt2d.take() == Some(true) {
-                                out.push_str(",\"formulaDt2d\":true");
-                            }
-                            if cur_formula.formula_dtr1.take() == Some(true) {
-                                out.push_str(",\"formulaDtr1\":true");
-                            }
-                            if cur_formula.formula_dtr2.take() == Some(true) {
-                                out.push_str(",\"formulaDtr2\":true");
-                            }
-                            out.push('}');
-                            state = ParseState::InRow;
-                        }
-
-                        // ---- Row end -> close row JSON object ----
-                        (ParseState::InRow, "row") => {
-                            out.push(']'); // close cells array
-                            if let Some(h) = cur_row_height {
-                                out.push_str(",\"height\":");
-                                write_f64_json(out, h);
-                            }
-                            if cur_row_hidden {
-                                out.push_str(",\"hidden\":true");
-                            }
-                            if let Some(level) = cur_row_outline_level {
-                                out.push_str(",\"outlineLevel\":");
-                                out.push_str(itoa_buf.format(level));
-                            }
-                            if cur_row_collapsed {
-                                out.push_str(",\"collapsed\":true");
-                            }
-                            out.push('}');
-                            state = ParseState::SheetData;
-                        }
-
-                        (ParseState::SheetData, "sheetData") => state = ParseState::Root,
-                        (ParseState::SheetPr, "sheetPr") => state = ParseState::Root,
-                        (ParseState::SheetView, "sheetView") => state = ParseState::SheetViews,
-                        (ParseState::SheetViews, "sheetViews") => state = ParseState::Root,
-                        (ParseState::Cols, "cols") => state = ParseState::Root,
-                        (ParseState::MergeCells, "mergeCells") => state = ParseState::Root,
-
-                        // ---- Data validation metadata end ----
-                        (ParseState::InDVFormula1, "formula1") => {
-                            if let Some(ref mut dv) = cur_dv {
-                                dv.formula1 = Some(std::mem::take(&mut text_buf));
-                            }
-                            state = ParseState::InDataValidation;
-                        }
-                        (ParseState::InDVFormula2, "formula2") => {
-                            if let Some(ref mut dv) = cur_dv {
-                                dv.formula2 = Some(std::mem::take(&mut text_buf));
-                            }
-                            state = ParseState::InDataValidation;
-                        }
-                        (ParseState::InDataValidation, "dataValidation") => {
-                            if let Some(dv) = cur_dv.take() {
-                                data_validations.push(dv);
-                            }
-                            state = ParseState::InDataValidations;
-                        }
-                        (ParseState::InDataValidations, "dataValidations") => state = ParseState::Root,
-
-                        // ---- Conditional formatting metadata end ----
-                        (ParseState::InCfRuleFormula, "formula") => {
-                            if let Some(ref mut rule) = cur_cf_rule {
-                                rule.formula = Some(std::mem::take(&mut text_buf));
-                            }
-                            state = ParseState::InCfRule;
-                        }
-                        (ParseState::InCfRule, "cfRule") => {
-                            if let Some(rule) = cur_cf_rule.take() {
-                                cur_cf_rules.push(rule);
-                            }
-                            state = ParseState::InConditionalFormatting;
-                        }
-                        (ParseState::InConditionalFormatting, "conditionalFormatting") => {
-                            conditional_formatting.push(ConditionalFormatting {
-                                sqref: std::mem::take(&mut cur_cf_sqref),
-                                rules: std::mem::take(&mut cur_cf_rules),
-                            });
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InHyperlinks, "hyperlinks") => state = ParseState::Root,
-                        (ParseState::InAutoFilter, "autoFilter") => {
-                            auto_filter = Some(AutoFilter {
-                                range: std::mem::take(&mut cur_af_range),
-                                filter_columns: std::mem::take(&mut cur_af_columns),
-                            });
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InFilters, "filters") => state = ParseState::InFilterColumn,
-                        (ParseState::InCustomFilters, "customFilters") => {
-                            cur_custom_filters = Some(CustomFilters {
-                                and_op: cur_custom_filter_and,
-                                filters: std::mem::take(&mut cur_custom_filter_items),
-                            });
-                            state = ParseState::InFilterColumn;
-                        }
-                        (ParseState::InFilterColumn, "filterColumn") => {
-                            cur_af_columns.push(FilterColumn {
-                                col_id: cur_filter_col_id,
-                                filters: std::mem::take(&mut cur_filter_vals),
-                                custom_filters: cur_custom_filters.take(),
-                            });
-                            state = ParseState::InAutoFilter;
-                        }
-                        (ParseState::InColorScale, "colorScale") => {
-                            if let Some(ref mut rule) = cur_cf_rule {
-                                rule.color_scale = Some(ColorScale {
-                                    cfvos: std::mem::take(&mut cur_cfvos),
-                                    colors: std::mem::take(&mut cur_cf_colors),
-                                });
-                            }
-                            state = ParseState::InCfRule;
-                        }
-                        (ParseState::InDataBar, "dataBar") => {
-                            if let Some(ref mut rule) = cur_cf_rule {
-                                rule.data_bar = Some(DataBar {
-                                    cfvos: std::mem::take(&mut cur_cfvos),
-                                    color: std::mem::take(&mut cur_cf_bar_color),
-                                });
-                            }
-                            state = ParseState::InCfRule;
-                        }
-                        (ParseState::InIconSet, "iconSet") => {
-                            if let Some(ref mut rule) = cur_cf_rule {
-                                rule.icon_set = Some(IconSet {
-                                    icon_set_type: cur_icon_set_type.take(),
-                                    cfvos: std::mem::take(&mut cur_cfvos),
-                                });
-                            }
-                            state = ParseState::InCfRule;
-                        }
-                        (ParseState::HeaderFooterChild(idx), _) => {
-                            reader.config_mut().trim_text(true);
-                            if let Some(ref mut hf) = header_footer {
-                                let text = if hf_text_buf.is_empty() { None } else { Some(std::mem::take(&mut hf_text_buf)) };
-                                assign_hf_field(hf, idx, text);
-                            }
-                            state = ParseState::HeaderFooter;
-                        }
-                        (ParseState::HeaderFooter, "headerFooter") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InRowBreaks, "rowBreaks") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::InColBreaks, "colBreaks") => {
-                            state = ParseState::Root;
-                        }
-
-                        // ---- extLst / sparklines end ----
-                        (ParseState::SparklineFormula, "f") => {
-                            state = ParseState::SparklineItem;
-                        }
-                        (ParseState::SparklineSqref, "sqref") => {
-                            state = ParseState::SparklineItem;
-                        }
-                        (ParseState::SparklineItem, "sparkline") => {
-                            current_sparklines.push(Sparkline {
-                                formula: std::mem::take(&mut current_sparkline_formula),
-                                sqref: std::mem::take(&mut current_sparkline_sqref),
-                            });
-                            state = ParseState::Sparklines;
-                        }
-                        (ParseState::Sparklines, "sparklines") => {
-                            state = ParseState::SparklineGroup;
-                        }
-                        (ParseState::SparklineGroup, "sparklineGroup") => {
-                            if let Some(mut group) = current_sparkline_group.take() {
-                                group.sparklines = std::mem::take(&mut current_sparklines);
-                                sparkline_groups.push(group);
-                            }
-                            state = ParseState::SparklineGroups;
-                        }
-                        (ParseState::SparklineGroups, "sparklineGroups") => {
-                            state = ParseState::ExtSparklines;
-                        }
-                        (ParseState::ExtSparklines, "ext") => {
-                            state = ParseState::ExtLst;
-                        }
-                        (ParseState::ExtLst, "extLst") => {
-                            state = ParseState::Root;
-                        }
-                        (ParseState::ExtOther(depth), _) => {
-                            if depth <= 1 {
-                                state = ParseState::ExtLst;
-                            } else {
-                                state = ParseState::ExtOther(depth - 1);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
-                Ok(Event::Eof) => break,
-                Err(err) => {
-                    cold_path();
-                    return Err(ModernXlsxError::XmlParse(format!(
-                        "error parsing worksheet XML: {err}"
-                    )));
-                }
-                _ => {}
-            }
-            buf.clear();
-        }
-
-        // Close the rows array.
-        out.push(']');
-
-        // Write metadata fields using serde_json (these are tiny).
-        if let Some(ref d) = dimension {
-            out.push_str(",\"dimension\":\"");
-            json_escape_to(out, d);
-            out.push('"');
-        }
-        if !merge_cells.is_empty() {
-            out.push_str(",\"mergeCells\":");
-            out.push_str(&serde_json::to_string(&merge_cells)?);
-        }
-        if let Some(ref af) = auto_filter {
-            out.push_str(",\"autoFilter\":");
-            out.push_str(&serde_json::to_string(af)?);
-        }
-        if let Some(ref fp) = frozen_pane {
-            out.push_str(",\"frozenPane\":");
-            out.push_str(&serde_json::to_string(fp)?);
-        }
-        if let Some(ref sp) = split_pane {
-            out.push_str(",\"splitPane\":");
-            out.push_str(&serde_json::to_string(sp)?);
-        }
-        if !pane_selections.is_empty() {
-            out.push_str(",\"paneSelections\":");
-            out.push_str(&serde_json::to_string(&pane_selections)?);
-        }
-        if let Some(ref sv) = sheet_view {
-            out.push_str(",\"sheetView\":");
-            out.push_str(&serde_json::to_string(sv)?);
-        }
-        if !columns.is_empty() {
-            out.push_str(",\"columns\":");
-            out.push_str(&serde_json::to_string(&columns)?);
-        }
-        if !data_validations.is_empty() {
-            out.push_str(",\"dataValidations\":");
-            out.push_str(&serde_json::to_string(&data_validations)?);
-        }
-        if !conditional_formatting.is_empty() {
-            out.push_str(",\"conditionalFormatting\":");
-            out.push_str(&serde_json::to_string(&conditional_formatting)?);
-        }
-        if !hyperlinks.is_empty() {
-            out.push_str(",\"hyperlinks\":");
-            out.push_str(&serde_json::to_string(&hyperlinks)?);
-        }
-        if let Some(ref ps) = page_setup {
-            out.push_str(",\"pageSetup\":");
-            out.push_str(&serde_json::to_string(ps)?);
-        }
-        if let Some(ref sp) = sheet_protection {
-            out.push_str(",\"sheetProtection\":");
-            out.push_str(&serde_json::to_string(sp)?);
-        }
-        if !comments.is_empty() {
-            out.push_str(",\"comments\":");
-            out.push_str(&serde_json::to_string(comments)?);
-        }
-        if !tables.is_empty() {
-            out.push_str(",\"tables\":");
-            out.push_str(&serde_json::to_string(tables)?);
-        }
-        if let Some(ref tc) = tab_color {
-            out.push_str(",\"tabColor\":\"");
-            json_escape_to(out, tc);
-            out.push('"');
-        }
-        if let Some(ref hf) = header_footer {
-            out.push_str(",\"headerFooter\":");
-            out.push_str(&serde_json::to_string(hf)?);
-        }
-        if let Some(ref pb) = page_breaks {
-            out.push_str(",\"pageBreaks\":");
-            out.push_str(&serde_json::to_string(pb)?);
-        }
-        if let Some(ref op) = outline_properties {
-            out.push_str(",\"outlineProperties\":");
-            out.push_str(&serde_json::to_string(op)?);
-        }
-        if !sparkline_groups.is_empty() {
-            out.push_str(",\"sparklineGroups\":");
-            out.push_str(&serde_json::to_string(&sparkline_groups)?);
-        }
-
-        // Close the worksheet JSON object.
-        out.push('}');
-
-        Ok(())
+        Self::parse_to_json_within(
+            data,
+            sst,
+            comments,
+            tables,
+            ctx,
+            out,
+            &mut ExpansionBudget::new(usize::MAX),
+        )
     }
 }
 
-// ---------------------------------------------------------------------------
-// JSON-path helper for writing formula fields inline
-// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::WorksheetXml;
+    use pretty_assertions::assert_eq;
 
-/// Write formula-related JSON fields from `FormulaState` into the output buffer.
-/// Used by `parse_to_json` when closing a `<f>` element.
-#[inline]
-fn write_formula_json_fields(out: &mut String, itoa_buf: &mut itoa::Buffer, fs: &mut FormulaState) {
-    if let Some(ref ft) = fs.formula_type {
-        out.push_str(",\"formulaType\":\"");
-        json_escape_to(out, ft);
-        out.push('"');
+    #[test]
+    fn formula_fields_reset_between_cells() {
+        let xml = br#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><f t="shared" ref="A1:A2" si="0">1+1</f><v>2</v></c><c r="B1"><v>3</v></c></row></sheetData></worksheet>"#;
+        let ws = WorksheetXml::parse(xml).unwrap();
+        let cells = &ws.rows[0].cells;
+        assert_eq!(cells[0].formula_type.as_deref(), Some("shared"));
+        assert_eq!(cells[0].formula_ref.as_deref(), Some("A1:A2"));
+        assert_eq!(cells[0].shared_index, Some(0));
+        assert_eq!(cells[1].formula_type, None);
+        assert_eq!(cells[1].formula_ref, None);
+        assert_eq!(cells[1].shared_index, None);
     }
-    if let Some(ref fr) = fs.formula_ref {
-        out.push_str(",\"formulaRef\":\"");
-        json_escape_to(out, fr);
-        out.push('"');
+
+    /// Parse `<cols>` through both parsers; the JSON path is checked against
+    /// the model path's columns.
+    fn parse_cols(col: &str) -> crate::Result<Vec<crate::ooxml::worksheet::ColumnInfo>> {
+        let xml = format!(
+            r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>{col}</cols><sheetData/></worksheet>"#
+        );
+        let model = WorksheetXml::parse_with_sst(
+            xml.as_bytes(),
+            None,
+            &crate::ooxml::worksheet::SheetContext::default(),
+        );
+        let mut json = String::new();
+        let streamed = WorksheetXml::parse_to_json(
+            xml.as_bytes(),
+            None,
+            &[],
+            &[],
+            &crate::ooxml::worksheet::SheetContext::default(),
+            &mut json,
+        );
+        assert_eq!(model.is_ok(), streamed.is_ok(), "{col}");
+        match (model, streamed) {
+            (Ok(ws), Ok(())) => {
+                let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+                assert_eq!(
+                    v["columns"],
+                    serde_json::to_value(&ws.columns).unwrap(),
+                    "{col}"
+                );
+                Ok(ws.columns)
+            }
+            (Err(e), Err(s)) => {
+                assert_eq!(e.code(), s.code(), "{col}");
+                Err(e)
+            }
+            _ => unreachable!("both paths agree, asserted above"),
+        }
     }
-    if let Some(si) = fs.shared_index {
-        out.push_str(",\"sharedIndex\":");
-        out.push_str(itoa_buf.format(si));
+
+    #[test]
+    fn col_collapsed_true_reads_true() {
+        let cols = parse_cols(r#"<col min="1" max="1" collapsed="true"/>"#).unwrap();
+        assert!(cols[0].collapsed);
     }
-    if fs.dynamic_array == Some(true) {
-        out.push_str(",\"dynamicArray\":true");
+
+    #[test]
+    fn col_flags_are_case_sensitive_and_keep_defaults() {
+        let cols =
+            parse_cols(r#"<col min="1" max="1" hidden="TRUE" customWidth="TRUE"/>"#).unwrap();
+        assert!(!cols[0].hidden);
+        assert!(!cols[0].custom_width);
+        let cols =
+            parse_cols(r#"<col hidden="1" customWidth="true" width="12.5" outlineLevel="2"/>"#)
+                .unwrap();
+        assert_eq!((cols[0].min, cols[0].max), (1, 1));
+        assert!(cols[0].hidden && cols[0].custom_width);
+        assert_eq!(cols[0].width, 12.5);
+        assert_eq!(cols[0].outline_level, Some(2));
     }
-    if let Some(ref r1) = fs.formula_r1 {
-        out.push_str(",\"formulaR1\":\"");
-        json_escape_to(out, r1);
-        out.push('"');
+
+    #[test]
+    fn col_malformed_number_is_xml_parse_error() {
+        for col in [
+            r#"<col min="x" max="1"/>"#,
+            r#"<col min="1" max="1" width="wide"/>"#,
+            r#"<col min="1" max="1" outlineLevel="300"/>"#,
+        ] {
+            assert_eq!(parse_cols(col).unwrap_err().code(), "XML_PARSE", "{col}");
+        }
     }
-    if let Some(ref r2) = fs.formula_r2 {
-        out.push_str(",\"formulaR2\":\"");
-        json_escape_to(out, r2);
-        out.push('"');
+
+    /// Parse one `<c>` through both parsers and return its reference from the
+    /// model path and from the JSON path.
+    fn cell_reference_both_paths(cell: &str) -> (String, serde_json::Value) {
+        let xml = format!(
+            r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">{cell}</row></sheetData></worksheet>"#
+        );
+        let ws = WorksheetXml::parse(xml.as_bytes()).unwrap();
+        let mut json = String::new();
+        WorksheetXml::parse_to_json(
+            xml.as_bytes(),
+            None,
+            &[],
+            &[],
+            &crate::ooxml::worksheet::SheetContext::default(),
+            &mut json,
+        )
+        .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        (
+            ws.rows[0].cells[0].reference.clone(),
+            v["rows"][0]["cells"][0]["reference"].clone(),
+        )
     }
-    if fs.formula_dt2d == Some(true) {
-        out.push_str(",\"formulaDt2d\":true");
+
+    // quick-xml rejects only an identical QName, so `r` and `x:r` both reach
+    // the local-name match in `parse_cell_attrs_into`: the last one wins.
+
+    #[test]
+    fn cell_prefixed_duplicate_r_last_wins() {
+        let (model, json) =
+            cell_reference_both_paths(r#"<c r="A1" xmlns:x="urn:x" x:r="B2"><v>1</v></c>"#);
+        assert_eq!(model, "B2");
+        assert_eq!(json, "B2");
     }
-    if fs.formula_dtr1 == Some(true) {
-        out.push_str(",\"formulaDtr1\":true");
+
+    #[test]
+    fn self_closing_cell_prefixed_duplicate_r_last_wins() {
+        let (model, json) = cell_reference_both_paths(r#"<c r="A1" xmlns:x="urn:x" x:r="B2"/>"#);
+        assert_eq!(model, "B2");
+        assert_eq!(json, "B2");
     }
-    if fs.formula_dtr2 == Some(true) {
-        out.push_str(",\"formulaDtr2\":true");
+
+    #[test]
+    fn col_duplicate_attribute_is_error() {
+        let err = parse_cols(r#"<col min="1" min="2" max="1"/>"#).unwrap_err();
+        assert_eq!(err.code(), "XML_PARSE");
+    }
+
+    /// A hyperlink's target counts once, as kept: a second `r:id` (under
+    /// another prefix bound to the relationships namespace) replaces the
+    /// first copy.
+    #[test]
+    fn hyperlink_target_counts_once_per_hyperlink() {
+        use crate::ooxml::relationships::{REL_HYPERLINK, Relationships};
+        use crate::ooxml::shared_strings::ExpansionBudget;
+        use crate::ooxml::worksheet::SheetContext;
+
+        let target = "https://example.com/abcdefghij";
+        let mut rels = Relationships::new();
+        let id = rels.add_external(REL_HYPERLINK, target);
+        let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        let xml = format!(
+            r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="{r}" xmlns:q="{r}"><sheetData/><hyperlinks><hyperlink ref="A1" r:id="{id}" q:id="{id}"/></hyperlinks></worksheet>"#
+        );
+        let ctx = SheetContext {
+            rels: Some(&rels),
+            ..SheetContext::default()
+        };
+        for within in [true, false] {
+            let limit = if within {
+                target.len()
+            } else {
+                target.len() - 1
+            };
+            // Only the copies are under test: the stored list elements have
+            // a limit of their own.
+            let copies_only = ExpansionBudget {
+                store_limit: usize::MAX,
+                ..ExpansionBudget::new(limit)
+            };
+            let mut budget = copies_only;
+            let model =
+                WorksheetXml::parse_with_sst_within(xml.as_bytes(), None, &ctx, &mut budget);
+            let mut budget = copies_only;
+            let mut json = String::new();
+            let streamed = WorksheetXml::parse_to_json_within(
+                xml.as_bytes(),
+                None,
+                &[],
+                &[],
+                &ctx,
+                &mut json,
+                &mut budget,
+            );
+            if within {
+                assert_eq!(model.unwrap().hyperlinks[0].target.as_deref(), Some(target));
+                // The count fits; the sheet JSON, checked after each
+                // hyperlink it writes, is longer than this limit.
+                let err = streamed.unwrap_err();
+                assert!(err.to_string().contains("workbook JSON reached"), "{err}");
+                assert_eq!(budget.spent, target.len());
+            } else {
+                assert_eq!(model.unwrap_err().code(), "SIZE_LIMIT");
+                assert_eq!(streamed.unwrap_err().code(), "SIZE_LIMIT");
+            }
+        }
+    }
+
+    /// Every prefix the root binds to the relationships namespace names a
+    /// relationship, whatever the order of the declarations (the lookup
+    /// searches the prefixes in sorted order); another prefix, another letter
+    /// case and a colon-leading `:id` name none, also when the root binds the
+    /// empty prefix to the relationships namespace.
+    #[test]
+    fn hyperlink_r_id_resolves_under_every_relationship_prefix() {
+        use crate::ooxml::relationships::{REL_HYPERLINK, Relationships};
+        use crate::ooxml::shared_strings::ExpansionBudget;
+        use crate::ooxml::worksheet::SheetContext;
+
+        let target = "https://example.com/x";
+        let mut rels = Relationships::new();
+        let id = rels.add_external(REL_HYPERLINK, target);
+        let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        let xml = format!(
+            r#"<worksheet xmlns:="{r}" xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="{r}" xmlns:q="{r}" xmlns:Z="{r}" xmlns:b="urn:other" xmlns:a="{r}"><sheetData/><hyperlinks><hyperlink ref="A1" r:id="{id}"/><hyperlink ref="A2" q:id="{id}"/><hyperlink ref="A3" Z:id="{id}"/><hyperlink ref="A4" a:id="{id}"/><hyperlink ref="A5" b:id="{id}"/><hyperlink ref="A6" :id="{id}"/><hyperlink ref="A7" R:id="{id}"/></hyperlinks></worksheet>"#
+        );
+        let ctx = SheetContext {
+            rels: Some(&rels),
+            ..SheetContext::default()
+        };
+        let mut budget = ExpansionBudget {
+            store_limit: usize::MAX,
+            ..ExpansionBudget::new(usize::MAX)
+        };
+        let ws = WorksheetXml::parse_with_sst_within(xml.as_bytes(), None, &ctx, &mut budget)
+            .expect("sheet reads");
+        let targets: Vec<Option<&str>> =
+            ws.hyperlinks.iter().map(|h| h.target.as_deref()).collect();
+        assert_eq!(
+            targets,
+            [
+                Some(target),
+                Some(target),
+                Some(target),
+                Some(target),
+                None,
+                None,
+                None
+            ]
+        );
+    }
+
+    /// A rich entry counts its text and the floor of its runs on both paths.
+    #[test]
+    fn rich_shared_string_counts_text_and_runs() {
+        use crate::ooxml::shared_strings::{
+            ExpansionBudget, RichTextRun, SharedStringTable, runs_json_floor,
+        };
+        use crate::ooxml::worksheet::SheetContext;
+
+        let runs = vec![RichTextRun {
+            text: "ab".into(),
+            font_name: Some("Calibri".into()),
+            ..RichTextRun::default()
+        }];
+        let sst = SharedStringTable {
+            strings: vec!["ab".into()],
+            rich_runs: vec![Some(runs.clone())],
+        };
+        let xml = br#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>0</v></c></row></sheetData></worksheet>"#;
+        let per_cell = 2 + runs_json_floor(&runs);
+        let ctx = SheetContext::default();
+        let mut budget = ExpansionBudget::new(usize::MAX);
+        let ws = WorksheetXml::parse_with_sst_within(xml, Some(&sst), &ctx, &mut budget).unwrap();
+        assert_eq!(ws.rows[0].cells[1].rich_text.as_deref(), Some(&runs[..]));
+        assert_eq!(budget.spent, 2 * per_cell);
+        let mut budget = ExpansionBudget::new(usize::MAX);
+        let mut json = String::new();
+        WorksheetXml::parse_to_json_within(xml, Some(&sst), &[], &[], &ctx, &mut json, &mut budget)
+            .unwrap();
+        assert_eq!(budget.spent, 2 * per_cell);
+        assert!(budget.spent <= json.len());
     }
 }

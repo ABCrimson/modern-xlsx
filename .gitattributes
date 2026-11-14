@@ -1,2 +1,13 @@
 # Force LF line endings everywhere (prevents CRLF issues on Windows CI)
 * text=auto eol=lf
+
+# Fuzz seed corpus: binary inputs must never be line-ending converted
+fuzz/seeds/**/*.bin binary
+fuzz/seeds/**/*.xlsx binary
+
+# Excel test fixtures: ZIP packages must never be line-ending converted
+crates/modern-xlsx-core/tests/fixtures/**/*.xlsx binary
+
+# README and social assets (docs/assets/readme): SVG is text, PNG is binary
+*.svg text eol=lf
+*.png binary

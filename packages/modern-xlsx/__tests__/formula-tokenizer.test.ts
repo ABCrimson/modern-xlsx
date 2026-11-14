@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { EXCEL_ERROR_LITERALS } from '../src/formula/errors.js';
+import { evaluateFormula } from '../src/formula/evaluator.js';
+import type { EvalContext } from '../src/formula/resolver.js';
 import type { TokenType } from '../src/formula/tokenizer.js';
 import { tokenize } from '../src/formula/tokenizer.js';
+import { Workbook } from '../src/index.js';
+
+/** One table row: the input text and its exact [type, value] token pairs. */
+interface TokenCase {
+  readonly formula: string;
+  readonly tokens: readonly (readonly [TokenType, string])[];
+}
 
 /** Helper: extract [type, value] pairs from tokens */
 function tv(formula: string): [TokenType, string][] {
@@ -13,57 +23,64 @@ describe('tokenize', () => {
     it('strips leading = from formulas', () => {
       const result = tokenize('=1+2');
       expect(result.tokens).toHaveLength(3);
-      expect(result.tokens[0].value).toBe('1');
+      expect(result.tokens[0]?.value).toBe('1');
     });
 
     it('works without leading =', () => {
       const result = tokenize('1+2');
       expect(result.tokens).toHaveLength(3);
-      expect(result.tokens[0].value).toBe('1');
+      expect(result.tokens[0]?.value).toBe('1');
     });
   });
 
   describe('simple arithmetic', () => {
-    it('tokenizes 1+2', () => {
-      expect(tv('1+2')).toEqual([
-        ['number', '1'],
-        ['operator', '+'],
-        ['number', '2'],
-      ]);
-    });
-
-    it('tokenizes 3.14*2', () => {
-      expect(tv('3.14*2')).toEqual([
-        ['number', '3.14'],
-        ['operator', '*'],
-        ['number', '2'],
-      ]);
-    });
-
-    it('tokenizes 10/3-1', () => {
-      expect(tv('10/3-1')).toEqual([
-        ['number', '10'],
-        ['operator', '/'],
-        ['number', '3'],
-        ['operator', '-'],
-        ['number', '1'],
-      ]);
-    });
-
-    it('tokenizes power operator', () => {
-      expect(tv('2^8')).toEqual([
-        ['number', '2'],
-        ['operator', '^'],
-        ['number', '8'],
-      ]);
-    });
-
-    it('tokenizes concatenation operator', () => {
-      expect(tv('"a"&"b"')).toEqual([
-        ['string', 'a'],
-        ['operator', '&'],
-        ['string', 'b'],
-      ]);
+    it.each<TokenCase>([
+      {
+        formula: '1+2',
+        tokens: [
+          ['number', '1'],
+          ['operator', '+'],
+          ['number', '2'],
+        ],
+      },
+      {
+        formula: '3.14*2',
+        tokens: [
+          ['number', '3.14'],
+          ['operator', '*'],
+          ['number', '2'],
+        ],
+      },
+      {
+        formula: '10/3-1',
+        tokens: [
+          ['number', '10'],
+          ['operator', '/'],
+          ['number', '3'],
+          ['operator', '-'],
+          ['number', '1'],
+        ],
+      },
+      // tokenizes power operator
+      {
+        formula: '2^8',
+        tokens: [
+          ['number', '2'],
+          ['operator', '^'],
+          ['number', '8'],
+        ],
+      },
+      // tokenizes concatenation operator
+      {
+        formula: '"a"&"b"',
+        tokens: [
+          ['string', 'a'],
+          ['operator', '&'],
+          ['string', 'b'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
     });
   });
 
@@ -142,48 +159,120 @@ describe('tokenize', () => {
   });
 
   describe('ranges via colon', () => {
-    it('tokenizes A1:B2 as cell_ref + colon + cell_ref', () => {
-      expect(tv('A1:B2')).toEqual([
-        ['cell_ref', 'A1'],
-        ['colon', ':'],
-        ['cell_ref', 'B2'],
-      ]);
+    it.each<TokenCase>([
+      // tokenizes A1:B2 as cell_ref + colon + cell_ref
+      {
+        formula: 'A1:B2',
+        tokens: [
+          ['cell_ref', 'A1'],
+          ['colon', ':'],
+          ['cell_ref', 'B2'],
+        ],
+      },
+      // tokenizes absolute range
+      {
+        formula: '$A$1:$B$10',
+        tokens: [
+          ['cell_ref', '$A$1'],
+          ['colon', ':'],
+          ['cell_ref', '$B$10'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
+    });
+  });
+
+  describe('cell reference bounds (A1:XFD1048576)', () => {
+    it('tokenizes the last cell XFD1048576 as a cell_ref', () => {
+      expect(tokenize('XFD1048576')).toEqual({
+        tokens: [{ type: 'cell_ref', value: 'XFD1048576', start: 0, end: 10 }],
+        errors: [],
+      });
     });
 
-    it('tokenizes absolute range', () => {
-      expect(tv('$A$1:$B$10')).toEqual([
-        ['cell_ref', '$A$1'],
+    it('tokenizes a column past XFD as a name', () => {
+      expect(tokenize('XFE1')).toEqual({
+        tokens: [{ type: 'name', value: 'XFE1', start: 0, end: 4 }],
+        errors: [],
+      });
+    });
+
+    it('tokenizes row 0, row 1048577 and ZZZ1 as names', () => {
+      expect(tv('A0')).toEqual([['name', 'A0']]);
+      expect(tv('A1048577')).toEqual([['name', 'A1048577']]);
+      expect(tv('ZZZ1')).toEqual([['name', 'ZZZ1']]);
+      expect(tv('xfe1')).toEqual([['name', 'xfe1']]);
+    });
+
+    it('reports an out-of-bounds A$1 shape (Excel rejects the formula)', () => {
+      expect(tokenize('XFE$1')).toEqual({
+        tokens: [],
+        errors: ['Invalid cell reference at position 0: XFE$1'],
+      });
+      expect(tokenize('A$0').errors).toEqual(['Invalid cell reference at position 0: A$0']);
+      expect(tv('XFD$1048576')).toEqual([['cell_ref', 'XFD$1048576']]);
+    });
+
+    it('reports an out-of-bounds $-prefixed reference', () => {
+      const result = tokenize('$XFE$1');
+      expect(result.tokens).toEqual([]);
+      expect(result.errors).toEqual(['Invalid cell reference at position 0: $XFE$1']);
+      expect(tokenize('$A0').errors).toEqual(['Invalid cell reference at position 0: $A0']);
+    });
+
+    it('reports an out-of-bounds sheet-qualified reference', () => {
+      const result = tokenize('Sheet1!XFE1');
+      expect(result.tokens).toEqual([]);
+      expect(result.errors).toEqual(['Invalid cell reference at position 0: Sheet1!XFE1']);
+      expect(tokenize("1+'My Sheet'!A0").errors).toEqual([
+        "Invalid cell reference at position 2: 'My Sheet'!A0",
+      ]);
+      expect(tv('Sheet1!$XFD$1048576')).toEqual([['cell_ref', 'Sheet1!$XFD$1048576']]);
+    });
+
+    it('applies the bound to each range endpoint', () => {
+      expect(tv('A1:XFE1')).toEqual([
+        ['cell_ref', 'A1'],
         ['colon', ':'],
-        ['cell_ref', '$B$10'],
+        ['name', 'XFE1'],
+      ]);
+      expect(tokenize('Sheet1!A1:Sheet1!A1048577').errors).toEqual([
+        'Invalid cell reference at position 10: Sheet1!A1048577',
       ]);
     });
   });
 
   describe('function calls', () => {
-    it('tokenizes SUM(A1:A10)', () => {
-      expect(tv('SUM(A1:A10)')).toEqual([
-        ['function', 'SUM'],
-        ['paren_open', '('],
-        ['cell_ref', 'A1'],
-        ['colon', ':'],
-        ['cell_ref', 'A10'],
-        ['paren_close', ')'],
-      ]);
-    });
-
-    it('tokenizes IF(A1>0,1,0)', () => {
-      expect(tv('IF(A1>0,1,0)')).toEqual([
-        ['function', 'IF'],
-        ['paren_open', '('],
-        ['cell_ref', 'A1'],
-        ['operator', '>'],
-        ['number', '0'],
-        ['comma', ','],
-        ['number', '1'],
-        ['comma', ','],
-        ['number', '0'],
-        ['paren_close', ')'],
-      ]);
+    it.each<TokenCase>([
+      {
+        formula: 'SUM(A1:A10)',
+        tokens: [
+          ['function', 'SUM'],
+          ['paren_open', '('],
+          ['cell_ref', 'A1'],
+          ['colon', ':'],
+          ['cell_ref', 'A10'],
+          ['paren_close', ')'],
+        ],
+      },
+      {
+        formula: 'IF(A1>0,1,0)',
+        tokens: [
+          ['function', 'IF'],
+          ['paren_open', '('],
+          ['cell_ref', 'A1'],
+          ['operator', '>'],
+          ['number', '0'],
+          ['comma', ','],
+          ['number', '1'],
+          ['comma', ','],
+          ['number', '0'],
+          ['paren_close', ')'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
     });
 
     it('tokenizes VLOOKUP with multiple args', () => {
@@ -282,39 +371,86 @@ describe('tokenize', () => {
     it('tokenizes #NUM!', () => {
       expect(tv('#NUM!')[0]).toEqual(['error', '#NUM!']);
     });
+
+    it.each(EXCEL_ERROR_LITERALS)('tokenizes %s as one error token', (literal) => {
+      const result = tokenize(literal);
+      expect(result.errors).toEqual([]);
+      expect(tv(literal)).toEqual([['error', literal]]);
+    });
+
+    it('stops an unknown error literal at the first operator', () => {
+      const result = tokenize('#FOO+1');
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain(': #FOO');
+      expect(result.errors[0]).not.toContain('+1');
+      expect(tv('#FOO+1')).toContainEqual(['operator', '+']);
+      expect(tv('#FOO+1')).toContainEqual(['number', '1']);
+    });
+
+    it('keeps a trailing ! or ? on an unknown error literal', () => {
+      expect(tokenize('#FOO!').errors).toEqual(['Unknown error literal at position 0: #FOO!']);
+      expect(tokenize('#BAR?,1').errors).toEqual(['Unknown error literal at position 0: #BAR?']);
+    });
+
+    it('tokenizes a sheet-qualified error literal as the error alone', () => {
+      expect(tokenize('Sheet1!#REF!').errors).toEqual([]);
+      expect(tv('Sheet1!#REF!')).toEqual([['error', '#REF!']]);
+      expect(tokenize('Sheet1!#REF!').tokens[0]).toMatchObject({ start: 0, end: 12 });
+      expect(tv("'My Sheet'!#REF!+1")).toEqual([
+        ['error', '#REF!'],
+        ['operator', '+'],
+        ['number', '1'],
+      ]);
+    });
+
+    it('reports a sheet prefix with no reference once, without a name token', () => {
+      const result = tokenize('Sheet1!');
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toMatch(/Expected reference after 'Sheet1!'/);
+      expect(result.tokens.some((t) => t.type === 'name')).toBe(false);
+    });
   });
 
   describe('comparison operators', () => {
-    it('tokenizes >=', () => {
-      expect(tv('A1>=10')).toEqual([
-        ['cell_ref', 'A1'],
-        ['operator', '>='],
-        ['number', '10'],
-      ]);
-    });
-
-    it('tokenizes <=', () => {
-      expect(tv('A1<=10')).toEqual([
-        ['cell_ref', 'A1'],
-        ['operator', '<='],
-        ['number', '10'],
-      ]);
-    });
-
-    it('tokenizes <>', () => {
-      expect(tv('A1<>0')).toEqual([
-        ['cell_ref', 'A1'],
-        ['operator', '<>'],
-        ['number', '0'],
-      ]);
-    });
-
-    it('tokenizes = as operator', () => {
-      expect(tv('A1=B1')).toEqual([
-        ['cell_ref', 'A1'],
-        ['operator', '='],
-        ['cell_ref', 'B1'],
-      ]);
+    it.each<TokenCase>([
+      // tokenizes >=
+      {
+        formula: 'A1>=10',
+        tokens: [
+          ['cell_ref', 'A1'],
+          ['operator', '>='],
+          ['number', '10'],
+        ],
+      },
+      // tokenizes <=
+      {
+        formula: 'A1<=10',
+        tokens: [
+          ['cell_ref', 'A1'],
+          ['operator', '<='],
+          ['number', '10'],
+        ],
+      },
+      // tokenizes <>
+      {
+        formula: 'A1<>0',
+        tokens: [
+          ['cell_ref', 'A1'],
+          ['operator', '<>'],
+          ['number', '0'],
+        ],
+      },
+      // tokenizes = as operator
+      {
+        formula: 'A1=B1',
+        tokens: [
+          ['cell_ref', 'A1'],
+          ['operator', '='],
+          ['cell_ref', 'B1'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
     });
 
     it('tokenizes < and >', () => {
@@ -332,143 +468,170 @@ describe('tokenize', () => {
   });
 
   describe('unary operators', () => {
-    it('tokenizes unary minus at start', () => {
-      expect(tv('-A1')).toEqual([
-        ['prefix_op', '-'],
-        ['cell_ref', 'A1'],
-      ]);
-    });
-
-    it('tokenizes unary plus at start', () => {
-      expect(tv('+5')).toEqual([
-        ['prefix_op', '+'],
-        ['number', '5'],
-      ]);
-    });
-
-    it('tokenizes unary after operator', () => {
-      expect(tv('1+-2')).toEqual([
-        ['number', '1'],
-        ['operator', '+'],
-        ['prefix_op', '-'],
-        ['number', '2'],
-      ]);
-    });
-
-    it('tokenizes unary after open paren', () => {
-      expect(tv('(-1)')).toEqual([
-        ['paren_open', '('],
-        ['prefix_op', '-'],
-        ['number', '1'],
-        ['paren_close', ')'],
-      ]);
-    });
-
-    it('tokenizes unary after comma', () => {
-      expect(tv('SUM(-1,-2)')).toEqual([
-        ['function', 'SUM'],
-        ['paren_open', '('],
-        ['prefix_op', '-'],
-        ['number', '1'],
-        ['comma', ','],
-        ['prefix_op', '-'],
-        ['number', '2'],
-        ['paren_close', ')'],
-      ]);
-    });
-
-    it('tokenizes binary minus after cell ref', () => {
-      expect(tv('A1-B1')).toEqual([
-        ['cell_ref', 'A1'],
-        ['operator', '-'],
-        ['cell_ref', 'B1'],
-      ]);
-    });
-
-    it('tokenizes binary plus after number', () => {
-      expect(tv('1+2')).toEqual([
-        ['number', '1'],
-        ['operator', '+'],
-        ['number', '2'],
-      ]);
-    });
-
-    it('tokenizes binary minus after close paren', () => {
-      expect(tv('(1)-2')).toEqual([
-        ['paren_open', '('],
-        ['number', '1'],
-        ['paren_close', ')'],
-        ['operator', '-'],
-        ['number', '2'],
-      ]);
+    it.each<TokenCase>([
+      // tokenizes unary minus at start
+      {
+        formula: '-A1',
+        tokens: [
+          ['prefix_op', '-'],
+          ['cell_ref', 'A1'],
+        ],
+      },
+      // tokenizes unary plus at start
+      {
+        formula: '+5',
+        tokens: [
+          ['prefix_op', '+'],
+          ['number', '5'],
+        ],
+      },
+      // tokenizes unary after operator
+      {
+        formula: '1+-2',
+        tokens: [
+          ['number', '1'],
+          ['operator', '+'],
+          ['prefix_op', '-'],
+          ['number', '2'],
+        ],
+      },
+      // tokenizes unary after open paren
+      {
+        formula: '(-1)',
+        tokens: [
+          ['paren_open', '('],
+          ['prefix_op', '-'],
+          ['number', '1'],
+          ['paren_close', ')'],
+        ],
+      },
+      // tokenizes unary after comma
+      {
+        formula: 'SUM(-1,-2)',
+        tokens: [
+          ['function', 'SUM'],
+          ['paren_open', '('],
+          ['prefix_op', '-'],
+          ['number', '1'],
+          ['comma', ','],
+          ['prefix_op', '-'],
+          ['number', '2'],
+          ['paren_close', ')'],
+        ],
+      },
+      // tokenizes binary minus after cell ref
+      {
+        formula: 'A1-B1',
+        tokens: [
+          ['cell_ref', 'A1'],
+          ['operator', '-'],
+          ['cell_ref', 'B1'],
+        ],
+      },
+      // tokenizes binary plus after number
+      {
+        formula: '1+2',
+        tokens: [
+          ['number', '1'],
+          ['operator', '+'],
+          ['number', '2'],
+        ],
+      },
+      // tokenizes binary minus after close paren
+      {
+        formula: '(1)-2',
+        tokens: [
+          ['paren_open', '('],
+          ['number', '1'],
+          ['paren_close', ')'],
+          ['operator', '-'],
+          ['number', '2'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
     });
   });
 
   describe('percent', () => {
-    it('tokenizes 50%', () => {
-      expect(tv('50%')).toEqual([
-        ['number', '50'],
-        ['percent', '%'],
-      ]);
-    });
-
-    it('tokenizes percent after cell ref', () => {
-      expect(tv('A1%')).toEqual([
-        ['cell_ref', 'A1'],
-        ['percent', '%'],
-      ]);
+    it.each<TokenCase>([
+      {
+        formula: '50%',
+        tokens: [
+          ['number', '50'],
+          ['percent', '%'],
+        ],
+      },
+      // tokenizes percent after cell ref
+      {
+        formula: 'A1%',
+        tokens: [
+          ['cell_ref', 'A1'],
+          ['percent', '%'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
     });
   });
 
   describe('array constants', () => {
-    it('tokenizes {1,2;3,4}', () => {
-      expect(tv('{1,2;3,4}')).toEqual([
-        ['array_open', '{'],
-        ['number', '1'],
-        ['array_col_sep', ','],
-        ['number', '2'],
-        ['array_row_sep', ';'],
-        ['number', '3'],
-        ['array_col_sep', ','],
-        ['number', '4'],
-        ['array_close', '}'],
-      ]);
-    });
-
-    it('uses comma/semicolon outside arrays', () => {
-      expect(tv('SUM(1,2)')).toEqual([
-        ['function', 'SUM'],
-        ['paren_open', '('],
-        ['number', '1'],
-        ['comma', ','],
-        ['number', '2'],
-        ['paren_close', ')'],
-      ]);
-    });
-
-    it('tokenizes array with strings', () => {
-      expect(tv('{"a","b";"c","d"}')).toEqual([
-        ['array_open', '{'],
-        ['string', 'a'],
-        ['array_col_sep', ','],
-        ['string', 'b'],
-        ['array_row_sep', ';'],
-        ['string', 'c'],
-        ['array_col_sep', ','],
-        ['string', 'd'],
-        ['array_close', '}'],
-      ]);
-    });
-
-    it('tokenizes unary minus inside array', () => {
-      expect(tv('{-1,2}')).toEqual([
-        ['array_open', '{'],
-        ['prefix_op', '-'],
-        ['number', '1'],
-        ['array_col_sep', ','],
-        ['number', '2'],
-        ['array_close', '}'],
-      ]);
+    it.each<TokenCase>([
+      {
+        formula: '{1,2;3,4}',
+        tokens: [
+          ['array_open', '{'],
+          ['number', '1'],
+          ['array_col_sep', ','],
+          ['number', '2'],
+          ['array_row_sep', ';'],
+          ['number', '3'],
+          ['array_col_sep', ','],
+          ['number', '4'],
+          ['array_close', '}'],
+        ],
+      },
+      // uses comma/semicolon outside arrays
+      {
+        formula: 'SUM(1,2)',
+        tokens: [
+          ['function', 'SUM'],
+          ['paren_open', '('],
+          ['number', '1'],
+          ['comma', ','],
+          ['number', '2'],
+          ['paren_close', ')'],
+        ],
+      },
+      // tokenizes array with strings
+      {
+        formula: '{"a","b";"c","d"}',
+        tokens: [
+          ['array_open', '{'],
+          ['string', 'a'],
+          ['array_col_sep', ','],
+          ['string', 'b'],
+          ['array_row_sep', ';'],
+          ['string', 'c'],
+          ['array_col_sep', ','],
+          ['string', 'd'],
+          ['array_close', '}'],
+        ],
+      },
+      // tokenizes unary minus inside array
+      {
+        formula: '{-1,2}',
+        tokens: [
+          ['array_open', '{'],
+          ['prefix_op', '-'],
+          ['number', '1'],
+          ['array_col_sep', ','],
+          ['number', '2'],
+          ['array_close', '}'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
     });
   });
 
@@ -523,12 +686,29 @@ describe('tokenize', () => {
       ]);
     });
 
-    it('tokenizes IFERROR(VLOOKUP(A1,Data!B:C,2,0),"")', () => {
-      const result = tv('IFERROR(VLOOKUP(A1,Data!B:C,2,0),"")');
-      expect(result[0]).toEqual(['function', 'IFERROR']);
-      expect(result[4]).toEqual(['cell_ref', 'A1']);
-      // Data!B is a sheet-qualified ref
-      expect(result[6][0]).toBe('cell_ref');
+    it.each<TokenCase>([
+      {
+        formula: 'IFERROR(VLOOKUP(A1,Data!B:C,2,0),"")',
+        tokens: [
+          ['function', 'IFERROR'],
+          ['paren_open', '('],
+          ['function', 'VLOOKUP'],
+          ['paren_open', '('],
+          ['cell_ref', 'A1'],
+          ['comma', ','],
+          ['column_range', 'Data!B:C'],
+          ['comma', ','],
+          ['number', '2'],
+          ['comma', ','],
+          ['number', '0'],
+          ['paren_close', ')'],
+          ['comma', ','],
+          ['string', ''],
+          ['paren_close', ')'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
     });
 
     it('tokenizes formula with mixed references and operators', () => {
@@ -545,27 +725,34 @@ describe('tokenize', () => {
   });
 
   describe('whitespace handling', () => {
-    it('skips spaces between tokens', () => {
-      expect(tv('1 + 2')).toEqual([
-        ['number', '1'],
-        ['operator', '+'],
-        ['number', '2'],
-      ]);
-    });
-
-    it('skips tabs and newlines', () => {
-      expect(tv('1\t+\n2')).toEqual([
-        ['number', '1'],
-        ['operator', '+'],
-        ['number', '2'],
-      ]);
+    it.each<TokenCase>([
+      // skips spaces between tokens
+      {
+        formula: '1 + 2',
+        tokens: [
+          ['number', '1'],
+          ['operator', '+'],
+          ['number', '2'],
+        ],
+      },
+      // skips tabs and newlines
+      {
+        formula: '1\t+\n2',
+        tokens: [
+          ['number', '1'],
+          ['operator', '+'],
+          ['number', '2'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
     });
   });
 
   describe('token positions', () => {
     it('tracks start and end positions', () => {
       const { tokens } = tokenize('=A1+B2');
-      // After stripping `=`, A1 is at positions 1..3, + at 3..4, B2 at 4..6
+      // Positions index the original string including `=`: A1 is at 1..3, + at 3..4, B2 at 4..6
       expect(tokens[0]).toEqual({ type: 'cell_ref', value: 'A1', start: 1, end: 3 });
       expect(tokens[1]).toEqual({ type: 'operator', value: '+', start: 3, end: 4 });
       expect(tokens[2]).toEqual({ type: 'cell_ref', value: 'B2', start: 4, end: 6 });
@@ -614,16 +801,208 @@ describe('tokenize', () => {
   });
 
   describe('semicolons outside arrays', () => {
-    it('emits semicolon type outside arrays', () => {
-      // European-style argument separator
-      expect(tv('SUM(1;2)')).toEqual([
-        ['function', 'SUM'],
+    it.each<TokenCase>([
+      // emits semicolon type outside arrays
+      {
+        formula: 'SUM(1;2)',
+        tokens: [
+          ['function', 'SUM'],
+          ['paren_open', '('],
+          ['number', '1'],
+          ['semicolon', ';'],
+          ['number', '2'],
+          ['paren_close', ')'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
+    });
+
+    it('reports a semicolon outside an array constant', () => {
+      const { errors } = tokenize('SUM(1;2)');
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatch(/only valid as an array-constant row separator/);
+      expect(errors[0]).toContain('position 5');
+    });
+
+    it('accepts semicolons inside an array constant', () => {
+      expect(tokenize('{1,2;3,4}').errors).toEqual([]);
+    });
+  });
+
+  describe('whole-column and whole-row ranges', () => {
+    it.each([
+      ['A:A', 'column_range'],
+      ['$A:$A', 'column_range'],
+      ["'My Sheet'!A:B", 'column_range'],
+      ['a:xfd', 'column_range'],
+      ['Sheet1:Sheet3!C:$D', 'column_range'],
+      ['1:1', 'row_range'],
+      ['$1:$1', 'row_range'],
+      ['Sheet1!2:5', 'row_range'],
+      ['1:1048576', 'row_range'],
+      ["'Q1:Q4'!$3:7", 'row_range'],
+    ] as const)('tokenizes %s as one %s token', (formula, type) => {
+      expect(tokenize(formula).errors).toEqual([]);
+      expect(tv(formula)).toEqual([[type, formula]]);
+    });
+
+    it('tokenizes ROW(1:3) and SUM(A:A)', () => {
+      expect(tv('ROW(1:3)')).toEqual([
+        ['function', 'ROW'],
         ['paren_open', '('],
-        ['number', '1'],
-        ['semicolon', ';'],
-        ['number', '2'],
+        ['row_range', '1:3'],
         ['paren_close', ')'],
       ]);
+      expect(tv('SUM(A:A)')).toEqual([
+        ['function', 'SUM'],
+        ['paren_open', '('],
+        ['column_range', 'A:A'],
+        ['paren_close', ')'],
+      ]);
+    });
+
+    it('does not read out-of-grid or mixed operands as ranges', () => {
+      expect(tv('A:XFE').map(([type]) => type)).toEqual(['name', 'colon', 'name']);
+      expect(tv('0:3').map(([type]) => type)).toEqual(['number', 'colon', 'number']);
+      expect(tv('1:1048577').map(([type]) => type)).toEqual(['number', 'colon', 'number']);
+      expect(tv('1:2.5').map(([type]) => type)).toEqual(['number', 'colon', 'number']);
+      expect(tv('A:A1')).toEqual([
+        ['name', 'A'],
+        ['colon', ':'],
+        ['cell_ref', 'A1'],
+      ]);
+    });
+
+    it('keeps numbers inside array constants and strings', () => {
+      expect(tv('{1:2}').map(([type]) => type)).toEqual([
+        'array_open',
+        'number',
+        'colon',
+        'number',
+        'array_close',
+      ]);
+      expect(tv('"1:2"')).toEqual([['string', '1:2']]);
+    });
+  });
+
+  describe('structured references', () => {
+    it.each([
+      'Table1[Col]',
+      'Table1[[#Headers],[Col]]',
+      '[@Col]',
+      'Table1[[#This Row],[Unit Price]]',
+      "Table1[Col']Name]",
+    ])('tokenizes %s as one structured_ref token', (formula) => {
+      expect(tokenize(formula).errors).toEqual([]);
+      expect(tv(formula)).toEqual([['structured_ref', formula]]);
+    });
+
+    it.each<TokenCase>([
+      // tokenizes a structured reference inside a function call
+      {
+        formula: 'SUM(Sales[Amount])',
+        tokens: [
+          ['function', 'SUM'],
+          ['paren_open', '('],
+          ['structured_ref', 'Sales[Amount]'],
+          ['paren_close', ')'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
+    });
+
+    it('reports an unbalanced bracket', () => {
+      const result = tokenize('Table1[[#Headers],[Col]');
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toMatch(/structured reference/);
+      expect(result.tokens).toEqual([]);
+    });
+  });
+
+  describe('3-D references', () => {
+    it('tokenizes an unquoted sheet span as one cell_ref', () => {
+      expect(tv('Sheet1:Sheet3!A1')).toEqual([['cell_ref', 'Sheet1:Sheet3!A1']]);
+      expect(tokenize('Sheet1:Sheet3!A1').errors).toEqual([]);
+    });
+
+    it.each<TokenCase>([
+      // tokenizes a quoted sheet span as one cell_ref
+      { formula: "'Jan 1:Mar 1'!B2", tokens: [['cell_ref', "'Jan 1:Mar 1'!B2"]] },
+      // keeps a range whose start is a plain cell ref
+      {
+        formula: 'A1:Sheet2!B1',
+        tokens: [
+          ['cell_ref', 'A1'],
+          ['colon', ':'],
+          ['cell_ref', 'Sheet2!B1'],
+        ],
+      },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
+    });
+  });
+
+  describe('grid bounds', () => {
+    // Excel reads an unqualified cell-shaped identifier outside the grid as a name.
+    it.each(['XFE1', 'A0', 'A1048577'])('tokenizes unqualified %s as a name', (formula) => {
+      expect(tv(formula)).toEqual([['name', formula]]);
+      expect(tokenize(formula).errors).toEqual([]);
+    });
+
+    it.each<TokenCase>([
+      // keeps the last cell of the grid a cell_ref
+      { formula: 'XFD1048576', tokens: [['cell_ref', 'XFD1048576']] },
+    ])('tokenizes $formula', ({ formula, tokens }) => {
+      expect(tv(formula)).toEqual(tokens);
+    });
+
+    it('reports out-of-grid sheet-qualified or absolute refs', () => {
+      expect(tokenize('Sheet1!XFE1').errors).toEqual([
+        'Invalid cell reference at position 0: Sheet1!XFE1',
+      ]);
+      expect(tokenize('$A$0').errors).toEqual(['Invalid cell reference at position 0: $A$0']);
+      expect(tokenize('A$1048577').errors).toHaveLength(1);
+    });
+  });
+
+  describe('intersection operator', () => {
+    it('emits a single-space operator between two references', () => {
+      const result = tv('A1:B5 B2:C3');
+      expect(result).toEqual([
+        ['cell_ref', 'A1'],
+        ['colon', ':'],
+        ['cell_ref', 'B5'],
+        ['operator', ' '],
+        ['cell_ref', 'B2'],
+        ['colon', ':'],
+        ['cell_ref', 'C3'],
+      ]);
+    });
+
+    it('collapses a whitespace run to one operator', () => {
+      expect(tv('A:A \t 1:1')).toEqual([
+        ['column_range', 'A:A'],
+        ['operator', ' '],
+        ['row_range', '1:1'],
+      ]);
+      expect(tv('(A1) Sales[Amount]')).toContainEqual(['operator', ' ']);
+    });
+
+    it('leaves other whitespace insignificant', () => {
+      expect(tv('1 + 2')).toEqual([
+        ['number', '1'],
+        ['operator', '+'],
+        ['number', '2'],
+      ]);
+      expect(tv('SUM( A1 , B2 )')).not.toContainEqual(['operator', ' ']);
+      expect(tv('A1 -B1')).toEqual([
+        ['cell_ref', 'A1'],
+        ['operator', '-'],
+        ['cell_ref', 'B1'],
+      ]);
+      expect(tv('A1 2')).not.toContainEqual(['operator', ' ']);
     });
   });
 
@@ -638,10 +1017,10 @@ describe('tokenize', () => {
       ]);
     });
 
-    it('handles R1C1-like names as cell_ref or name', () => {
-      // R1C1 looks like a cell_ref (matches pattern)
+    it('tokenizes R1 as a cell_ref', () => {
+      // R1 matches the cell reference pattern (row 1, column R); R1C1 tokenizes as a name
       const result = tv('R1');
-      expect(result[0][0]).toBe('cell_ref');
+      expect(result[0]?.[0]).toBe('cell_ref');
     });
 
     it('tokenizes multiple error values in a formula', () => {
@@ -685,5 +1064,79 @@ describe('tokenize', () => {
       const ops = result.tokens.filter((t) => t.type === 'operator').map((t) => t.value);
       expect(ops).toEqual(['+', '-', '*', '/', '^', '&', '=', '<>', '<', '>', '<=', '>=']);
     });
+  });
+});
+
+describe('non-ASCII names and unquoted sheet prefixes', () => {
+  it.each([
+    ['Données!A1', [['cell_ref', 'Données!A1']]],
+    [
+      'Лист1!A1:B2',
+      [
+        ['cell_ref', 'Лист1!A1'],
+        ['colon', ':'],
+        ['cell_ref', 'B2'],
+      ],
+    ],
+    [
+      '売上+1',
+      [
+        ['name', '売上'],
+        ['operator', '+'],
+        ['number', '1'],
+      ],
+    ],
+    ['Лист1:Лист3!A1', [['cell_ref', 'Лист1:Лист3!A1']]],
+    [
+      'SUM(Umsätze)',
+      [
+        ['function', 'SUM'],
+        ['paren_open', '('],
+        ['name', 'Umsätze'],
+        ['paren_close', ')'],
+      ],
+    ],
+    [
+      'A1 Données!A1',
+      [
+        ['cell_ref', 'A1'],
+        ['operator', ' '],
+        ['cell_ref', 'Données!A1'],
+      ],
+    ],
+    ['𝔸𝔹!A1', [['cell_ref', '𝔸𝔹!A1']]],
+  ] as const)('tokenizes %s without errors', (formula, tokens) => {
+    expect(tokenize(formula).errors).toEqual([]);
+    expect(tv(formula)).toEqual(tokens);
+  });
+
+  it('keeps column letters and whole-column ranges ASCII', () => {
+    expect(tv('A:Aé')).toEqual([
+      ['name', 'A'],
+      ['colon', ':'],
+      ['name', 'Aé'],
+    ]);
+    expect(tokenize('$É1').errors.length).toBeGreaterThan(0);
+  });
+
+  it('evaluates a reference on an unquoted non-ASCII sheet', () => {
+    const calls: [string, number, number][] = [];
+    const ctx: EvalContext = {
+      currentSheet: 'Sheet1',
+      getCell: (sheet, col, row) => {
+        calls.push([sheet, col, row]);
+        return 21;
+      },
+    };
+    expect(evaluateFormula('Лист2!A1*2', ctx)).toBe(42);
+    expect(calls).toEqual([['Лист2', 0, 1]]);
+  });
+
+  it('renameSheet rewrites a defined name with an unquoted non-ASCII prefix', () => {
+    const wb = new Workbook();
+    wb.addSheet('Лист1');
+    wb.addNamedRange('Rev', 'Лист1!$A$1');
+    wb.renameSheet('Лист1', 'Data');
+    expect(wb.getNamedRange('Rev')?.value).toBe('Data!$A$1');
   });
 });

@@ -12,7 +12,7 @@ describe('Sparklines', () => {
       ],
     });
     expect(ws.sparklineGroups).toHaveLength(1);
-    expect(ws.sparklineGroups[0].sparklines).toHaveLength(2);
+    expect(ws.sparklineGroups[0]?.sparklines).toHaveLength(2);
   });
 
   it('add column sparkline group with colors', () => {
@@ -27,8 +27,8 @@ describe('Sparklines', () => {
       high: true,
       low: true,
     });
-    expect(ws.sparklineGroups[0].sparklineType).toBe('column');
-    expect(ws.sparklineGroups[0].colorSeries).toBe('FF376092');
+    expect(ws.sparklineGroups[0]?.sparklineType).toBe('column');
+    expect(ws.sparklineGroups[0]?.colorSeries).toBe('FF376092');
   });
 
   it('add win/loss sparkline with markers', () => {
@@ -42,8 +42,8 @@ describe('Sparklines', () => {
       first: true,
       last: true,
     });
-    expect(ws.sparklineGroups[0].sparklineType).toBe('stacked');
-    expect(ws.sparklineGroups[0].markers).toBe(true);
+    expect(ws.sparklineGroups[0]?.sparklineType).toBe('stacked');
+    expect(ws.sparklineGroups[0]?.markers).toBe(true);
   });
 
   it('line sparkline roundtrip', async () => {
@@ -58,8 +58,8 @@ describe('Sparklines', () => {
     const wb2 = await readBuffer(buffer);
     const ws2 = wb2.getSheet('Sheet1');
     expect(ws2?.sparklineGroups).toHaveLength(1);
-    expect(ws2?.sparklineGroups[0].sparklines[0].formula).toBe('Sheet1!A1:A10');
-    expect(ws2?.sparklineGroups[0].sparklines[0].sqref).toBe('B1');
+    expect(ws2?.sparklineGroups[0]?.sparklines[0]?.formula).toBe('Sheet1!A1:A10');
+    expect(ws2?.sparklineGroups[0]?.sparklines[0]?.sqref).toBe('B1');
   });
 
   it('column sparkline with colors roundtrip', async () => {
@@ -79,12 +79,12 @@ describe('Sparklines', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
     const ws2 = wb2.getSheet('Sheet1');
-    expect(ws2?.sparklineGroups[0].sparklineType).toBe('column');
-    expect(ws2?.sparklineGroups[0].colorSeries).toBe('FF376092');
-    expect(ws2?.sparklineGroups[0].colorNegative).toBe('FFC00000');
-    expect(ws2?.sparklineGroups[0].markers).toBe(true);
-    expect(ws2?.sparklineGroups[0].high).toBe(true);
-    expect(ws2?.sparklineGroups[0].low).toBe(true);
+    expect(ws2?.sparklineGroups[0]?.sparklineType).toBe('column');
+    expect(ws2?.sparklineGroups[0]?.colorSeries).toBe('FF376092');
+    expect(ws2?.sparklineGroups[0]?.colorNegative).toBe('FFC00000');
+    expect(ws2?.sparklineGroups[0]?.markers).toBe(true);
+    expect(ws2?.sparklineGroups[0]?.high).toBe(true);
+    expect(ws2?.sparklineGroups[0]?.low).toBe(true);
   });
 
   it('multiple sparkline groups roundtrip', async () => {
@@ -104,8 +104,8 @@ describe('Sparklines', () => {
     const wb2 = await readBuffer(buffer);
     const ws2 = wb2.getSheet('Sheet1');
     expect(ws2?.sparklineGroups).toHaveLength(2);
-    expect(ws2?.sparklineGroups[1].sparklineType).toBe('column');
-    expect(ws2?.sparklineGroups[1].negative).toBe(true);
+    expect(ws2?.sparklineGroups[1]?.sparklineType).toBe('column');
+    expect(ws2?.sparklineGroups[1]?.negative).toBe(true);
   });
 
   it('clear sparkline groups', () => {
@@ -135,10 +135,10 @@ describe('Sparklines', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
     const ws2 = wb2.getSheet('Sheet1');
-    expect(ws2?.sparklineGroups[0].manualMin).toBe(0);
-    expect(ws2?.sparklineGroups[0].manualMax).toBe(100);
-    expect(ws2?.sparklineGroups[0].lineWeight).toBe(1.25);
-    expect(ws2?.sparklineGroups[0].displayEmptyCellsAs).toBe('gap');
-    expect(ws2?.sparklineGroups[0].displayXAxis).toBe(true);
+    expect(ws2?.sparklineGroups[0]?.manualMin).toBe(0);
+    expect(ws2?.sparklineGroups[0]?.manualMax).toBe(100);
+    expect(ws2?.sparklineGroups[0]?.lineWeight).toBe(1.25);
+    expect(ws2?.sparklineGroups[0]?.displayEmptyCellsAs).toBe('gap');
+    expect(ws2?.sparklineGroups[0]?.displayXAxis).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ASTNode } from '../src/formula/parser.js';
+import type { ASTNode, CellRefNode } from '../src/formula/parser.js';
 import { parseFormula } from '../src/formula/parser.js';
 import { serializeFormula } from '../src/formula/serializer.js';
 
@@ -97,9 +97,18 @@ describe('serializeFormula', () => {
       expect(roundtrip('1+2=3')).toBe('1+2=3');
     });
 
-    it('handles exponentiation right-associativity', () => {
-      // 2^3^4 parses as 2^(3^4) — right-associative, no parens needed
+    it('keeps a left-associative ^ chain bare', () => {
+      // 2^3^4 parses as (2^3)^4, like Excel, so no parens are needed
       expect(roundtrip('2^3^4')).toBe('2^3^4');
+      expect(roundtrip('(2^3)^4')).toBe('2^3^4');
+    });
+
+    it('parenthesises a right-nested ^', () => {
+      expect(roundtrip('2^(3^4)')).toBe('2^(3^4)');
+    });
+
+    it('keeps unary minus under ^ bare: -2^2', () => {
+      expect(roundtrip('-2^2')).toBe('-2^2');
     });
 
     it('concatenation vs addition precedence', () => {
@@ -140,6 +149,171 @@ describe('serializeFormula', () => {
 
     it('mixed absolute and relative refs', () => {
       expect(roundtrip('$A1+A$1+$A$1+A1')).toBe('$A1+A$1+$A$1+A1');
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Excel reference forms: exact round trip with no parse errors
+  // -----------------------------------------------------------------------
+  describe('reference-form corpus', () => {
+    it.each([
+      'SUM((A1,B2))',
+      'SUM(Data!B:C)',
+      'IF(A1,,2)',
+      'SUM(A1,)',
+      "'2024'!A1",
+      'IF(A1,#SPILL!,1)',
+      'SUM(A1:B5 B2:C3)',
+      'SUM($A:$A)',
+      'SUM(1:1)',
+      'SUM($2:$5)',
+      'SUM(Table1[[#Headers],[Col]])',
+      'SUM([@Col])',
+      'SUM(Sheet1:Sheet3!A1)',
+      "SUM('Jan 1:Mar 1'!B2)",
+      'SUM(Sheet1:Sheet3!A1:B2)',
+      "'a''!b'!A1",
+      'A1,B2',
+      'SUM((A1,B2,C3))',
+      'F()',
+    ])('%s', (formula) => {
+      expect(roundtrip(formula)).toBe(formula);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Reference operators
+  // -----------------------------------------------------------------------
+  describe('reference operators', () => {
+    const A1: CellRefNode = { type: 'cell_ref', col: 'A', row: 1, absCol: false, absRow: false };
+    const B2: CellRefNode = { type: 'cell_ref', col: 'B', row: 2, absCol: false, absRow: false };
+    const C3: CellRefNode = { type: 'cell_ref', col: 'C', row: 3, absCol: false, absRow: false };
+    const union = (left: ASTNode, right: ASTNode): ASTNode => ({
+      type: 'binary_op',
+      op: ',',
+      left,
+      right,
+    });
+
+    it("binds a user-built ':' tighter than every other operator", () => {
+      expect(
+        serializeFormula({
+          type: 'binary_op',
+          op: '+',
+          left: { type: 'binary_op', op: ':', left: A1, right: B2 },
+          right: { type: 'number', value: 1 },
+        }),
+      ).toBe('A1:B2+1');
+    });
+
+    it('emits a union bare at the root and parenthesised once elsewhere', () => {
+      expect(serializeFormula(union(union(A1, B2), C3))).toBe('A1,B2,C3');
+      expect(
+        serializeFormula({ type: 'function', name: 'SUM', args: [union(union(A1, B2), C3)] }),
+      ).toBe('SUM((A1,B2,C3))');
+      expect(
+        serializeFormula({
+          type: 'binary_op',
+          op: ' ',
+          left: union(A1, B2),
+          right: C3,
+        }),
+      ).toBe('(A1,B2) C3');
+      expect(serializeFormula({ type: 'unary_op', op: '-', operand: union(A1, B2) })).toBe(
+        '-(A1,B2)',
+      );
+    });
+
+    it('parenthesises a unary or percent operand of intersection', () => {
+      expect(
+        serializeFormula({
+          type: 'binary_op',
+          op: ' ',
+          left: { type: 'unary_op', op: '-', operand: A1 },
+          right: B2,
+        }),
+      ).toBe('(-A1) B2');
+      expect(
+        serializeFormula({
+          type: 'binary_op',
+          op: ' ',
+          left: A1,
+          right: { type: 'percent', operand: B2 },
+        }),
+      ).toBe('A1 (B2%)');
+    });
+
+    it('serializes a missing argument as empty text', () => {
+      expect(serializeFormula({ type: 'missing' })).toBe('');
+    });
+
+    it('quotes a 3-D prefix as one unit when either name needs it', () => {
+      expect(serializeFormula({ ...A1, sheet: 'Sheet 1', endSheet: 'Sheet3' })).toBe(
+        "'Sheet 1:Sheet3'!A1",
+      );
+      expect(serializeFormula({ ...A1, sheet: 'Sheet1', endSheet: "O'Brien" })).toBe(
+        "'Sheet1:O''Brien'!A1",
+      );
+      expect(serializeFormula({ ...A1, sheet: 'Sheet1', endSheet: 'Sheet3' })).toBe(
+        'Sheet1:Sheet3!A1',
+      );
+      expect(
+        serializeFormula({
+          type: 'column_range',
+          sheet: 'Q1',
+          endSheet: 'Q4',
+          startCol: 'A',
+          endCol: 'B',
+          absStart: true,
+          absEnd: false,
+        }),
+      ).toBe("'Q1:Q4'!$A:B");
+      expect(
+        serializeFormula({
+          type: 'row_range',
+          sheet: 'Data',
+          startRow: 2,
+          endRow: 5,
+          absStart: false,
+          absEnd: true,
+        }),
+      ).toBe('Data!2:$5');
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Sheet-name quoting
+  // -----------------------------------------------------------------------
+  describe('sheet-name quoting', () => {
+    const ref = (sheet: string): CellRefNode => ({
+      type: 'cell_ref',
+      sheet,
+      col: 'B',
+      row: 2,
+      absCol: false,
+      absRow: false,
+    });
+
+    it.each([
+      ['2024', "'2024'!B2"],
+      ['A1', "'A1'!B2"],
+      ['TRUE', "'TRUE'!B2"],
+      ['false', "'false'!B2"],
+      ['R2D2', "'R2D2'!B2"],
+      ['C', "'C'!B2"],
+      ['RC', "'RC'!B2"],
+      ['R1C1', "'R1C1'!B2"],
+      ['RC1x', "'RC1x'!B2"],
+      ['Données', "'Données'!B2"],
+      ["It's", "'It''s'!B2"],
+      ['Sheet1', 'Sheet1!B2'],
+      ['Data_2.v1', 'Data_2.v1!B2'],
+    ])('%s -> %s', (sheet, expected) => {
+      const text = serializeFormula(ref(sheet));
+      expect(text).toBe(expected);
+      const reparsed = parseFormula(text);
+      expect(reparsed.errors).toEqual([]);
+      expect(reparsed.ast).toMatchObject({ type: 'cell_ref', sheet });
     });
   });
 

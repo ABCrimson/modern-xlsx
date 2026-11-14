@@ -6,6 +6,7 @@
 
 import type { BarcodeMatrix } from './common.js';
 import { at, createGrid, setCell } from './common.js';
+import { widths2mod } from './linear.js';
 
 // ---------------------------------------------------------------------------
 // PDF417 Encoder (text compaction, simplified)
@@ -85,16 +86,6 @@ function pdf417EC(dataCws: number[], ecLevel: number): number[] {
   return ec.map((v) => (MOD - v) % MOD).reverse();
 }
 
-function widths2mod(widths: number[]): boolean[] {
-  const m: boolean[] = [];
-  let black = true;
-  for (const w of widths) {
-    for (let i = 0; i < w; i++) m.push(black);
-    black = !black;
-  }
-  return m;
-}
-
 function pdf417CwPat(cw: number, cluster: number): boolean[] {
   const base = (((cw * 3 + cluster) % 929) + 929) % 929;
   const w = [1, 1, 1, 1, 1, 1, 1, 1];
@@ -123,49 +114,90 @@ function pdf417CwPat(cw: number, cluster: number): boolean[] {
   return m;
 }
 
-export function encodePDF417(
+/** Validates and clamps the options: `ecLevel` to 0-8 and `columns` to 1-30. */
+function resolvePDF417Options(options?: { ecLevel?: number; columns?: number }): {
+  ecLevel: number;
+  columns: number;
+} {
+  const rawEc = options?.ecLevel ?? 2;
+  const rawCols = options?.columns ?? 4;
+  if (!Number.isFinite(rawEc)) throw new RangeError('PDF417: ecLevel must be a finite number');
+  if (!Number.isFinite(rawCols)) throw new RangeError('PDF417: columns must be a finite number');
+  return {
+    ecLevel: Math.min(8, Math.max(0, Math.trunc(rawEc))),
+    columns: Math.min(30, Math.max(1, Math.trunc(rawCols))),
+  };
+}
+
+/**
+ * Builds the data codewords (length descriptor first), checks the size limits
+ * and pads with 900 to fill the `rows` x `columns` grid left after the
+ * error-correction codewords.
+ */
+function pdf417DataCodewords(
   data: string,
-  options?: { ecLevel?: number; columns?: number },
-): BarcodeMatrix {
-  const ecLevel = Math.min(8, Math.max(0, options?.ecLevel ?? 2));
-  const columns = Math.min(30, Math.max(1, options?.columns ?? 4));
+  ecCount: number,
+  columns: number,
+): { allData: number[]; rows: number } {
   const dataCws = pdf417TextCompact(data);
-  const ecCount = at(PDF417_EC_COUNTS, ecLevel);
   const allData = [dataCws.length + 1, ...dataCws];
+  if (allData.length + ecCount > 928 || Math.ceil((allData.length + ecCount) / columns) > 90) {
+    throw new Error('PDF417: data too long');
+  }
   const minRows = Math.max(3, Math.ceil((allData.length + ecCount) / columns));
   const rows = Math.min(90, minRows);
   const totalSlots = rows * columns;
   while (allData.length < totalSlots - ecCount) allData.push(900);
   allData[0] = allData.length + ecCount;
-  const ecCws = pdf417EC(allData, ecLevel);
-  const fullCws = [...allData, ...ecCws];
+  return { allData, rows };
+}
 
+/** The left and right row-indicator codeword values for row `r` (before `% 929`). */
+function pdf417RowIndicators(
+  r: number,
+  rows: number,
+  columns: number,
+  ecLevel: number,
+): { left: number; right: number } {
+  const cluster = r % 3;
+  const base = ((r / 3) | 0) * 30;
+  const rowsPart = ((rows - 1) / 3) | 0;
+  const ecPart = ecLevel * 3 + ((rows - 1) % 3);
+  const colsPart = columns - 1;
+  if (cluster === 0) return { left: base + rowsPart, right: base + colsPart };
+  if (cluster === 1) return { left: base + ecPart, right: base + rowsPart };
+  return { left: base + colsPart, right: base + ecPart };
+}
+
+/** Lays the codewords out as start pattern, indicators, data columns and stop pattern per row. */
+function pdf417ModuleRows(
+  fullCws: number[],
+  rows: number,
+  columns: number,
+  ecLevel: number,
+): boolean[][] {
   const startMods = widths2mod(PDF417_START);
   const stopMods = widths2mod(PDF417_STOP_PAT);
   const moduleRows: boolean[][] = [];
-
   for (let r = 0; r < rows; r++) {
     const cluster = r % 3;
+    const { left, right } = pdf417RowIndicators(r, rows, columns, ecLevel);
     const rowMods: boolean[] = [...startMods];
-    let li: number;
-    if (cluster === 0) li = ((r / 3) | 0) * 30 + (((rows - 1) / 3) | 0);
-    else if (cluster === 1) li = ((r / 3) | 0) * 30 + ecLevel * 3 + ((rows - 1) % 3);
-    else li = ((r / 3) | 0) * 30 + (columns - 1);
-    rowMods.push(...pdf417CwPat(li % 929, cluster));
+    rowMods.push(...pdf417CwPat(left % 929, cluster));
     for (let c = 0; c < columns; c++) {
       const cwI = r * columns + c;
       const cw = cwI < fullCws.length ? at(fullCws, cwI) : 900;
       rowMods.push(...pdf417CwPat(cw, cluster));
     }
-    let ri: number;
-    if (cluster === 0) ri = ((r / 3) | 0) * 30 + (columns - 1);
-    else if (cluster === 1) ri = ((r / 3) | 0) * 30 + (((rows - 1) / 3) | 0);
-    else ri = ((r / 3) | 0) * 30 + ecLevel * 3 + ((rows - 1) % 3);
-    rowMods.push(...pdf417CwPat(ri % 929, cluster));
+    rowMods.push(...pdf417CwPat(right % 929, cluster));
     rowMods.push(...stopMods);
     moduleRows.push(rowMods);
   }
+  return moduleRows;
+}
 
+/** Renders the module rows into a grid, each row repeated three times. */
+function renderPDF417(moduleRows: boolean[][], rows: number): BarcodeMatrix {
   const rowH = 3;
   const w = moduleRows[0]?.length ?? 0;
   const h = rows * rowH;
@@ -177,4 +209,26 @@ export function encodePDF417(
     }
   }
   return { width: w, height: h, modules };
+}
+
+/**
+ * Encodes a PDF417 symbol.
+ *
+ * @experimental Output is not ISO/IEC 15438 conformant and may not scan.
+ *
+ * @param data - Text to encode.
+ * @param options - `ecLevel`: error-correction level 0-8 (default `2`); `columns`: data columns 1-30 (default `4`). Out-of-range numbers are truncated and clamped.
+ * @returns The symbol matrix, each module row repeated three times, without quiet zone.
+ * @throws {RangeError} If `ecLevel` or `columns` is not a finite number.
+ * @throws {Error} `PDF417: data too long` if the codewords exceed 928 or the symbol would need more than 90 rows.
+ */
+export function encodePDF417(
+  data: string,
+  options?: { ecLevel?: number; columns?: number },
+): BarcodeMatrix {
+  const { ecLevel, columns } = resolvePDF417Options(options);
+  const ecCount = at(PDF417_EC_COUNTS, ecLevel);
+  const { allData, rows } = pdf417DataCodewords(data, ecCount, columns);
+  const fullCws = [...allData, ...pdf417EC(allData, ecLevel)];
+  return renderPDF417(pdf417ModuleRows(fullCws, rows, columns, ecLevel), rows);
 }

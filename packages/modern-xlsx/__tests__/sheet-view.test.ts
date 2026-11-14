@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readBuffer, Workbook } from '../src/index.js';
+import { readZipText } from './helpers/zip.js';
 
 describe('Sheet View', () => {
   it('set and get view with hidden gridlines', () => {
@@ -127,5 +128,29 @@ describe('Sheet View', () => {
     ws.view = null;
     expect(ws.view).toBeNull();
     expect(ws.viewMode).toBe('normal');
+  });
+});
+
+describe('Sheet View: display flags', () => {
+  it('round-trips showZeros, showOutlineSymbols, tabSelected, defaultGridColor, colorId and zoomScaleSheetLayoutView', async () => {
+    const wb = new Workbook();
+    const ws = wb.addSheet('Sheet1');
+    ws.cell('A1').value = 'data';
+    const view = {
+      showZeros: false,
+      showOutlineSymbols: false,
+      tabSelected: true,
+      defaultGridColor: false,
+      colorId: 23,
+      zoomScaleSheetLayoutView: 80,
+    };
+    ws.view = view;
+
+    const bytes = await wb.toBuffer();
+    expect(readZipText(bytes)['xl/worksheets/sheet1.xml']).toContain(
+      '<sheetView showZeros="0" tabSelected="1" showOutlineSymbols="0" defaultGridColor="0" zoomScaleSheetLayoutView="80" colorId="23" workbookViewId="0"',
+    );
+    const ws2 = (await readBuffer(bytes)).getSheet('Sheet1');
+    expect(ws2?.view).toMatchObject(view);
   });
 });

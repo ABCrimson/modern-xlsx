@@ -3,13 +3,14 @@
     {
       "name": "HeaderFooter",
       "worksheet": {
+        "dimension": "A1",
         "rows": [
           {
             "index": 1,
             "cells": [
               {
                 "reference": "A1",
-                "cellType": "number",
+                "cellType": "sharedString",
                 "value": "Report Data"
               }
             ]
@@ -29,7 +30,7 @@
     "numFmts": [],
     "fonts": [
       {
-        "name": "Aptos",
+        "name": "Calibri",
         "size": 11.0,
         "bold": false,
         "italic": false,
@@ -58,6 +59,14 @@
         "bottom": null
       }
     ],
+    "cellStyleXfs": [
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 0,
+        "borderId": 0
+      }
+    ],
     "cellXfs": [
       {
         "numFmtId": 0,
@@ -69,6 +78,22 @@
   },
   "definedNames": [],
   "sharedStrings": {
-    "strings": []
+    "strings": [
+      "Report Data"
+    ]
+  },
+  "themeColors": {
+    "dk1": "000000",
+    "lt1": "FFFFFF",
+    "dk2": "44546A",
+    "lt2": "E7E6E6",
+    "accent1": "4472C4",
+    "accent2": "ED7D31",
+    "accent3": "A5A5A5",
+    "accent4": "FFC000",
+    "accent5": "5B9BD5",
+    "accent6": "70AD47",
+    "hlink": "0563C1",
+    "folHlink": "954F72"
   }
 }

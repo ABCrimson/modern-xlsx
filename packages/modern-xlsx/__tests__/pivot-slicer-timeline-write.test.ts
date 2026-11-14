@@ -116,6 +116,15 @@ function sampleTimelineCache(): TimelineCacheData {
 // ---------------------------------------------------------------------------
 
 describe('Worksheet pivot table mutations', () => {
+  it('removePivotTable rejects NaN and fractional indexes', () => {
+    const ws = new Workbook().addSheet('Sheet1');
+    ws.addPivotTable(samplePivotTable('A'));
+    ws.addPivotTable(samplePivotTable('B'));
+    expect(ws.removePivotTable(Number.NaN)).toBe(false);
+    expect(ws.removePivotTable(0.5)).toBe(false);
+    expect(ws.pivotTables).toHaveLength(2);
+  });
+
   it('addPivotTable adds to the array', () => {
     const wb = new Workbook();
     const ws = wb.addSheet('Sheet1');
@@ -161,6 +170,15 @@ describe('Worksheet pivot table mutations', () => {
 });
 
 describe('Worksheet slicer mutations', () => {
+  it('removeSlicer rejects NaN and fractional indexes', () => {
+    const ws = new Workbook().addSheet('Sheet1');
+    ws.addSlicer(sampleSlicer('A'));
+    ws.addSlicer(sampleSlicer('B'));
+    expect(ws.removeSlicer(Number.NaN)).toBe(false);
+    expect(ws.removeSlicer(0.5)).toBe(false);
+    expect(ws.slicers).toHaveLength(2);
+  });
+
   it('addSlicer adds to the array', () => {
     const wb = new Workbook();
     const ws = wb.addSheet('Sheet1');
@@ -199,6 +217,15 @@ describe('Worksheet slicer mutations', () => {
 });
 
 describe('Worksheet timeline mutations', () => {
+  it('removeTimeline rejects NaN and fractional indexes', () => {
+    const ws = new Workbook().addSheet('Sheet1');
+    ws.addTimeline(sampleTimeline('A'));
+    ws.addTimeline(sampleTimeline('B'));
+    expect(ws.removeTimeline(Number.NaN)).toBe(false);
+    expect(ws.removeTimeline(0.5)).toBe(false);
+    expect(ws.timelines).toHaveLength(2);
+  });
+
   it('addTimeline adds to the array', () => {
     const wb = new Workbook();
     const ws = wb.addSheet('Sheet1');
@@ -318,11 +345,17 @@ describe('Pivot table roundtrip', () => {
     expect(ws2.pivotTables[0]?.name).toBe('MyPivot');
     expect(ws2.pivotTables[0]?.dataFields).toHaveLength(1);
     expect(ws2.pivotTables[0]?.dataFields[0]?.subtotal).toBe('sum');
+    expect(ws2.pivotTables[0]?.pivotFields[0]).toMatchObject({
+      axis: 'axisRow',
+      items: [{ x: 0 }, { t: 'default' }],
+    });
 
     // Pivot caches should survive roundtrip
     expect(wb2.pivotCaches).toHaveLength(1);
     expect(wb2.pivotCaches[0]?.source.sheet).toBe('Sheet1');
     expect(wb2.pivotCaches[0]?.source.ref).toBe('A1:B5');
+    expect(wb2.pivotCaches[0]?.recordCount).toBe(4);
+    expect(wb2.pivotCacheRecords).toEqual([samplePivotCacheRecords()]);
   });
 });
 
@@ -343,9 +376,14 @@ describe('Slicer roundtrip', () => {
 
     expect(ws2.slicers).toHaveLength(1);
     expect(ws2.slicers[0]?.name).toBe('Slicer_Category');
+    expect(ws2.slicers[0]).toEqual(sampleSlicer());
 
     expect(wb2.slicerCaches).toHaveLength(1);
     expect(wb2.slicerCaches[0]?.name).toBe('Slicer_Category');
+    expect(wb2.slicerCaches[0]?.items.map((i) => [i.n, i.s === true])).toEqual([
+      ['A', true],
+      ['B', false],
+    ]);
   });
 });
 
@@ -366,8 +404,10 @@ describe('Timeline roundtrip', () => {
 
     expect(ws2.timelines).toHaveLength(1);
     expect(ws2.timelines[0]?.name).toBe('Timeline_Date');
+    expect(ws2.timelines[0]).toEqual(sampleTimeline());
 
     expect(wb2.timelineCaches).toHaveLength(1);
     expect(wb2.timelineCaches[0]?.name).toBe('NativeTimeline_Date');
+    expect(wb2.timelineCaches[0]).toEqual(sampleTimelineCache());
   });
 });

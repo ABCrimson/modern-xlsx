@@ -1,7 +1,9 @@
-# cargo-fuzz harness for the reader. Run locally with:
-#   cargo +nightly fuzz run read_xlsx
-# CI runs a short smoke pass. This is a separate workspace (empty [workspace] below)
-# so it does not affect the main `cargo build --workspace`.
+# cargo-fuzz harness for the reader, writer, validate/repair and streaming-writer paths (6 targets; seeds in fuzz/seeds/<target>/). Run from the repo root with:
+#   cargo fuzz run read_xlsx
+# (rust-toolchain.toml's dated nightly applies, so no `+nightly`.) CI runs a short smoke pass.
+# This is a separate workspace (empty [workspace] below) so it does not affect the main
+# `cargo build --workspace`. Its Cargo.lock is committed; refresh it with `cp Cargo.lock fuzz/Cargo.lock && cargo metadata
+# --manifest-path fuzz/Cargo.toml --format-version 1`.
 [package]
 name = "modern-xlsx-fuzz"
 version = "0.0.0"
@@ -12,7 +14,8 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = "=0.4.13"
+serde_json = "=1.0.154"
 
 [dependencies.modern-xlsx-core]
 path = "../crates/modern-xlsx-core"
@@ -27,6 +30,34 @@ bench = false
 [[bin]]
 name = "read_xlsx_json"
 path = "fuzz_targets/read_xlsx_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "read_xlsx_json_with_password"
+path = "fuzz_targets/read_xlsx_json_with_password.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "write_xlsx_json"
+path = "fuzz_targets/write_xlsx_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "validate_repair"
+path = "fuzz_targets/validate_repair.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "streaming_writer"
+path = "fuzz_targets/streaming_writer.rs"
 test = false
 doc = false
 bench = false

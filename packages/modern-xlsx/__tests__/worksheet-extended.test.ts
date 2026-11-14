@@ -45,7 +45,7 @@ describe('extended worksheet operations', () => {
 
       const buf = await wb.toBuffer();
       const wb2 = await readBuffer(buf);
-      expect(wb2.getSheet('Colored')?.tabColor).toBe('FF0000');
+      expect(wb2.getSheet('Colored')?.tabColor).toBe('FFFF0000');
     });
 
     it('defaults to null', () => {

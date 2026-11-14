@@ -1,36 +1,52 @@
 {
   "name": "modern-xlsx",
   "version": "1.2.1",
-  "description": "High-performance XLSX read/write library powered by Rust WASM. Full styling, encryption, data validation, conditional formatting — features SheetJS charges for, free and open source.",
+  "description": "Read, write, style and encrypt Excel .xlsx files in JavaScript and TypeScript. Charts, pivot tables, formulas and streaming writes from a Rust core compiled to WebAssembly. MIT, zero dependencies.",
   "license": "MIT",
-  "author": "modern-xlsx contributors",
+  "author": "Albert Badalov",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ABCrimson/modern-xlsx"
+    "url": "git+https://github.com/ABCrimson/modern-xlsx.git",
+    "directory": "packages/modern-xlsx"
   },
-  "homepage": "https://github.com/ABCrimson/modern-xlsx#readme",
+  "homepage": "https://abcrimson.github.io/modern-xlsx/",
+  "bugs": {
+    "url": "https://github.com/ABCrimson/modern-xlsx/issues"
+  },
   "keywords": [
-    "xlsx",
     "excel",
+    "xlsx",
     "spreadsheet",
-    "wasm",
-    "rust",
+    "workbook",
+    "xlsx-parser",
+    "xlsx-writer",
     "ooxml",
-    "styles",
-    "formatting",
-    "data-validation",
+    "typescript",
+    "wasm",
+    "webassembly",
+    "rust",
+    "charts",
+    "pivot-table",
+    "formulas",
     "conditional-formatting",
+    "data-validation",
+    "streaming",
     "encryption",
     "password-protected",
-    "ole2",
-    "pivot-tables",
-    "threaded-comments",
-    "slicers",
-    "timelines",
-    "charts",
-    "cli"
+    "browser",
+    "deno",
+    "bun",
+    "cloudflare-workers",
+    "exceljs-alternative",
+    "sheetjs-alternative"
   ],
   "type": "module",
+  "imports": {
+    "#runtime": {
+      "node": "./dist/runtime-node.mjs",
+      "default": "./dist/runtime-browser.mjs"
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
@@ -42,8 +58,18 @@
       "import": "./dist/index-lite.mjs",
       "default": "./dist/index-lite.mjs"
     },
-    "./browser": "./dist/modern-xlsx.min.js",
-    "./worker": "./dist/modern-xlsx.worker.js"
+    "./browser": {
+      "types": "./dist/modern-xlsx.min.d.ts",
+      "default": "./dist/modern-xlsx.min.js"
+    },
+    "./worker": {
+      "types": "./dist/modern-xlsx.worker.d.ts",
+      "default": "./dist/modern-xlsx.worker.js"
+    },
+    "./wasm": {
+      "types": "./dist/wasm-module.d.ts",
+      "default": "./wasm/modern_xlsx_wasm_bg.wasm"
+    }
   },
   "unpkg": "./dist/modern-xlsx.min.js",
   "jsdelivr": "./dist/modern-xlsx.min.js",
@@ -51,11 +77,12 @@
     "dist/",
     "wasm/",
     "wasm-lite/",
+    "CHANGELOG.md",
     "LICENSE",
     "README.md"
   ],
   "bin": {
-    "modern-xlsx": "./dist/cli.mjs"
+    "modern-xlsx": "dist/cli.mjs"
   },
   "sideEffects": false,
   "engines": {
@@ -64,23 +91,28 @@
   "scripts": {
     "build": "tsdown && node scripts/finalize-dist.mjs",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "bench": "pnpm run build && vitest bench --run --reporter=verbose",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:watch": "vitest",
-    "lint": "biome check src/ __tests__/",
+    "lint": "biome check .",
     "typecheck": "tsc --noEmit",
-    "docs:api": "npx -y typedoc@0.28.20",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
+    "docs:api": "npx -y -p typescript@6.0.3 -p typedoc@0.28.20 typedoc",
     "prepublishOnly": "pnpm build"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.10",
-    "@types/node": "26.4.0",
-    "@vitest/browser": "5.0.0-rc.2",
-    "@vitest/browser-playwright": "5.0.0-rc.2",
-    "@vitest/coverage-v8": "5.0.0-rc.2",
-    "playwright": "1.63.0-alpha-2026-08-27",
-    "tsdown": "0.23.0-rc.0",
-    "typescript": "7.0.2",
-    "vitest": "5.0.0-rc.2",
+    "@arethetypeswrong/cli": "0.18.5",
+    "@biomejs/biome": "2.6.7",
+    "@types/node": "26.6.6",
+    "@vitest/browser": "5.1.0",
+    "@vitest/browser-playwright": "5.1.0",
+    "@vitest/coverage-v8": "5.1.0",
+    "playwright": "1.66.0-alpha-2026-11-14",
+    "publint": "0.3.25",
+    "tsdown": "0.23.7",
+    "typescript": "7.1.0-dev.20261114.1",
+    "vitest": "5.1.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

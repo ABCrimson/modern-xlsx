@@ -1,6 +1,10 @@
-import { unlink } from 'node:fs/promises';
+import { mkdtempDisposable } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readBuffer, Workbook, readFile as xlsxReadFile } from '../src/index.js';
+import { Workbook, readFile as xlsxReadFile } from '../src/index.js';
+import { SHEET_PROTECTION_ALL_OFF } from './helpers/fixtures.js';
+import { roundTrip } from './helpers/roundtrip.js';
 
 describe('Workbook enhancements', () => {
   it('sheetCount returns the number of sheets', () => {
@@ -98,8 +102,7 @@ describe('Worksheet.columns', () => {
     ws.cell('A1').value = 'data';
     ws.setColumnWidth(1, 20);
 
-    const buffer = await wb.toBuffer();
-    const wb2 = await readBuffer(buffer);
+    const wb2 = await roundTrip(wb);
     const ws2 = wb2.getSheet('Sheet1');
     expect(ws2?.columns).toHaveLength(1);
     expect(ws2?.columns[0]?.width).toBe(20);
@@ -143,8 +146,7 @@ describe('Worksheet.mergeCells', () => {
     ws.cell('A1').value = 'merged';
     ws.addMergeCell('A1:C1');
 
-    const buffer = await wb.toBuffer();
-    const wb2 = await readBuffer(buffer);
+    const wb2 = await roundTrip(wb);
     const ws2 = wb2.getSheet('Sheet1');
     expect(ws2?.mergeCells).toContain('A1:C1');
   });
@@ -197,10 +199,10 @@ describe('Worksheet.autoFilter', () => {
     expect(fc?.colId).toBe(1);
     expect(fc?.customFilters?.andOp).toBe(true);
     expect(fc?.customFilters?.filters).toHaveLength(2);
-    expect(fc?.customFilters?.filters[0].operator).toBe('greaterThanOrEqual');
-    expect(fc?.customFilters?.filters[0].val).toBe('10');
-    expect(fc?.customFilters?.filters[1].operator).toBe('lessThan');
-    expect(fc?.customFilters?.filters[1].val).toBe('100');
+    expect(fc?.customFilters?.filters[0]?.operator).toBe('greaterThanOrEqual');
+    expect(fc?.customFilters?.filters[0]?.val).toBe('10');
+    expect(fc?.customFilters?.filters[1]?.operator).toBe('lessThan');
+    expect(fc?.customFilters?.filters[1]?.val).toBe('100');
   });
 
   it('roundtrip auto filter with custom filters', async () => {
@@ -219,8 +221,7 @@ describe('Worksheet.autoFilter', () => {
       ],
     };
 
-    const buffer = await wb.toBuffer();
-    const wb2 = await readBuffer(buffer);
+    const wb2 = await roundTrip(wb);
     const ws2 = wb2.getSheet('Sheet1');
     expect(ws2?.autoFilter?.range).toBe('A1:C5');
     expect(ws2?.autoFilter?.filterColumns).toHaveLength(2);
@@ -232,8 +233,8 @@ describe('Worksheet.autoFilter', () => {
     const fc1 = ws2?.autoFilter?.filterColumns?.[1];
     expect(fc1?.colId).toBe(2);
     expect(fc1?.customFilters?.filters).toHaveLength(1);
-    expect(fc1?.customFilters?.filters[0].operator).toBe('greaterThan');
-    expect(fc1?.customFilters?.filters[0].val).toBe('50');
+    expect(fc1?.customFilters?.filters[0]?.operator).toBe('greaterThan');
+    expect(fc1?.customFilters?.filters[0]?.val).toBe('50');
   });
 
   it('roundtrip auto filter with AND custom filters', async () => {
@@ -255,14 +256,13 @@ describe('Worksheet.autoFilter', () => {
       ],
     };
 
-    const buffer = await wb.toBuffer();
-    const wb2 = await readBuffer(buffer);
+    const wb2 = await roundTrip(wb);
     const ws2 = wb2.getSheet('Sheet1');
     const cf = ws2?.autoFilter?.filterColumns?.[0]?.customFilters;
     expect(cf?.andOp).toBe(true);
     expect(cf?.filters).toHaveLength(2);
-    expect(cf?.filters[0].val).toBe('5');
-    expect(cf?.filters[1].val).toBe('99');
+    expect(cf?.filters[0]?.val).toBe('5');
+    expect(cf?.filters[1]?.val).toBe('99');
   });
 
   it('custom filter without operator (wildcard pattern)', async () => {
@@ -280,12 +280,11 @@ describe('Worksheet.autoFilter', () => {
       ],
     };
 
-    const buffer = await wb.toBuffer();
-    const wb2 = await readBuffer(buffer);
+    const wb2 = await roundTrip(wb);
     const ws2 = wb2.getSheet('Sheet1');
     const cf = ws2?.autoFilter?.filterColumns?.[0]?.customFilters;
-    expect(cf?.filters[0].operator).toBeUndefined();
-    expect(cf?.filters[0].val).toBe('*test*');
+    expect(cf?.filters[0]?.operator).toBeUndefined();
+    expect(cf?.filters[0]?.val).toBe('*test*');
   });
 });
 
@@ -311,8 +310,7 @@ describe('Worksheet.frozenPane', () => {
     ws.cell('A1').value = 'header';
     ws.frozenPane = { rows: 1, cols: 0 };
 
-    const buffer = await wb.toBuffer();
-    const wb2 = await readBuffer(buffer);
+    const wb2 = await roundTrip(wb);
     const ws2 = wb2.getSheet('Sheet1');
     expect(ws2?.frozenPane).toEqual({ rows: 1, cols: 0 });
   });
@@ -405,40 +403,14 @@ describe('Worksheet.sheetProtection', () => {
   it('set and get sheet protection', () => {
     const wb = new Workbook();
     const ws = wb.addSheet('Sheet1');
-    ws.sheetProtection = {
-      sheet: true,
-      objects: false,
-      scenarios: false,
-      formatCells: false,
-      formatColumns: false,
-      formatRows: false,
-      insertColumns: false,
-      insertRows: false,
-      deleteColumns: false,
-      deleteRows: false,
-      sort: false,
-      autoFilter: false,
-    };
+    ws.sheetProtection = SHEET_PROTECTION_ALL_OFF;
     expect(ws.sheetProtection?.sheet).toBe(true);
   });
 
   it('clear sheet protection', () => {
     const wb = new Workbook();
     const ws = wb.addSheet('Sheet1');
-    ws.sheetProtection = {
-      sheet: true,
-      objects: false,
-      scenarios: false,
-      formatCells: false,
-      formatColumns: false,
-      formatRows: false,
-      insertColumns: false,
-      insertRows: false,
-      deleteColumns: false,
-      deleteRows: false,
-      sort: false,
-      autoFilter: false,
-    };
+    ws.sheetProtection = SHEET_PROTECTION_ALL_OFF;
     ws.sheetProtection = null;
     expect(ws.sheetProtection).toBeNull();
   });
@@ -475,6 +447,28 @@ describe('Workbook.workbookViews', () => {
     expect(wb.workbookViews).toHaveLength(1);
     expect(wb.workbookViews[0]?.activeTab).toBe(0);
   });
+
+  it('workbookViews survive round-trip', async () => {
+    const wb = new Workbook();
+    wb.addSheet('One').cell('A1').value = 1;
+    wb.addSheet('Two').cell('A1').value = 2;
+    const views = [
+      {
+        activeTab: 1,
+        firstSheet: 0,
+        showHorizontalScroll: true,
+        showVerticalScroll: false,
+        showSheetTabs: true,
+        windowWidth: 20000,
+        windowHeight: 10000,
+        tabRatio: 600,
+      },
+    ];
+    wb.workbookViews = views;
+
+    const wb2 = await roundTrip(wb);
+    expect(wb2.workbookViews).toEqual(views);
+  });
 });
 
 describe('File I/O', () => {
@@ -483,18 +477,13 @@ describe('File I/O', () => {
     const ws = wb.addSheet('Sheet1');
     ws.cell('A1').value = 'file test';
 
-    const tmpPath = new URL('../__tests__/tmp-test.xlsx', import.meta.url).pathname;
-    // Clean Windows path if needed
-    const cleanPath =
-      tmpPath.startsWith('/') && process.platform === 'win32' ? tmpPath.slice(1) : tmpPath;
+    await using dir = await mkdtempDisposable(join(tmpdir(), 'modern-xlsx-'));
+    const path = join(dir.path, 'round-trip.xlsx');
 
-    await wb.toFile(cleanPath);
+    await wb.toFile(path);
 
-    const wb2 = await xlsxReadFile(cleanPath);
+    const wb2 = await xlsxReadFile(path);
     const ws2 = wb2.getSheet('Sheet1');
     expect(ws2?.cell('A1').value).toBe('file test');
-
-    // Cleanup
-    await unlink(cleanPath);
   });
 });

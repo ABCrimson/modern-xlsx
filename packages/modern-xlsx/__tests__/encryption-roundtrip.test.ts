@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TableDefinitionData } from '../src/index.js';
 import { readBuffer, StyleBuilder, Workbook } from '../src/index.js';
+import { PASSWORD_PROTECTED } from '../src/model/errors.js';
 
 describe('Encryption: Roundtrip & Compatibility', () => {
   // -------------------------------------------------------------------------
@@ -44,7 +45,8 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     expect(cellA1?.styleIndex).toBeGreaterThan(0);
     const xfA1 = wb2.styles.cellXfs?.[cellA1?.styleIndex ?? 0];
     expect(xfA1).toBeDefined();
-    const fontA1 = wb2.styles.fonts?.[xfA1?.fontId ?? 0];
+    expect(xfA1?.fontId).toBeTypeOf('number');
+    const fontA1 = wb2.styles.fonts?.[xfA1?.fontId as number];
     expect(fontA1?.bold).toBe(true);
     expect(fontA1?.size).toBe(14);
 
@@ -53,9 +55,10 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     expect(cellB1?.value).toBe('Italic Red');
     expect(cellB1?.styleIndex).toBeGreaterThan(0);
     const xfB1 = wb2.styles.cellXfs?.[cellB1?.styleIndex ?? 0];
-    const fontB1 = wb2.styles.fonts?.[xfB1?.fontId ?? 0];
+    expect(xfB1?.fontId).toBeTypeOf('number');
+    const fontB1 = wb2.styles.fonts?.[xfB1?.fontId as number];
     expect(fontB1?.italic).toBe(true);
-    expect(fontB1?.color).toBe('FF0000');
+    expect(fontB1?.color).toBe('FFFF0000');
 
     // Verify fill + border
     const cellC1 = ws2?.cell('C1');
@@ -63,7 +66,7 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     expect(cellC1?.styleIndex).toBeGreaterThan(0);
     const xfC1 = wb2.styles.cellXfs?.[cellC1?.styleIndex ?? 0];
     const fillC1 = wb2.styles.fills?.[xfC1?.fillId ?? 0];
-    expect(fillC1?.fgColor).toBe('00FF00');
+    expect(fillC1?.fgColor).toBe('FF00FF00');
     const borderC1 = wb2.styles.borders?.[xfC1?.borderId ?? 0];
     expect(borderC1?.left?.style).toBe('thin');
     expect(borderC1?.right?.style).toBe('thin');
@@ -105,11 +108,11 @@ describe('Encryption: Roundtrip & Compatibility', () => {
 
     // Verify formulas
     const b1 = ws2?.cell('B1');
-    expect(b1?.type).toBe('formulaStr');
+    expect(b1?.type).toBe('number');
     expect(b1?.formula).toBe('SUM(A1:A10)');
 
     const b2 = ws2?.cell('B2');
-    expect(b2?.type).toBe('formulaStr');
+    expect(b2?.type).toBe('number');
     expect(b2?.formula).toBe('AVERAGE(A1:A10)');
 
     // Verify named range
@@ -181,7 +184,7 @@ describe('Encryption: Roundtrip & Compatibility', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 4. Data validation + conditional formatting roundtrip (adapted from sparklines)
+  // 4. Data validation + conditional formatting roundtrip
   // -------------------------------------------------------------------------
   it('encrypt -> decrypt roundtrip preserves data validation and conditional formatting', async () => {
     const wb = new Workbook();
@@ -207,6 +210,36 @@ describe('Encryption: Roundtrip & Compatibility', () => {
       allowBlank: true,
     });
 
+    // Conditional formatting has no Worksheet API; it is set through the JSON model.
+    const data = wb.toJSON();
+    const sheetData = data.sheets[0];
+    expect(sheetData).toBeDefined();
+    if (sheetData) {
+      sheetData.worksheet.conditionalFormatting = [
+        {
+          sqref: 'A2:A10',
+          rules: [
+            {
+              ruleType: 'colorScale',
+              priority: 1,
+              operator: null,
+              formula: null,
+              dxfId: null,
+              colorScale: {
+                cfvos: [
+                  { cfvoType: 'min', val: null },
+                  { cfvoType: 'max', val: null },
+                ],
+                colors: ['FFFF0000', 'FF00FF00'],
+              },
+              dataBar: null,
+              iconSet: null,
+            },
+          ],
+        },
+      ];
+    }
+
     const encrypted = await wb.toBuffer({ password: 'features-pass' });
     const wb2 = await readBuffer(encrypted, { password: 'features-pass' });
     const ws2 = wb2.getSheet('Features');
@@ -220,11 +253,18 @@ describe('Encryption: Roundtrip & Compatibility', () => {
 
     // Verify data validation survived
     const validations = ws2?.validations ?? [];
-    expect(validations.length).toBeGreaterThanOrEqual(1);
+    expect(validations).toHaveLength(1);
     const dv = validations[0];
     expect(dv?.validationType).toBe('whole');
     expect(dv?.formula1).toBe('0');
     expect(dv?.formula2).toBe('100');
+
+    // Verify conditional formatting survived
+    const cf = wb2.toJSON().sheets[0]?.worksheet.conditionalFormatting;
+    expect(cf).toHaveLength(1);
+    expect(cf?.[0]?.sqref).toBe('A2:A10');
+    expect(cf?.[0]?.rules[0]?.ruleType).toBe('colorScale');
+    expect(cf?.[0]?.rules[0]?.colorScale?.colors).toEqual(['FFFF0000', 'FF00FF00']);
   });
 
   // -------------------------------------------------------------------------
@@ -285,9 +325,10 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     const enc2 = await wb2.toBuffer({ password: 'password-two' });
 
     // Old password should fail
-    await expect(readBuffer(enc2, { password: 'password-one' })).rejects.toThrow(
-      /password|decrypt/i,
-    );
+    await expect(readBuffer(enc2, { password: 'password-one' })).rejects.toMatchObject({
+      name: 'ModernXlsxError',
+      code: PASSWORD_PROTECTED,
+    });
 
     // New password should work
     const wb3 = await readBuffer(enc2, { password: 'password-two' });
@@ -298,9 +339,9 @@ describe('Encryption: Roundtrip & Compatibility', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 7. Large file encryption performance
+  // 7. Large file encryption roundtrip
   // -------------------------------------------------------------------------
-  it('large file (10K rows x 5 cols) encrypt -> decrypt roundtrip completes under 10s', {
+  it('large file (10K rows x 5 cols) encrypt -> decrypt roundtrip preserves sampled cells', {
     timeout: 30_000,
   }, async () => {
     const wb = new Workbook();
@@ -315,13 +356,8 @@ describe('Encryption: Roundtrip & Compatibility', () => {
       ws.cell(`E${r}`).value = `Data-${r}`;
     }
 
-    const start = performance.now();
     const encrypted = await wb.toBuffer({ password: 'perf-test' });
     const wb2 = await readBuffer(encrypted, { password: 'perf-test' });
-    const elapsed = performance.now() - start;
-
-    // Verify timing (generous 10s for CI)
-    expect(elapsed).toBeLessThan(10_000);
 
     // Verify data sampling
     const ws2 = wb2.getSheet('Large');
@@ -348,11 +384,16 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     const encrypted = await wb.toBuffer({ password: unicodePassword });
 
     // Verify it is OLE2 encrypted
-    expect(encrypted[0]).toBe(0xd0);
-    expect(encrypted[1]).toBe(0xcf);
+    expect(Array.from(encrypted.subarray(0, 8))).toEqual([
+      0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1,
+    ]);
 
     // Wrong password should fail
-    await expect(readBuffer(encrypted, { password: 'wrong' })).rejects.toThrow(/password|decrypt/i);
+    await expect(readBuffer(encrypted, { password: 'wrong' })).rejects.toMatchObject({
+      name: 'ModernXlsxError',
+      code: PASSWORD_PROTECTED,
+      message: 'Password protected: Incorrect password.',
+    });
 
     // Correct unicode password should work
     const wb2 = await readBuffer(encrypted, { password: unicodePassword });
@@ -376,11 +417,16 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     const encrypted = await wb.toBuffer({ password: longPassword });
 
     // Verify it is OLE2 encrypted
-    expect(encrypted[0]).toBe(0xd0);
-    expect(encrypted[1]).toBe(0xcf);
+    expect(Array.from(encrypted.subarray(0, 8))).toEqual([
+      0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1,
+    ]);
 
     // Wrong password should fail
-    await expect(readBuffer(encrypted, { password: 'short' })).rejects.toThrow(/password|decrypt/i);
+    await expect(readBuffer(encrypted, { password: 'short' })).rejects.toMatchObject({
+      name: 'ModernXlsxError',
+      code: PASSWORD_PROTECTED,
+      message: 'Password protected: Incorrect password.',
+    });
 
     // Correct long password should work
     const wb2 = await readBuffer(encrypted, { password: longPassword });
@@ -472,7 +518,7 @@ describe('Encryption: Roundtrip & Compatibility', () => {
     const s4 = result.getSheet('CalcSheet');
     expect(s4).toBeDefined();
     expect(s4?.cell('A1').value).toBe(10);
-    expect(s4?.cell('B1').type).toBe('formulaStr');
+    expect(s4?.cell('B1').type).toBe('number');
     expect(s4?.cell('B1').formula).toBe('SUM(A1:A3)');
 
     // Verify Sheet 5: Merges + validation

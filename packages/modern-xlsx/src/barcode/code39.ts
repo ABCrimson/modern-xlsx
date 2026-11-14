@@ -5,7 +5,8 @@
  */
 
 import type { BarcodeMatrix } from './common.js';
-import { at, createGrid, setCell } from './common.js';
+import { at } from './common.js';
+import { barsToMatrix } from './linear.js';
 
 // ---------------------------------------------------------------------------
 // Code 39 Encoder
@@ -51,15 +52,24 @@ const C39_PAT: number[][] = [
   [1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1],
   [1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 1],
   [1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1],
-  [1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1],
+  [1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1],
   [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1],
-  [1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-  [1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1],
   [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1],
+  [1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1],
+  [1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
   [1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1],
 ];
 
+/**
+ * Encodes a Code 39 symbol. Lower-case letters are upper-cased. The characters are `0-9`, `A-Z`,
+ * `- . $ / + %` and space; the `*` start/stop characters are added, with no check character.
+ *
+ * @param data - Text to encode; must not be empty and must not contain `*`.
+ * @returns The symbol matrix (60 rows), without quiet zone.
+ * @throws {Error} If `data` is empty, contains `*`, or contains an unsupported character.
+ */
 export function encodeCode39(data: string): BarcodeMatrix {
+  if (data.length === 0) throw new Error('Code 39: data must not be empty');
   const u = data.toUpperCase();
   for (const ch of u) {
     if (ch === '*') throw new Error('Code 39: data must not contain *');
@@ -72,10 +82,5 @@ export function encodeCode39(data: string): BarcodeMatrix {
   }
   bars.push(...at(C39_PAT, starI));
 
-  const w = bars.length;
-  const bh = 60;
-  const modules = createGrid(bh, w, false);
-  for (let r = 0; r < bh; r++)
-    for (let c = 0; c < w; c++) setCell(modules, r, c, at(bars, c) === 1);
-  return { width: w, height: bh, modules };
+  return barsToMatrix(bars.map((b) => b === 1));
 }

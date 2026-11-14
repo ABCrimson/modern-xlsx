@@ -1,0 +1,22 @@
+{
+  "holds": [
+    {
+      "kind": "node",
+      "name": "node",
+      "pin": ">=24.0.0",
+      "reason": "engines.node in the private root manifest is the development floor the CI matrix verifies (Node 24 and 26 in .github/workflows/ci.yml), not a toolchain pin: an exact Node nightly there would name a Node no CI leg runs, and under engine-strict makes `pnpm install` fail with ERR_PNPM_UNSUPPORTED_ENGINE on every CI leg and contributor machine",
+      "evidence": "2026-10-31: root package.json {\"engines\":{\"node\":\"28.0.0-nightly202610304e48b9b06b\"}} + `pnpm install --config.engine-strict=true` on Node 26.13.0 exits 1: ERR_PNPM_UNSUPPORTED_ENGINE, wanted {\"node\":\"28.0.0-nightly202610304e48b9b06b\"} (current {\"node\":\"26.13.0\"}); without engine-strict the same install exits 0, so the floor is enforced by the CI matrix, not by pnpm",
+      "file": "package.json",
+      "field": "engines"
+    },
+    {
+      "kind": "node",
+      "name": "node",
+      "pin": ">=24.0.0",
+      "reason": "engines.node in the published package is the consumer support floor, not a toolchain pin: an exact Node nightly there makes `pnpm install` of modern-xlsx fail with ERR_PNPM_UNSUPPORTED_ENGINE for every consumer on another Node build under engine-strict, and misstates the supported range for every other consumer",
+      "evidence": "2026-10-31 consumer repro: a dependency libx with {\"engines\":{\"node\":\"28.0.0-nightly202610304e48b9b06b\"}} installed by a consumer project on Node 26.13.0: `pnpm install --config.engine-strict=true` exits 1 (Unsupported engine for libx@file:../lib: wanted {\"node\":\"28.0.0-nightly202610304e48b9b06b\"} current {\"node\":\"26.13.0\"}); the default install exits 0",
+      "file": "packages/modern-xlsx/package.json",
+      "field": "engines"
+    }
+  ]
+}

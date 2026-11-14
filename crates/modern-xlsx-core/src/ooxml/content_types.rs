@@ -1,14 +1,20 @@
+//! `[Content_Types].xml`, the Open Packaging Conventions manifest that maps a
+//! file extension (`Default`) or a part name (`Override`) to a content type,
+//! with the `CT_*` content type constants and [`ContentTypes`] to parse and
+//! write it.
+
 use core::hint::cold_path;
 use std::collections::BTreeMap;
 
-use quick_xml::events::{BytesDecl, BytesStart, Event};
+use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, Writer};
 
+use crate::ooxml::write_xml_decl;
+use crate::ooxml::xml::attr_str;
 use crate::{ModernXlsxError, Result};
 
 // Content type constants.
-const CT_RELATIONSHIPS: &str =
-    "application/vnd.openxmlformats-package.relationships+xml";
+const CT_RELATIONSHIPS: &str = "application/vnd.openxmlformats-package.relationships+xml";
 pub(crate) const CT_XML: &str = "application/xml";
 const CT_WORKBOOK: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
@@ -16,16 +22,24 @@ const CT_WORKSHEET: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
 const CT_SHARED_STRINGS: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml";
-const CT_STYLES: &str =
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml";
+const CT_STYLES: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml";
 pub(crate) const CT_COMMENTS: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml";
-pub const CT_TABLE: &str =
+pub(crate) const CT_TABLE: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml";
 pub(crate) const CT_CHART: &str =
     "application/vnd.openxmlformats-officedocument.drawingml.chart+xml";
-pub(crate) const CT_DRAWING: &str =
-    "application/vnd.openxmlformats-officedocument.drawing+xml";
+pub(crate) const CT_DRAWING: &str = "application/vnd.openxmlformats-officedocument.drawing+xml";
+/// A chart's `c:userShapes` part (the ECMA-376 Part 1 Chart Drawing Part),
+/// named like a sheet drawing (`xl/drawings/drawing{n}.xml`) but typed apart.
+pub(crate) const CT_CHART_SHAPES: &str =
+    "application/vnd.openxmlformats-officedocument.drawingml.chartshapes+xml";
+/// A chart's style part (`xl/charts/style{n}.xml`), as Microsoft Excel 16.0
+/// declared it in a workbook saved on 2026-11-11.
+pub(crate) const CT_CHART_STYLE: &str = "application/vnd.ms-office.chartstyle+xml";
+/// A chart's colour-style part (`xl/charts/colors{n}.xml`), as Microsoft Excel
+/// 16.0 declared it in a workbook saved on 2026-11-11.
+pub(crate) const CT_CHART_COLOR_STYLE: &str = "application/vnd.ms-office.chartcolorstyle+xml";
 pub(crate) const CT_EXTERNAL_LINK: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml";
 pub(crate) const CT_PIVOT_TABLE: &str =
@@ -36,14 +50,62 @@ pub(crate) const CT_PIVOT_CACHE_REC: &str =
     "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml";
 pub(crate) const CT_CUSTOM_XML_PROPS: &str =
     "application/vnd.openxmlformats-officedocument.customXmlProperties+xml";
-pub(crate) const CT_THREADED_COMMENTS: &str =
-    "application/vnd.ms-excel.threadedcomments+xml";
-pub(crate) const CT_PERSONS: &str =
-    "application/vnd.ms-excel.person+xml";
+pub(crate) const CT_THREADED_COMMENTS: &str = "application/vnd.ms-excel.threadedcomments+xml";
+pub(crate) const CT_PERSONS: &str = "application/vnd.ms-excel.person+xml";
 pub(crate) const CT_SLICER: &str = "application/vnd.ms-excel.slicer+xml";
 pub(crate) const CT_SLICER_CACHE: &str = "application/vnd.ms-excel.slicerCache+xml";
 pub(crate) const CT_TIMELINE: &str = "application/vnd.ms-excel.timeline+xml";
 pub(crate) const CT_TIMELINE_CACHE: &str = "application/vnd.ms-excel.timelineCache+xml";
+/// `xl/metadata.xml` (ECMA-376 Part 1 §12.3.10 Metadata Part); the content
+/// type Microsoft Excel 16.0 (build 20527) wrote for a `=SEQUENCE(3)` workbook
+/// saved on 2026-11-11.
+pub(crate) const CT_SHEET_METADATA: &str =
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheetMetadata+xml";
+/// `xl/printerSettings/printerSettings{n}.bin`, the binary printer-settings
+/// part a sheet's page setup refers to; registered by Override, never by a
+/// `bin` Default.
+pub(crate) const CT_PRINTER_SETTINGS: &str =
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.printerSettings";
+/// Legacy VML drawings (`.vml`: comment boxes, form controls), registered as
+/// the `vml` Default.
+pub(crate) const CT_VML_DRAWING: &str = "application/vnd.openxmlformats-officedocument.vmlDrawing";
+/// `xl/theme/theme1.xml`: the writer keeps the source workbook's theme part
+/// when it has one and generates the Office theme otherwise.
+pub(crate) const CT_THEME: &str = "application/vnd.openxmlformats-officedocument.theme+xml";
+/// `xl/calcChain.xml`.
+pub(crate) const CT_CALC_CHAIN: &str =
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.calcChain+xml";
+/// `docProps/core.xml`.
+pub(crate) const CT_CORE_PROPERTIES: &str =
+    "application/vnd.openxmlformats-package.core-properties+xml";
+/// `docProps/app.xml`.
+pub(crate) const CT_EXTENDED_PROPERTIES: &str =
+    "application/vnd.openxmlformats-officedocument.extended-properties+xml";
+/// `docProps/custom.xml` (ECMA-376 Part 1 §15.2.12.2 Custom File Properties
+/// Part).
+pub(crate) const CT_CUSTOM_PROPERTIES: &str =
+    "application/vnd.openxmlformats-officedocument.custom-properties+xml";
+/// `xl/charts/chartEx{n}.xml`, an Office 2016 chart (waterfall, sunburst,
+/// treemap, ...), typed apart from a DrawingML chart.
+pub(crate) const CT_CHART_EX: &str = "application/vnd.ms-office.chartex+xml";
+/// `xl/embeddings/oleObject{n}.bin`, an embedded OLE object (the ECMA-376
+/// Part 1 Embedded Object Part), registered by Override, never by a `bin`
+/// Default.
+pub(crate) const CT_OLE_OBJECT: &str = "application/vnd.openxmlformats-officedocument.oleObject";
+/// An embedded SpreadsheetML package (`.xlsx`, the ECMA-376 Part 1 Embedded
+/// Package Part), registered as the `xlsx` Default.
+pub(crate) const CT_XLSX_PACKAGE: &str =
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+/// An embedded WordprocessingML package (`.docx`), registered as the `docx`
+/// Default.
+pub(crate) const CT_DOCX_PACKAGE: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+/// An embedded PresentationML package (`.pptx`), registered as the `pptx`
+/// Default.
+pub(crate) const CT_PPTX_PACKAGE: &str =
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+/// An HD Photo / JPEG XR image (`.wdp`), registered as the `wdp` Default.
+pub(crate) const CT_HD_PHOTO: &str = "image/vnd.ms-photo";
 
 const TYPES_NS: &str = "http://schemas.openxmlformats.org/package/2006/content-types";
 
@@ -98,7 +160,13 @@ impl ContentTypes {
         ct
     }
 
-    /// Parse `[Content_Types].xml` from raw XML bytes.
+    /// Parse `[Content_Types].xml` from raw XML bytes. Attribute values are
+    /// decoded, so `to_xml` escapes them exactly once.
+    ///
+    /// # Errors
+    ///
+    /// `XmlParse` for malformed XML or an attribute value with a bad entity or
+    /// character reference.
     pub fn parse(data: &[u8]) -> Result<Self> {
         let mut reader = Reader::from_reader(data);
         let mut buf = Vec::with_capacity(512);
@@ -106,48 +174,55 @@ impl ContentTypes {
 
         loop {
             match reader.read_event_into(&mut buf) {
-                Ok(Event::Empty(ref e) | Event::Start(ref e)) => {
-                    match e.local_name().as_ref() {
-                        "Default" => {
-                            let (mut ext, mut ctype) = (String::new(), String::new());
-                            for attr in e.attributes().flatten() {
-                                match attr.key.local_name().as_ref() {
-                                    "Extension" => {
-                                        ext = attr.value.into_owned();
-                                    }
-                                    "ContentType" => {
-                                        ctype =
-                                            attr.value.into_owned();
-                                    }
-                                    _ => {}
+                Ok(Event::Empty(ref e) | Event::Start(ref e)) => match e.local_name().as_ref() {
+                    "Default" => {
+                        let (mut ext, mut ctype) = (String::new(), String::new());
+                        for attr in e.attributes() {
+                            let attr = attr.map_err(|err| {
+                                cold_path();
+                                ModernXlsxError::XmlParse(format!(
+                                    "error parsing [Content_Types].xml: <Default> attributes: {err}"
+                                ))
+                            })?;
+                            match attr.key.local_name().as_ref() {
+                                "Extension" => {
+                                    ext = attr_str(&attr)?.into_owned();
                                 }
-                            }
-                            if !ext.is_empty() && !ctype.is_empty() {
-                                ct.defaults.insert(ext, ctype);
+                                "ContentType" => {
+                                    ctype = attr_str(&attr)?.into_owned();
+                                }
+                                _ => {}
                             }
                         }
-                        "Override" => {
-                            let (mut part, mut ctype) = (String::new(), String::new());
-                            for attr in e.attributes().flatten() {
-                                match attr.key.local_name().as_ref() {
-                                    "PartName" => {
-                                        part =
-                                            attr.value.into_owned();
-                                    }
-                                    "ContentType" => {
-                                        ctype =
-                                            attr.value.into_owned();
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            if !part.is_empty() && !ctype.is_empty() {
-                                ct.overrides.insert(part, ctype);
-                            }
+                        if !ext.is_empty() && !ctype.is_empty() {
+                            ct.defaults.insert(ext, ctype);
                         }
-                        _ => {}
                     }
-                }
+                    "Override" => {
+                        let (mut part, mut ctype) = (String::new(), String::new());
+                        for attr in e.attributes() {
+                            let attr = attr.map_err(|err| {
+                                cold_path();
+                                ModernXlsxError::XmlParse(format!(
+                                    "error parsing [Content_Types].xml: <Override> attributes: {err}"
+                                ))
+                            })?;
+                            match attr.key.local_name().as_ref() {
+                                "PartName" => {
+                                    part = attr_str(&attr)?.into_owned();
+                                }
+                                "ContentType" => {
+                                    ctype = attr_str(&attr)?.into_owned();
+                                }
+                                _ => {}
+                            }
+                        }
+                        if !part.is_empty() && !ctype.is_empty() {
+                            ct.overrides.insert(part, ctype);
+                        }
+                    }
+                    _ => {}
+                },
                 Ok(Event::Eof) => break,
                 Ok(_) => {}
                 Err(e) => {
@@ -168,10 +243,7 @@ impl ContentTypes {
         let mut buf: Vec<u8> = Vec::with_capacity(1024);
         let mut writer = Writer::new(&mut buf);
 
-        // XML declaration.
-        writer
-            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), Some("yes"))))
-            .map_err(|e| ModernXlsxError::XmlWrite(format!("writing XML decl: {e}")))?;
+        write_xml_decl(&mut writer)?;
 
         // <Types xmlns="...">
         let mut types_start = BytesStart::new("Types");
@@ -208,7 +280,6 @@ impl ContentTypes {
         Ok(buf)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -273,5 +344,43 @@ mod tests {
         assert_eq!(ct.overrides["/xl/sharedStrings.xml"], CT_SHARED_STRINGS);
         assert_eq!(ct.overrides["/xl/styles.xml"], CT_STYLES);
         assert_eq!(ct.overrides["/xl/worksheets/sheet1.xml"], CT_WORKSHEET);
+    }
+
+    #[test]
+    fn test_parse_mismatched_end_tag_is_xml_parse() {
+        assert!(matches!(
+            ContentTypes::parse(b"<Types><a></b></Types>"),
+            Err(ModernXlsxError::XmlParse(_))
+        ));
+    }
+
+    #[test]
+    fn parse_decodes_escaped_part_name_and_to_xml_escapes_it_once() {
+        const CT_CTRL_PROPS: &str = "application/vnd.ms-excel.controlproperties+xml";
+        let xml = format!(
+            r#"<Types><Override PartName="/xl/ctrlProps/a&amp;b.xml" ContentType="{CT_CTRL_PROPS}"/></Types>"#
+        );
+        let ct = ContentTypes::parse(xml.as_bytes()).unwrap();
+        assert_eq!(ct.overrides.len(), 1);
+        assert_eq!(ct.overrides["/xl/ctrlProps/a&b.xml"], CT_CTRL_PROPS);
+
+        let out = String::from_utf8(ct.to_xml().unwrap()).unwrap();
+        assert_eq!(
+            out.matches(r#"PartName="/xl/ctrlProps/a&amp;b.xml""#)
+                .count(),
+            1
+        );
+        assert!(!out.contains("&amp;amp;"), "{out}");
+    }
+
+    #[test]
+    fn duplicate_attribute_is_xml_parse_error() {
+        for xml in [
+            r#"<Types><Override PartName="/a" PartName="/b" ContentType="t"/></Types>"#,
+            r#"<Types><Default Extension="a" Extension="b" ContentType="t"/></Types>"#,
+        ] {
+            let err = ContentTypes::parse(xml.as_bytes()).unwrap_err();
+            assert_eq!(err.code(), "XML_PARSE", "{xml}: {err}");
+        }
     }
 }

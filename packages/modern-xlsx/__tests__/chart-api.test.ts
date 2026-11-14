@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { assert, describe, expect, it } from 'vitest';
 import type { Worksheet, WorksheetChartData } from '../src/index.js';
 import { ChartBuilder, readBuffer, Workbook } from '../src/index.js';
+
+/** Element `index` of `items`, narrowed with `assert.isDefined` (noUncheckedIndexedAccess). */
+function at<T>(items: readonly T[] | undefined, index: number): T {
+  const item = items?.[index];
+  assert.isDefined(item);
+  return item;
+}
 
 describe('addChartData', () => {
   it('adds a pre-built WorksheetChartData and it appears in charts', () => {
@@ -16,11 +23,11 @@ describe('addChartData', () => {
     ws.addChartData(chartData);
 
     expect(ws.charts).toHaveLength(1);
-    expect(ws.charts[0].chart.chartType).toBe('bar');
-    expect(ws.charts[0].chart.title?.text).toBe('Revenue');
-    expect(ws.charts[0].chart.series[0].name).toBe('Q1');
-    expect(ws.charts[0].anchor.fromCol).toBe(0);
-    expect(ws.charts[0].anchor.toCol).toBe(10);
+    expect(at(ws.charts, 0).chart.chartType).toBe('bar');
+    expect(at(ws.charts, 0).chart.title?.text).toBe('Revenue');
+    expect(at(at(ws.charts, 0).chart.series, 0).name).toBe('Q1');
+    expect(at(ws.charts, 0).anchor.fromCol).toBe(0);
+    expect(at(ws.charts, 0).anchor.toCol).toBe(10);
   });
 
   it('roundtrips a chart added via addChartData', async () => {
@@ -43,12 +50,12 @@ describe('addChartData', () => {
     const ws2 = wb2.getSheet('Sheet1') as Worksheet;
 
     expect(ws2.charts).toHaveLength(1);
-    expect(ws2.charts[0].chart.chartType).toBe('line');
-    expect(ws2.charts[0].chart.title?.text).toBe('Trend');
-    expect(ws2.charts[0].chart.series[0].name).toBe('Sales');
-    expect(ws2.charts[0].chart.legend?.position).toBe('bottom');
-    expect(ws2.charts[0].anchor.fromCol).toBe(3);
-    expect(ws2.charts[0].anchor.toCol).toBe(12);
+    expect(at(ws2.charts, 0).chart.chartType).toBe('line');
+    expect(at(ws2.charts, 0).chart.title?.text).toBe('Trend');
+    expect(at(at(ws2.charts, 0).chart.series, 0).name).toBe('Sales');
+    expect(at(ws2.charts, 0).chart.legend?.position).toBe('bottom');
+    expect(at(ws2.charts, 0).anchor.fromCol).toBe(3);
+    expect(at(ws2.charts, 0).anchor.toCol).toBe(12);
   });
 
   it('initializes charts array if absent', () => {
@@ -65,7 +72,7 @@ describe('addChartData', () => {
     ws.addChartData(chartData);
 
     expect(ws.charts).toHaveLength(1);
-    expect(ws.charts[0].chart.chartType).toBe('pie');
+    expect(at(ws.charts, 0).chart.chartType).toBe('pie');
   });
 });
 
@@ -91,10 +98,10 @@ describe('removeChart', () => {
     expect(removed).toBe(true);
     expect(ws.charts).toHaveLength(2);
     // Remaining charts shift correctly: First (index 0), Third (index 1)
-    expect(ws.charts[0].chart.title?.text).toBe('First');
-    expect(ws.charts[0].chart.chartType).toBe('bar');
-    expect(ws.charts[1].chart.title?.text).toBe('Third');
-    expect(ws.charts[1].chart.chartType).toBe('pie');
+    expect(at(ws.charts, 0).chart.title?.text).toBe('First');
+    expect(at(ws.charts, 0).chart.chartType).toBe('bar');
+    expect(at(ws.charts, 1).chart.title?.text).toBe('Third');
+    expect(at(ws.charts, 1).chart.chartType).toBe('pie');
   });
 
   it('returns false for index 0 on empty sheet', () => {
@@ -102,13 +109,6 @@ describe('removeChart', () => {
     const ws = wb.addSheet('Sheet1');
 
     expect(ws.removeChart(0)).toBe(false);
-  });
-
-  it('returns false for negative index', () => {
-    const wb = new Workbook();
-    const ws = wb.addSheet('Sheet1');
-
-    expect(ws.removeChart(-1)).toBe(false);
   });
 
   it('returns false for out-of-range index', () => {
@@ -137,16 +137,5 @@ describe('removeChart', () => {
     expect(ws.removeChart(-1)).toBe(false);
     // Charts are unchanged
     expect(ws.charts).toHaveLength(2);
-  });
-});
-
-describe('charts getter', () => {
-  it('returns empty array when no charts added', () => {
-    const wb = new Workbook();
-    const ws = wb.addSheet('Sheet1');
-
-    // The getter returns readonly WorksheetChartData[] which defaults to []
-    expect(ws.charts).toHaveLength(0);
-    expect(ws.charts).toEqual([]);
   });
 });

@@ -3,8 +3,11 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "#runtime": ["./src/runtime-node.ts"]
+    }
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "wasm", "wasm-lite", "__tests__", "src/*-lite.ts"]
+  "exclude": ["node_modules", "dist", "wasm", "wasm-lite", "__tests__"]
 }

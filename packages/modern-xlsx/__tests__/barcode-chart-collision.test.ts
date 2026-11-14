@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Worksheet } from '../src/index.js';
 import { encodeQR, readBuffer, renderBarcodePNG, Workbook } from '../src/index.js';
+import { readZipText } from './helpers/zip.js';
 
 describe('barcode + chart on same worksheet (drawing collision)', () => {
   it('preserves both image and chart after roundtrip', async () => {
@@ -24,7 +25,7 @@ describe('barcode + chart on same worksheet (drawing collision)', () => {
 
     // Add a barcode image
     const matrix = encodeQR('TEST-DATA');
-    const png = renderBarcodePNG(matrix, { scale: 4 });
+    const png = renderBarcodePNG(matrix, { moduleSize: 4 });
     wb.addImage(
       'Mixed',
       {
@@ -51,9 +52,9 @@ describe('barcode + chart on same worksheet (drawing collision)', () => {
 
     // Chart must survive roundtrip
     expect(ws2.charts).toHaveLength(1);
-    expect(ws2.charts[0].chart.title?.text).toBe('Sales');
-    expect(ws2.charts[0].chart.series).toHaveLength(1);
-    expect(ws2.charts[0].chart.series[0].valRef).toBe('Mixed!$B$1:$B$2');
+    expect(ws2.charts[0]?.chart.title?.text).toBe('Sales');
+    expect(ws2.charts[0]?.chart.series).toHaveLength(1);
+    expect(ws2.charts[0]?.chart.series[0]?.valRef).toBe('Mixed!$B$1:$B$2');
 
     // Image must survive — the image media bytes should be in preserved entries.
     const json = wb2.toJSON();
@@ -63,12 +64,10 @@ describe('barcode + chart on same worksheet (drawing collision)', () => {
     const mediaKeys = Object.keys(pe).filter((k) => k.startsWith('xl/media/'));
     expect(mediaKeys.length).toBeGreaterThanOrEqual(1);
 
-    // The drawing XML in the ZIP should contain BOTH chart graphicFrame and
-    // image pic anchors. Since the reader consumes drawing XML into
-    // known_dynamic (extracting charts), we can't check preservedEntries
-    // for the merged drawing. Instead, we verify the chart survived AND the
-    // media survived. We also verify no duplicate charts were parsed (which
-    // would indicate a duplicate drawing relationship bug).
+    // A drawing that holds a picture beside its chart stays in preservedEntries:
+    // the reader consumes only chart-only drawings.
+    expect(pe['xl/drawings/drawing1.xml']).toBeDefined();
+    expect(pe['xl/drawings/_rels/drawing1.xml.rels']).toBeDefined();
   });
 
   it('preserves chart when no image is present (no regression)', async () => {
@@ -89,7 +88,7 @@ describe('barcode + chart on same worksheet (drawing collision)', () => {
     const ws2 = wb2.getSheet('ChartOnly') as Worksheet;
 
     expect(ws2.charts).toHaveLength(1);
-    expect(ws2.charts[0].chart.title?.text).toBe('Trend');
+    expect(ws2.charts[0]?.chart.title?.text).toBe('Trend');
   });
 
   it('preserves image when no chart is present (no regression)', async () => {
@@ -97,7 +96,7 @@ describe('barcode + chart on same worksheet (drawing collision)', () => {
     wb.addSheet('ImageOnly');
 
     const matrix = encodeQR('IMG-ONLY');
-    const png = renderBarcodePNG(matrix, { scale: 2 });
+    const png = renderBarcodePNG(matrix, { moduleSize: 2 });
     wb.addImage(
       'ImageOnly',
       {
@@ -134,20 +133,36 @@ describe('barcode + chart on same worksheet (drawing collision)', () => {
 
     // Two images
     const matrix1 = encodeQR('IMG-1');
-    const png1 = renderBarcodePNG(matrix1, { scale: 2 });
+    const png1 = renderBarcodePNG(matrix1, { moduleSize: 2 });
     wb.addImage('Multi', { fromCol: 0, fromRow: 0, toCol: 2, toRow: 3 }, png1);
 
     const matrix2 = encodeQR('IMG-2');
-    const png2 = renderBarcodePNG(matrix2, { scale: 2 });
+    const png2 = renderBarcodePNG(matrix2, { moduleSize: 2 });
     wb.addImage('Multi', { fromCol: 0, fromRow: 4, toCol: 2, toRow: 7 }, png2);
 
     const buf = await wb.toBuffer();
+
+    // Each picture keeps its own image: the chart takes rId1, the pictures rId2
+    // and rId3, and each id resolves to a different media part.
+    const zip = readZipText(buf);
+    const drawingXml = zip['xl/drawings/drawing1.xml'] ?? '';
+    const embeds = [...drawingXml.matchAll(/r:embed="([^"]+)"/g)].map((m) => m[1]);
+    expect(embeds).toEqual(['rId2', 'rId3']);
+    const drawingRels = zip['xl/drawings/_rels/drawing1.xml.rels'] ?? '';
+    const targets = embeds.map(
+      (id) => new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`).exec(drawingRels)?.[1],
+    );
+    expect(targets).toEqual(['../media/image1.png', '../media/image2.png']);
+    for (const target of targets) {
+      expect(zip[`xl/${target?.slice('../'.length)}`]).toBeDefined();
+    }
+
     const wb2 = await readBuffer(buf);
     const ws2 = wb2.getSheet('Multi') as Worksheet;
 
     // Chart should survive (exactly 1, not duplicated)
     expect(ws2.charts).toHaveLength(1);
-    expect(ws2.charts[0].chart.title?.text).toBe('Pie');
+    expect(ws2.charts[0]?.chart.title?.text).toBe('Pie');
 
     // Both image media files should survive
     const json = wb2.toJSON();
@@ -157,8 +172,7 @@ describe('barcode + chart on same worksheet (drawing collision)', () => {
   });
 
   it('chart drawing XML includes merged image anchors (ZIP inspection)', async () => {
-    // This test verifies the actual ZIP contents have the merged drawing XML
-    // by checking the pre-write workbook data
+    // Opens the written ZIP and checks the merged drawing XML and its relationships.
     const wb = new Workbook();
     const ws = wb.addSheet('Inspect');
 
@@ -172,7 +186,7 @@ describe('barcode + chart on same worksheet (drawing collision)', () => {
     });
 
     const matrix = encodeQR('INSPECT');
-    const png = renderBarcodePNG(matrix, { scale: 2 });
+    const png = renderBarcodePNG(matrix, { moduleSize: 2 });
     wb.addImage(
       'Inspect',
       {
@@ -184,14 +198,24 @@ describe('barcode + chart on same worksheet (drawing collision)', () => {
       png,
     );
 
-    // Write and verify the chart was found in the roundtrip
-    // (this proves the drawing XML was written correctly with both types)
     const buf = await wb.toBuffer();
+
+    // Open the written ZIP: one drawing part with one chart frame and one picture.
+    const zip = readZipText(buf);
+    const drawingXml = zip['xl/drawings/drawing1.xml'];
+    expect(drawingXml).toBeDefined();
+    expect(drawingXml?.match(/<xdr:graphicFrame\b/g)).toHaveLength(1);
+    expect(drawingXml?.match(/<xdr:pic\b/g)).toHaveLength(1);
+    const drawingRels = zip['xl/drawings/_rels/drawing1.xml.rels'];
+    expect(drawingRels).toBeDefined();
+    expect(drawingRels).toContain('/relationships/chart"');
+    expect(drawingRels).toContain('/relationships/image"');
+
     const wb2 = await readBuffer(buf);
     const ws2 = wb2.getSheet('Inspect') as Worksheet;
 
     // The key assertion: exactly 1 chart, not 0 (lost) or 2 (duplicated)
     expect(ws2.charts).toHaveLength(1);
-    expect(ws2.charts[0].chart.title?.text).toBe('Test');
+    expect(ws2.charts[0]?.chart.title?.text).toBe('Test');
   });
 });

@@ -7,7 +7,7 @@
 //! - Truncated/empty EncryptedPackage data produces errors, not panics
 #![cfg(feature = "encryption")]
 
-use modern_xlsx_core::ole2::encryption_info::EncryptionInfo;
+use modern_xlsx_core::ole2::encryption_info::{EncryptionInfo, HashAlg};
 
 // ---------------------------------------------------------------------------
 // Test 1: Error messages must not contain key-like patterns
@@ -33,9 +33,8 @@ fn test_no_key_in_error_messages() {
 
     // 1. Wrong password on a real encrypted file (encrypt then try wrong password)
     let test_data = b"PK\x03\x04 test content for security tests";
-    let encrypted =
-        modern_xlsx_core::ole2::crypto::encrypt_file(test_data, "correct_pw").unwrap();
-    let err = modern_xlsx_core::ole2::detect::decrypt_file(&encrypted, "wrong_pw");
+    let encrypted = modern_xlsx_core::ole2::crypto::encrypt_file(test_data, "correct_pw").unwrap();
+    let err = modern_xlsx_core::ole2::crypto::decrypt_file(&encrypted, "wrong_pw");
     assert!(err.is_err());
     error_messages.push(err.unwrap_err().to_string());
 
@@ -95,16 +94,15 @@ fn test_no_key_in_error_messages() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 2: Password verification path works correctly
+// Test 2: Wrong passwords are rejected, the correct one is accepted
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_constant_time_comparison_used() {
-    // This test verifies the password verification path works correctly:
-    // - Wrong passwords are rejected (either "Incorrect password" or AES padding error)
-    // - Correct passwords succeed
-    // The actual constant_time_eq usage is verified by code audit (grep confirmed
-    // 3 call sites in crypto.rs, 0 raw == comparisons on secret data).
+fn test_wrong_password_rejected_correct_accepted() {
+    // Wrong passwords are rejected with "Incorrect password" (the verifier
+    // fields are decrypted without unpadding, so no AES padding error can
+    // surface first) and the correct password succeeds. This test checks
+    // behaviour only; it does not measure timing.
 
     let test_data = b"PK\x03\x04 verification path test data";
     let password = "secure_test_password_123!";
@@ -113,33 +111,30 @@ fn test_constant_time_comparison_used() {
     let encrypted = modern_xlsx_core::ole2::crypto::encrypt_file(test_data, password).unwrap();
 
     // Correct password should succeed
-    let result = modern_xlsx_core::ole2::detect::decrypt_file(&encrypted, password);
-    assert!(result.is_ok(), "Correct password should decrypt successfully");
+    let result = modern_xlsx_core::ole2::crypto::decrypt_file(&encrypted, password);
+    assert!(
+        result.is_ok(),
+        "Correct password should decrypt successfully"
+    );
     assert_eq!(result.unwrap(), test_data);
 
-    // Wrong passwords should all fail -- either with "Incorrect password" or
-    // an AES decryption error (both are valid rejection paths depending on
-    // which step of verification catches the mismatch).
+    // Wrong passwords should all fail with "Incorrect password".
     let wrong_passwords = [
         "",
         "wrong",
-        "SECURE_TEST_PASSWORD_123!",  // case-swapped
-        "secure_test_password_123",   // missing trailing char
-        "secure_test_password_124!",  // one char different
+        "SECURE_TEST_PASSWORD_123!", // case-swapped
+        "secure_test_password_123",  // missing trailing char
+        "secure_test_password_124!", // one char different
         "\u{043F}\u{0430}\u{0440}\u{043E}\u{043B}\u{044C}", // Unicode
     ];
 
     for wrong_pw in &wrong_passwords {
-        let err = modern_xlsx_core::ole2::detect::decrypt_file(&encrypted, wrong_pw);
+        let err = modern_xlsx_core::ole2::crypto::decrypt_file(&encrypted, wrong_pw);
         assert!(err.is_err(), "Wrong password '{wrong_pw}' should fail");
         let err_msg = err.unwrap_err().to_string();
-        // Accept either "Incorrect password" or AES-related errors -- both indicate
-        // the wrong password was properly rejected without leaking key material.
         assert!(
-            err_msg.contains("Incorrect password")
-                || err_msg.contains("AES")
-                || err_msg.contains("decryption failed"),
-            "Expected a decryption-related error for '{wrong_pw}', got: {err_msg}"
+            err_msg.contains("Incorrect password"),
+            "Expected \"Incorrect password\" for '{wrong_pw}', got: {err_msg}"
         );
     }
 }
@@ -153,7 +148,7 @@ fn test_malformed_encryption_info_no_panic() {
     let test_inputs: Vec<Vec<u8>> = vec![
         // 1 byte
         vec![0x00],
-        // 4 bytes (too short for version header)
+        // 4 bytes: a version with no flags field (the header is 8 bytes)
         vec![0x04, 0x00, 0x04, 0x00],
         // 7 bytes (just under minimum)
         vec![0x04, 0x00, 0x04, 0x00, 0x40, 0x00, 0x00],
@@ -192,20 +187,15 @@ fn test_malformed_encryption_info_no_panic() {
     ];
 
     for (i, input) in test_inputs.iter().enumerate() {
-        // Must not panic — parse should handle all malformed inputs gracefully
-        let result = EncryptionInfo::parse(input);
-        // For malformed inputs, we expect errors (though some edge cases might
-        // technically parse to empty/default structs — the key requirement is no panic).
-        // We simply ensure the call completes without panicking.
-        let _ = result;
-        // If it's an error, verify no key material in the message
-        if let Err(e) = EncryptionInfo::parse(input) {
-            let msg = e.to_string();
-            assert!(
-                !msg.contains("key=") && !msg.contains("password="),
-                "Error for malformed input #{i} leaks key material: {msg}"
-            );
-        }
+        let Err(err) = EncryptionInfo::parse(input) else {
+            panic!("malformed input #{i} must be rejected")
+        };
+        assert_eq!(err.code(), "PASSWORD_PROTECTED", "#{i}: {err}");
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("key=") && !msg.contains("password="),
+            "input #{i} leaks key material: {msg}"
+        );
     }
 }
 
@@ -217,12 +207,11 @@ fn test_malformed_encryption_info_no_panic() {
 fn test_truncated_encrypted_package_no_panic() {
     // Create a real encrypted file to get valid EncryptionInfo
     let test_data = b"PK\x03\x04 truncation test data for security";
-    let encrypted =
-        modern_xlsx_core::ole2::crypto::encrypt_file(test_data, "test_pw").unwrap();
+    let encrypted = modern_xlsx_core::ole2::crypto::encrypt_file(test_data, "test_pw").unwrap();
 
     // Read the real EncryptionInfo to get valid parsed info
     let enc_info_bytes =
-        modern_xlsx_core::ole2::detect::read_stream(&encrypted, "EncryptionInfo").unwrap();
+        modern_xlsx_core::ole2::cfb::reader::read_stream(&encrypted, "EncryptionInfo").unwrap();
     let enc_info = EncryptionInfo::parse(&enc_info_bytes).unwrap();
 
     // Get the real data key
@@ -230,8 +219,7 @@ fn test_truncated_encrypted_package_no_panic() {
         EncryptionInfo::Agile(a) => a,
         other => unreachable!("Expected Agile encryption, got {other:?}"),
     };
-    let data_key =
-        modern_xlsx_core::ole2::crypto::verify_password_agile("test_pw", agile).unwrap();
+    let data_key = modern_xlsx_core::ole2::crypto::verify_password_agile("test_pw", agile).unwrap();
 
     // Test with various truncated EncryptedPackage payloads
     let truncated_packages: Vec<Vec<u8>> = vec![
@@ -239,14 +227,14 @@ fn test_truncated_encrypted_package_no_panic() {
         vec![0x00; 4],
         // 7 bytes (just under 8-byte size header)
         vec![0x00; 7],
-        // 9 bytes (size header + 1 byte — not enough for AES block)
+        // 9 bytes: a size header declaring 100 bytes, then 1 byte of payload
         {
             let mut v = Vec::new();
             v.extend_from_slice(&100u64.to_le_bytes());
             v.push(0xFF);
             v
         },
-        // Size header + 15 bytes (not block-aligned for some AES modes)
+        // A size header declaring 1000 bytes, then 15 bytes of payload
         {
             let mut v = Vec::new();
             v.extend_from_slice(&1000u64.to_le_bytes());
@@ -259,9 +247,8 @@ fn test_truncated_encrypted_package_no_panic() {
 
     for (i, package) in truncated_packages.iter().enumerate() {
         // decrypt_package must not panic — it should return an error
-        let result =
-            modern_xlsx_core::ole2::crypto::decrypt_package(&data_key, agile, package);
-        // All inputs are too short or malformed so should error
+        let result = modern_xlsx_core::ole2::crypto::decrypt_package(&data_key, agile, package);
+        // Each input is shorter than 8 bytes or declares more bytes than it holds, so each errors
         assert!(
             result.is_err(),
             "Truncated package #{i} (len={}) should produce an error",
@@ -288,19 +275,14 @@ fn test_empty_encrypted_package_no_panic() {
         key_block_size: 16,
         key_bits: 256,
         key_hash_size: 64,
-        key_cipher: "AES".into(),
-        key_chaining: "ChainingModeCBC".into(),
-        key_hash_alg: "SHA512".into(),
+        key_hash_alg: HashAlg::Sha512,
         encrypted_hmac_key: vec![],
         encrypted_hmac_value: vec![],
         pw_spin_count: 100_000,
         pw_salt: vec![],
-        pw_block_size: 16,
         pw_key_bits: 256,
         pw_hash_size: 64,
-        pw_cipher: "AES".into(),
-        pw_chaining: "ChainingModeCBC".into(),
-        pw_hash_alg: "SHA512".into(),
+        pw_hash_alg: HashAlg::Sha512,
         pw_encrypted_key_value: vec![],
         pw_encrypted_verifier_hash_input: vec![],
         pw_encrypted_verifier_hash_value: vec![],
@@ -319,10 +301,9 @@ fn test_empty_encrypted_package_no_panic() {
 
     // Also test with StandardEncryptionInfo
     let std_info = modern_xlsx_core::ole2::encryption_info::StandardEncryptionInfo {
-        alg_id: 0x6801,
+        alg_id: 0x660E, // AES-128
         hash_alg_id: 0x8004,
         key_size: 128,
-        provider: "AES".into(),
         salt: vec![0; 16],
         encrypted_verifier: vec![0; 16],
         verifier_hash_size: 20,
@@ -332,8 +313,7 @@ fn test_empty_encrypted_package_no_panic() {
     let std_key = [0u8; 16];
 
     // Zero-length package for standard encryption
-    let result =
-        modern_xlsx_core::ole2::crypto::decrypt_standard_package(&std_key, &std_info, &[]);
+    let result = modern_xlsx_core::ole2::crypto::decrypt_standard_package(&std_key, &std_info, &[]);
     assert!(
         result.is_err(),
         "Empty standard package should return an error"
@@ -347,11 +327,8 @@ fn test_empty_encrypted_package_no_panic() {
     // 8-byte header with no encrypted data (standard)
     let mut header_only = Vec::new();
     header_only.extend_from_slice(&100u64.to_le_bytes());
-    let result = modern_xlsx_core::ole2::crypto::decrypt_standard_package(
-        &std_key,
-        &std_info,
-        &header_only,
-    );
+    let result =
+        modern_xlsx_core::ole2::crypto::decrypt_standard_package(&std_key, &std_info, &header_only);
     assert!(
         result.is_err(),
         "Header-only standard package should return an error"
@@ -368,18 +345,33 @@ fn test_empty_encrypted_package_no_panic() {
 // ---------------------------------------------------------------------------
 
 /// Regression for a fuzzer-found panic (`index out of bounds: len 128, index
-/// 128`) in `ole2::detect::read_directory`: a directory entry whose name-length
+/// 128`) in `ole2::cfb::reader::read_directory`: a directory entry whose name-length
 /// field (offset 64-65) exceeds the 64-byte name field caused the UTF-16 decode
-/// loop to index past the 128-byte entry. The reader must return Ok/Err, never
-/// panic, on arbitrary OLE2-shaped input.
+/// loop to index past the 128-byte entry. The reader must return an error, never
+/// panic, on a compound file with no decryptable payload.
 #[test]
 fn read_xlsx_does_not_panic_on_malformed_ole2_directory() {
+    const OLE2_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
     let crash = include_bytes!("fixtures/fuzz_crash_ole2.bin");
-    let _ = modern_xlsx_core::reader::read_xlsx(crash);
+    assert!(
+        crash.starts_with(&OLE2_MAGIC),
+        "fixture must stay an OLE2 file"
+    );
+    assert_eq!(
+        modern_xlsx_core::reader::read_xlsx(crash)
+            .unwrap_err()
+            .code(),
+        "UNRECOGNIZED_FORMAT"
+    );
 
-    // Also exercise the boundary directly: a minimal 512-byte buffer carrying the
-    // OLE2/CFB magic (D0 CF 11 E0 A1 B1 1A E1) must be handled without panicking.
-    let mut buf = vec![0u8; 512];
-    buf[..8].copy_from_slice(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
-    let _ = modern_xlsx_core::reader::read_xlsx(&buf);
+    // Also exercise the boundary directly: a minimal 512-byte buffer carrying only
+    // the OLE2/CFB magic must be rejected, not read and not a panic.
+    let mut magic_only = vec![0u8; 512];
+    magic_only[..8].copy_from_slice(&OLE2_MAGIC);
+    assert_eq!(
+        modern_xlsx_core::reader::read_xlsx(&magic_only)
+            .unwrap_err()
+            .code(),
+        "UNRECOGNIZED_FORMAT"
+    );
 }

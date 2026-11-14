@@ -1,0 +1,31 @@
+{
+  "dateSystem": "date1904",
+  "definedNames": [
+    {
+      "name": "Cap",
+      "value": "IF(Data!$A$1<1,\"a & b\",0)"
+    },
+    {
+      "hidden": true,
+      "name": "_xlnm._FilterDatabase",
+      "sheetId": 0,
+      "value": "Data!$A$1:$C$9"
+    },
+    {
+      "comment": "R&D <macro>",
+      "customMenu": "Menu",
+      "description": "Described",
+      "function": true,
+      "functionGroupId": 3,
+      "help": "Help",
+      "name": "Macro",
+      "publishToServer": true,
+      "shortcutKey": "m",
+      "statusBar": "Status",
+      "value": "Data!$B$2",
+      "vbProcedure": true,
+      "workbookParameter": true,
+      "xlm": true
+    }
+  ]
+}

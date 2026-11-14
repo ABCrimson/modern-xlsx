@@ -6,6 +6,8 @@
 
 </div>
 
+Statements about ExcelJS versions, dependencies and feature availability carry an "as of" date and a source link. They were read on 2026-11-11 and can have changed since. The API names on the left of each diff are shown for mapping only.
+
 ---
 
 ## Installation
@@ -84,6 +86,8 @@ await initWasm(); // Call once at startup
 + ws.cell('A1').styleIndex = style;
 ```
 
+Colors are hex strings. The style builder accepts 6-digit RGB (`'FF0000'`) and 8-digit ARGB (`'FFFF0000'`), with or without a leading `#`, so the ExcelJS `argb` value can be passed through unchanged. Both are written as uppercase ARGB, with an `FF` alpha added to an RGB value, and read back in that form.
+
 ---
 
 ## Merge Cells
@@ -120,6 +124,8 @@ await initWasm(); // Call once at startup
 + ws.frozenPane = { rows: 1, cols: 0 };
 ```
 
+`rows` is the number of rows frozen from the top and `cols` the number of columns frozen from the left. Assign `null` to remove the pane.
+
 ---
 
 ## Auto Filter
@@ -129,6 +135,8 @@ await initWasm(); // Call once at startup
 + ws.autoFilter = 'A1:D10';                  // string form (same API)
 + ws.autoFilter = { range: 'A1:D10' };       // or object form
 ```
+
+The setter accepts a string, an `AutoFilterData` object (`range`, plus optional `filterColumns`) or `null` to remove the filter.
 
 ---
 
@@ -189,15 +197,58 @@ await initWasm(); // Call once at startup
 
 ---
 
+## Streaming writes
+
+`StreamingXlsxWriter` replaces the ExcelJS `stream.xlsx.WorkbookWriter` pattern of `addRow(...).commit()`. Create it with `StreamingXlsxWriter.create()` after `initWasm()`, open a sheet with `startSheet(name)`, write rows with `writeRow(cells)`, and call `finish()`, which returns the whole file as a `Uint8Array`.
+
+```diff
+- const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: 'big.xlsx' });
+- const ws = wb.addWorksheet('Data');
+- ws.addRow(['id', 'name']).commit();
+- await ws.commit();
+- await wb.commit();
++ import { initWasm, StreamingXlsxWriter } from 'modern-xlsx';
++ import { writeFile } from 'node:fs/promises';
++ await initWasm();
++ const writer = StreamingXlsxWriter.create();
++ writer.startSheet('Data');
++ writer.writeRow([
++   { value: 'id', cellType: 'sharedString' },
++   { value: 'name', cellType: 'sharedString' },
++ ]);
++ writer.writeRow([
++   { value: '1' },                              // cellType defaults to 'number'
++   { value: 'Alice', cellType: 'sharedString' },
++ ]);
++ await writeFile('big.xlsx', writer.finish());
+```
+
+Each cell is `{ value?, cellType?, style? }`. `value` is a string; omit it or pass `null` to leave the cell empty (a `stub` cell with a `style` is still written). `cellType` defaults to `'number'`, so give text cells `cellType: 'sharedString'`. `finish()` consumes the writer.
+
+Rows are compressed into the ZIP as they are written, but the compressed archive stays in WASM memory until `finish()` returns it, so the output is buffered in memory and not written to a file or stream as it goes.
+
+For a normal workbook, `ws.addRow(values)` maps to `sheetAddAoa`. Without an `origin` option it writes below the existing data, so repeated calls append rows:
+
+```diff
+- ws.addRow(['Alice', 30]);
++ import { sheetAddAoa } from 'modern-xlsx';
++ sheetAddAoa(ws, [['Alice', 30]]);
+```
+
+Pass `{ origin: 'A10' }` to start at a given cell instead.
+
+---
+
 ## Key Differences
 
-| Feature | ExcelJS | modern-xlsx |
-|---|---|---|
-| Runtime | Pure JS (streaming) | Rust WASM |
-| Styles | Per-cell objects | Shared style table + index |
-| Cell access | `ws.getCell('A1')` | `ws.cell('A1')` |
-| Merge cells | `ws.mergeCells(range)` | `ws.addMergeCell(range)` |
-| Sheet creation | `wb.addWorksheet(name)` | `wb.addSheet(name)` |
-| Read/write | Streaming in JS | Bulk WASM processing |
-| Dependencies | 14+ | 0 (WASM bundled) |
-| Barcode generation | No | **Yes (9 formats)** |
+| Feature              | ExcelJS                                                                                                    | modern-xlsx                                                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Styles               | Per-cell objects                                                                                           | Shared style table + index                                                                                                               |
+| Cell access          | `ws.getCell('A1')`                                                                                         | `ws.cell('A1')`                                                                                                                          |
+| Merge cells          | `ws.mergeCells(range)`                                                                                     | `ws.addMergeCell(range)`                                                                                                                 |
+| Sheet creation       | `wb.addWorksheet(name)`                                                                                    | `wb.addSheet(name)`                                                                                                                      |
+| Streaming write      | `stream.xlsx.WorkbookWriter` (as of 2026-11-11, [README 4.4.0](https://unpkg.com/exceljs@4.4.0/README.md)) | `StreamingXlsxWriter` writes row by row but buffers its compressed output in memory until `finish()`                                     |
+| Streaming read       | `stream.xlsx.WorkbookReader` (as of 2026-11-11, [README 4.4.0](https://unpkg.com/exceljs@4.4.0/README.md)) | None. `readBuffer` and `readFile` read the whole file in one call                                                                        |
+| Runtime dependencies | 9 (npm registry, exceljs 4.4.0, 2026-11-11, [source](https://registry.npmjs.org/exceljs))                  | 0 in `package.json`. The WASM binary ships as separate `.wasm` files in the package (`wasm/`, `wasm-lite/`, and `dist/modern-xlsx.wasm`) |
+
+modern-xlsx's core is Rust compiled to WASM behind a TypeScript API. It also generates barcodes in 9 formats (`BarcodeType` in `barcode/common.ts`); PDF417 and Data Matrix are marked `@experimental` because their output is not standards-conformant and may not scan.

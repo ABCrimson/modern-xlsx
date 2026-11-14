@@ -7,16 +7,14 @@
 import type { BarcodeMatrix } from './common.js';
 import { at, createGrid, getCell, rsEncode, setCell } from './common.js';
 
-// ---------------------------------------------------------------------------
-// QR Code Encoder (Model 2, ISO 18004, versions 1-10)
-// ---------------------------------------------------------------------------
-
-type QrEcLevel = 'L' | 'M' | 'Q' | 'H';
+/** QR error-correction level: L, M, Q or H (about 7, 15, 25 and 30 percent of codewords recoverable). */
+export type QrEcLevel = 'L' | 'M' | 'Q' | 'H';
 
 // [total_codewords, ec_per_block, num_blocks_g1, data_per_block_g1, num_blocks_g2, data_per_block_g2]
 type QrV = [number, number, number, number, number, number];
 
-const QR_VI: Record<QrEcLevel, QrV[]> = {
+/** @internal */
+export const QR_VI: Record<QrEcLevel, QrV[]> = {
   L: [
     [0, 0, 0, 0, 0, 0],
     [26, 7, 1, 19, 0, 0],
@@ -50,7 +48,7 @@ const QR_VI: Record<QrEcLevel, QrV[]> = {
     [70, 18, 2, 17, 0, 0],
     [100, 26, 2, 24, 0, 0],
     [134, 18, 2, 15, 2, 16],
-    [172, 24, 2, 19, 2, 20],
+    [172, 24, 4, 19, 0, 0],
     [196, 18, 2, 14, 4, 15],
     [242, 22, 4, 18, 2, 19],
     [292, 20, 4, 16, 4, 17],
@@ -108,9 +106,20 @@ const QR_VBITS = [0, 0, 0, 0, 0, 0, 0, 0x07c94, 0x085bc, 0x09a99, 0x0a4d3];
 
 const QR_ALNUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
 
+/** Mode tests run on the raw data: no upper-cased copy, no spread into an array. */
+const QR_NUMERIC_RE = /^[0-9]*$/;
+const QR_ALNUM_RE = /^[0-9A-Z $%*+./:-]*$/;
+
+/**
+ * Longest input encodeQR can ever hold: the version 10-L numeric capacity (652 digits).
+ * No mode packs more characters into a symbol, and UTF-8 bytes are never fewer than
+ * UTF-16 code units, so a longer string cannot fit and is rejected before any bit expansion.
+ */
+const MAX_QR_CHARS = 652;
+
 function qrMode(data: string): 'numeric' | 'alphanumeric' | 'byte' {
-  if (/^\d+$/.test(data)) return 'numeric';
-  if ([...data.toUpperCase()].every((c) => QR_ALNUM.includes(c))) return 'alphanumeric';
+  if (QR_NUMERIC_RE.test(data)) return 'numeric';
+  if (QR_ALNUM_RE.test(data)) return 'alphanumeric';
   return 'byte';
 }
 
@@ -133,10 +142,9 @@ function qrEncData(
       push(Number.parseInt(chunk, 10), chunk.length === 3 ? 10 : chunk.length === 2 ? 7 : 4);
     }
   } else if (mode === 'alphanumeric') {
-    const u = data.toUpperCase();
-    for (let i = 0; i < u.length; i += 2) {
-      const a = QR_ALNUM.indexOf(u[i] ?? '');
-      if (i + 1 < u.length) push(a * 45 + QR_ALNUM.indexOf(u[i + 1] ?? ''), 11);
+    for (let i = 0; i < data.length; i += 2) {
+      const a = QR_ALNUM.indexOf(data[i] ?? '');
+      if (i + 1 < data.length) push(a * 45 + QR_ALNUM.indexOf(data[i + 1] ?? ''), 11);
       else push(a, 6);
     }
   } else {
@@ -160,7 +168,18 @@ function qrSelVer(
   throw new Error('Data too long for QR versions 1-10');
 }
 
+/**
+ * Encodes a QR Code (Model 2, versions 1-10) symbol. The mode is chosen automatically: numeric for
+ * digits only, alphanumeric for upper-case letters, digits and `space $ % * + - . / :`, otherwise
+ * byte mode on the UTF-8 bytes. The smallest version that fits is used.
+ *
+ * @param data - Text to encode.
+ * @param options - `ecLevel`: error-correction level (default `'M'`).
+ * @returns The symbol matrix, without quiet zone.
+ * @throws {Error} `Data too long for QR versions 1-10` if the data does not fit version 10 at the chosen level.
+ */
 export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): BarcodeMatrix {
+  if (data.length > MAX_QR_CHARS) throw new Error('Data too long for QR versions 1-10');
   const ec: QrEcLevel = options?.ecLevel ?? 'M';
   const mode = qrMode(data);
   const { bits: dataBits, charCnt } = qrEncData(data, mode);
@@ -299,6 +318,10 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
     }
   }
 
+  // Function-pattern mask: every module assigned so far (finders, separators, timing, alignment,
+  // dark module, reserved format and version areas); data placement fills only the rest.
+  const funcP = grid.map((row) => Array.from(row, (v) => v !== -1));
+
   // Place data
   let bitIdx = 0;
   let upward = true;
@@ -324,46 +347,6 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
     }
     upward = !upward;
   }
-
-  // Build function pattern mask
-  const funcP = createGrid(sz, sz, false);
-  for (let r = 0; r < 9; r++) {
-    for (let c = 0; c < 9; c++) setCell(funcP, r, c, true);
-    for (let c = sz - 8; c < sz; c++) setCell(funcP, r, c, true);
-  }
-  for (let r = sz - 8; r < sz; r++) {
-    for (let c = 0; c < 9; c++) setCell(funcP, r, c, true);
-  }
-  for (let i = 0; i < sz; i++) {
-    setCell(funcP, 6, i, true);
-    setCell(funcP, i, 6, true);
-  }
-  for (const ar of alignPos) {
-    for (const ac of alignPos) {
-      if (ar <= 8 && ac <= 8) continue;
-      if (ar <= 8 && ac >= sz - 9) continue;
-      if (ar >= sz - 9 && ac <= 8) continue;
-      for (let dr = -2; dr <= 2; dr++) {
-        for (let dc = -2; dc <= 2; dc++) setCell(funcP, ar + dr, ac + dc, true);
-      }
-    }
-  }
-  setCell(funcP, sz - 8, 8, true);
-  if (ver >= 7) {
-    for (let i = 0; i < 6; i++) {
-      for (let j = 0; j < 3; j++) {
-        setCell(funcP, i, sz - 11 + j, true);
-        setCell(funcP, sz - 11 + j, i, true);
-      }
-    }
-  }
-  for (let i = 0; i < 8; i++) {
-    setCell(funcP, 8, i, true);
-    setCell(funcP, i, 8, true);
-    setCell(funcP, 8, sz - 1 - i, true);
-    setCell(funcP, sz - 1 - i, 8, true);
-  }
-  setCell(funcP, 8, 8, true);
 
   // Mask functions
   const maskFns: ((r: number, c: number) => boolean)[] = [
@@ -496,8 +479,10 @@ export function encodeQR(data: string, options?: { ecLevel?: QrEcLevel }): Barco
     const [r, c] = at(fmtPos, i);
     at(grid, r)[c] = (fmtBits >> (14 - i)) & 1;
   }
-  for (let i = 0; i < 7; i++) at(grid, sz - 1 - i)[8] = (fmtBits >> i) & 1;
-  for (let i = 0; i < 8; i++) at(grid, 8)[sz - 8 + i] = (fmtBits >> (7 + i)) & 1;
+  // Copy 2 (ISO/IEC 18004): bits 0-7 along row 8 from the right edge leftwards, bits 8-14 down
+  // column 8 from row sz - 7 to the last row; the dark module at (sz - 8, 8) stays.
+  for (let i = 0; i < 8; i++) at(grid, 8)[sz - 1 - i] = (fmtBits >> i) & 1;
+  for (let i = 8; i < 15; i++) at(grid, sz - 15 + i)[8] = (fmtBits >> i) & 1;
 
   // Version info (v7+)
   if (ver >= 7) {

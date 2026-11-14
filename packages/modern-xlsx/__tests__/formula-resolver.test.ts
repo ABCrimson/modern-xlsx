@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import type { CellRefNode, CellValue, EvalContext, RangeNode } from '../src/index.js';
-import { resolveRange, resolveRef } from '../src/index.js';
+import { describe, expect, it, vi } from 'vitest';
+import { argToMatrix, argValues, isReferenceNode } from '../src/formula/resolver.js';
+import type { ASTNode, CellRefNode, CellValue, EvalContext, RangeNode } from '../src/index.js';
+import { evaluateNode, parseFormula, resolveRange, resolveRef } from '../src/index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,6 +80,30 @@ describe('resolveRef', () => {
     const ctx = mockContext({ MySheet: { '1,2': 'yes' } }, 'MySheet');
     expect(resolveRef(cellRef('B', 2), ctx)).toBe('yes');
   });
+
+  it('resolves lowercase columns in hand-built nodes', () => {
+    const getCell = vi.fn<EvalContext['getCell']>(() => 7);
+    const ctx: EvalContext = { currentSheet: 'Sheet1', getCell };
+    expect(resolveRef(cellRef('a', 1), ctx)).toBe(7);
+    expect(resolveRef(cellRef('xfd', 1048576), ctx)).toBe(7);
+    expect(getCell.mock.calls).toEqual([
+      ['Sheet1', 0, 1],
+      ['Sheet1', 16383, 1048576],
+    ]);
+  });
+
+  it.each([
+    ['column past XFD', cellRef('XFE', 1)],
+    ['row 0', cellRef('A', 0)],
+    ['row 1048577', cellRef('A', 1048577)],
+    ['empty column', cellRef('', 1)],
+    ['non-letter column', cellRef('A1', 1)],
+    ['fractional row', cellRef('A', 1.5)],
+  ])('returns #REF! without calling getCell for a %s', (_label, node) => {
+    const getCell = vi.fn<EvalContext['getCell']>(() => 1);
+    expect(resolveRef(node, { currentSheet: 'Sheet1', getCell })).toBe('#REF!');
+    expect(getCell).not.toHaveBeenCalled();
+  });
 });
 
 describe('resolveRange', () => {
@@ -142,5 +167,131 @@ describe('resolveRange', () => {
     const ctx = mockContext(data);
     const result = resolveRange(range('A', 1, 'C', 1), ctx);
     expect(result).toEqual([[1, 2, 3]]);
+  });
+
+  it('resolves lowercase columns in hand-built nodes', () => {
+    const ctx = mockContext(data);
+    expect(resolveRange(range('a', 1, 'c', 1), ctx)).toEqual([[1, 2, 3]]);
+  });
+
+  it.each([
+    ['an end column past XFD', range('A', 1, 'XFE', 1)],
+    ['a start column past XFD', range('XFE', 1, 'A', 1)],
+    ['an end row past 1048576', range('A', 1, 'A', 1048577)],
+    ['a start row of 0', range('A', 0, 'A', 1)],
+  ])('returns [["#REF!"]] without calling getCell for %s', (_label, node) => {
+    const getCell = vi.fn<EvalContext['getCell']>(() => 1);
+    expect(resolveRange(node, { currentSheet: 'Sheet1', getCell })).toEqual([['#REF!']]);
+    expect(getCell).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Argument helpers: argToMatrix, argValues, isReferenceNode
+// ---------------------------------------------------------------------------
+
+/** Parse `formula`, failing the test on a parse error. */
+function ast(formula: string): ASTNode {
+  const { ast: node, errors } = parseFormula(formula);
+  expect(errors).toEqual([]);
+  if (!node) throw new Error(`no AST for ${formula}`);
+  return node;
+}
+
+describe('argToMatrix', () => {
+  const ctx = mockContext({
+    Sheet1: { '0,1': 'A1', '1,1': 'B1', '1,2': 'B2', '2,2': 'C2', '1,3': 'B3' },
+  });
+
+  it('evaluates every element of an array constant', () => {
+    expect(argToMatrix(ast('{1,2;3,4}'), ctx, evaluateNode)).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
+  });
+
+  it('resolves a range', () => {
+    expect(argToMatrix(ast('B1:B3'), ctx, evaluateNode)).toEqual([['B1'], ['B2'], ['B3']]);
+  });
+
+  it('gives the overlap rectangle of an intersection', () => {
+    expect(argToMatrix(ast('B1:B3 B2:C2'), ctx, evaluateNode)).toEqual([['B2']]);
+    expect(argToMatrix(ast('A1:C3 B:B'), ctx, evaluateNode)).toEqual([['B1'], ['B2'], ['B3']]);
+  });
+
+  it('gives #NULL! for disjoint references', () => {
+    expect(argToMatrix(ast('A1 C3'), ctx, evaluateNode)).toEqual([['#NULL!']]);
+  });
+
+  it('appends the rows of both areas of a union', () => {
+    expect(argToMatrix(ast('(A1,B2)'), ctx, evaluateNode)).toEqual([['A1'], ['B2']]);
+  });
+
+  it('gives #REF! for 3-D and structured references', () => {
+    expect(argToMatrix(ast('Sheet1:Sheet3!A1'), ctx, evaluateNode)).toEqual([['#REF!']]);
+    expect(argToMatrix(ast('Table1[Col]'), ctx, evaluateNode)).toEqual([['#REF!']]);
+  });
+
+  it('wraps any other argument as a 1x1 matrix', () => {
+    expect(argToMatrix(ast('1+1'), ctx, evaluateNode)).toEqual([[2]]);
+    expect(argToMatrix(ast('B2'), ctx, evaluateNode)).toEqual([['B2']]);
+  });
+
+  it('clamps a whole column to getBounds', () => {
+    const bounded: EvalContext = { ...ctx, getBounds: () => ({ maxRow: 3, maxCol: 2 }) };
+    expect(argToMatrix(ast('B:B'), bounded, evaluateNode)).toEqual([['B1'], ['B2'], ['B3']]);
+  });
+});
+
+describe('argValues', () => {
+  it('yields the cells of argToMatrix row-major', () => {
+    const ctx = mockContext({ Sheet1: { '0,1': 1, '1,1': 2, '0,2': 3, '1,2': 4 } });
+    for (const formula of ['A1:B2', '{1,2;3,4}', '(A1,B2)', 'A1:B2 B:B', 'A1 B2', '7']) {
+      const node = ast(formula);
+      expect([...argValues(node, ctx, evaluateNode)]).toEqual(
+        argToMatrix(node, ctx, evaluateNode).flat(),
+      );
+    }
+  });
+
+  it('walks a whole column once per row without building a matrix', () => {
+    let calls = 0;
+    const ctx: EvalContext = {
+      currentSheet: 'Sheet1',
+      getCell(_sheet, col, row) {
+        calls++;
+        return col === 0 && row === 1_048_576 ? 1 : null;
+      },
+    };
+    const values = [...argValues(ast('A:A'), ctx, evaluateNode)];
+    expect(values).toHaveLength(1_048_576);
+    expect(values.at(-1)).toBe(1);
+    expect(calls).toBe(1_048_576);
+  });
+
+  it('walks a whole row across every column', () => {
+    const ctx = mockContext({ Sheet1: { '16383,2': 'XFD2' } });
+    const values = [...argValues(ast('2:2'), ctx, evaluateNode)];
+    expect(values).toHaveLength(16_384);
+    expect(values.at(-1)).toBe('XFD2');
+  });
+});
+
+describe('isReferenceNode', () => {
+  it('is true for cell, range, whole-column and whole-row references', () => {
+    for (const formula of ['A1', 'A1:B2', 'A:A', '1:1']) {
+      expect(isReferenceNode(ast(formula))).toBe(true);
+    }
+  });
+
+  it('is true for intersections and unions of references', () => {
+    expect(isReferenceNode(ast('A1:B2 B:B'))).toBe(true);
+    expect(isReferenceNode(ast('(A1,B2)'))).toBe(true);
+  });
+
+  it('is false for values and function calls', () => {
+    expect(isReferenceNode(ast('1'))).toBe(false);
+    expect(isReferenceNode(ast('SUM(A1)'))).toBe(false);
+    expect(isReferenceNode(ast('{1,2}'))).toBe(false);
   });
 });

@@ -1,0 +1,3 @@
+# Makes clippy::collapsible_if (and its let-chain suggestion) see nested ifs that
+# carry comments, which it skips by default.
+lint-commented-code = true

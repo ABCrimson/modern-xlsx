@@ -96,7 +96,7 @@ describe('Integration: Cross-Feature Roundtrips', () => {
     expect(copy?.cell('A1').value).toBe('hello');
     expect(copy?.frozenPane?.rows).toBe(1);
     expect(copy?.view?.zoomScale).toBe(120);
-    expect(copy?.tabColor).toBe('FF0000');
+    expect(copy?.tabColor).toBe('FFFF0000');
   });
 
   it('print-ready: margins + headers/footers + print titles survives roundtrip', async () => {

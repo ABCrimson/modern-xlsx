@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { readBuffer, Workbook } from '../src/index.js';
 
@@ -30,24 +31,28 @@ describe('Workbook Protection', () => {
     expect(wb2.protection?.lockStructure).toBe(true);
   });
 
-  it('hash attributes survive roundtrip', async () => {
+  it('all protection fields survive roundtrip', async () => {
+    const h = createHash('sha512').update('x').digest('base64');
+    const s = Buffer.alloc(16, 7).toString('base64');
+    const input = {
+      lockStructure: true,
+      lockWindows: true,
+      lockRevision: true,
+      workbookAlgorithmName: 'SHA-512',
+      workbookHashValue: h,
+      workbookSaltValue: s,
+      workbookSpinCount: 100000,
+      revisionsAlgorithmName: 'SHA-512',
+      revisionsHashValue: h,
+      revisionsSaltValue: s,
+      revisionsSpinCount: 100000,
+    };
     const wb = new Workbook();
     wb.addSheet('Sheet1').cell('A1').value = 'data';
-    wb.protection = {
-      lockStructure: true,
-      workbookAlgorithmName: 'SHA-512',
-      workbookHashValue: 'abc123',
-      workbookSaltValue: 'salt456',
-      workbookSpinCount: 100000,
-    };
+    wb.protection = input;
 
-    const buffer = await wb.toBuffer();
-    const wb2 = await readBuffer(buffer);
-    expect(wb2.protection?.lockStructure).toBe(true);
-    expect(wb2.protection?.workbookAlgorithmName).toBe('SHA-512');
-    expect(wb2.protection?.workbookHashValue).toBe('abc123');
-    expect(wb2.protection?.workbookSaltValue).toBe('salt456');
-    expect(wb2.protection?.workbookSpinCount).toBe(100000);
+    const wb2 = await readBuffer(await wb.toBuffer());
+    expect(wb2.protection).toStrictEqual(input);
   });
 
   it('clear protection', () => {

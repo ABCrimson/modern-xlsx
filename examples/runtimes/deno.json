@@ -1,0 +1,10 @@
+{
+  "nodeModulesDir": "auto",
+  "imports": {
+    "modern-xlsx": "npm:modern-xlsx@1.2.1",
+    "@std/assert": "jsr:@std/assert@1.0.19"
+  },
+  "tasks": {
+    "test": "deno test --allow-read deno.test.ts"
+  }
+}

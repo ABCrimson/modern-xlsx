@@ -1,6 +1,15 @@
+//! A1-style cell references: [`CellRef`] parsing and formatting, the
+//! conversion between zero-based column indexes and column letters, and the
+//! worksheet limits [`MAX_COL`] and [`MAX_ROW`].
+
 use core::hint::cold_path;
 
 use crate::{ModernXlsxError, Result};
+
+/// Largest zero-based column index of a worksheet: `XFD` is column 16 384.
+pub const MAX_COL: u32 = 16_383;
+/// Largest zero-based row index of a worksheet: row 1 048 576.
+pub const MAX_ROW: u32 = 1_048_575;
 
 /// A cell reference (zero-based column and row).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -63,6 +72,13 @@ impl CellRef {
             )));
         }
 
+        if row_1based > MAX_ROW + 1 {
+            cold_path();
+            return Err(ModernXlsxError::InvalidCellRef(format!(
+                "Failed to parse cell reference '{s}': row exceeds maximum 1048576"
+            )));
+        }
+
         Ok(CellRef {
             col,
             row: row_1based - 1,
@@ -72,11 +88,10 @@ impl CellRef {
     /// Convert this cell reference back to an A1-style string.
     #[inline]
     pub fn to_a1(&self) -> String {
-        let mut buf = [0u8; 3];
+        let mut buf = [0u8; 7];
         let col_len = col_to_letters_buf(self.col, &mut buf);
         let mut result = String::with_capacity(col_len + 7);
-        // SAFETY: col_to_letters_buf writes only ASCII uppercase letters
-        result.push_str(unsafe { std::str::from_utf8_unchecked(&buf[..col_len]) });
+        result.extend(buf[..col_len].iter().copied().map(char::from));
         let mut itoa_buf = itoa::Buffer::new();
         result.push_str(itoa_buf.format(self.row + 1));
         result
@@ -86,22 +101,25 @@ impl CellRef {
 impl std::fmt::Display for CellRef {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut buf = [0u8; 3];
+        let mut buf = [0u8; 7];
         let col_len = col_to_letters_buf(self.col, &mut buf);
-        // SAFETY: col_to_letters_buf writes only ASCII uppercase letters
-        f.write_str(unsafe { std::str::from_utf8_unchecked(&buf[..col_len]) })?;
+        for &b in &buf[..col_len] {
+            std::fmt::Write::write_char(f, char::from(b))?;
+        }
         let mut itoa_buf = itoa::Buffer::new();
         f.write_str(itoa_buf.format(self.row + 1))
     }
 }
 
-/// Write column letters into a 3-byte stack buffer (max XLSX column is "XFD").
+/// Write column letters into a 7-byte stack buffer.
 ///
-/// Returns the number of bytes written (1–3). The caller can slice `buf[..len]`.
+/// Total over `u32`: 26^7 exceeds `u32::MAX`, so at most 7 letters are written
+/// (`XFD`, the sheet maximum, needs 3). Returns the number of bytes written
+/// (1–7); the caller can slice `buf[..len]`.
 #[inline]
-fn col_to_letters_buf(col: u32, buf: &mut [u8; 3]) -> usize {
+pub(crate) fn col_to_letters_buf(col: u32, buf: &mut [u8; 7]) -> usize {
     let mut n = col;
-    let mut pos = 3usize;
+    let mut pos = 7usize;
 
     loop {
         pos -= 1;
@@ -113,9 +131,9 @@ fn col_to_letters_buf(col: u32, buf: &mut [u8; 3]) -> usize {
     }
 
     // Shift to front if needed
-    let len = 3 - pos;
+    let len = 7 - pos;
     if pos > 0 {
-        buf.copy_within(pos..3, 0);
+        buf.copy_within(pos..7, 0);
     }
     len
 }
@@ -125,10 +143,9 @@ fn col_to_letters_buf(col: u32, buf: &mut [u8; 3]) -> usize {
 /// 0 → "A", 1 → "B", ..., 25 → "Z", 26 → "AA", 27 → "AB", ..., 16383 → "XFD"
 #[inline]
 pub fn col_to_letters(col: u32) -> String {
-    let mut buf = [0u8; 3];
+    let mut buf = [0u8; 7];
     let len = col_to_letters_buf(col, &mut buf);
-    // SAFETY: col_to_letters_buf only writes ASCII uppercase letters — always valid UTF-8
-    unsafe { std::str::from_utf8_unchecked(&buf[..len]) }.to_owned()
+    buf[..len].iter().copied().map(char::from).collect()
 }
 
 /// Convert A1-style column letters to a zero-based column index.
@@ -155,6 +172,7 @@ pub fn letters_to_col(s: &str) -> Result<u32> {
         col = col
             .checked_mul(26)
             .and_then(|v| v.checked_add((c - b'A') as u32 + 1))
+            .filter(|&v| v <= MAX_COL + 1)
             .ok_or_else(|| {
                 ModernXlsxError::InvalidCellRef(format!(
                     "Failed to parse column letters '{s}': column exceeds maximum XFD (16384 columns)"
@@ -170,6 +188,14 @@ pub fn letters_to_col(s: &str) -> Result<u32> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn col_letters_roundtrip_all() {
+        for c in 0..16384u32 {
+            assert_eq!(letters_to_col(&col_to_letters(c)).unwrap(), c);
+        }
+        assert_eq!(col_to_letters(16383), "XFD");
+    }
 
     #[test]
     fn test_parse_cell_ref() {
@@ -208,15 +234,6 @@ mod tests {
     }
 
     #[test]
-    fn test_col_letter_roundtrip() {
-        for col in 0..16384 {
-            let letters = col_to_letters(col);
-            let back = letters_to_col(&letters).unwrap();
-            assert_eq!(col, back, "roundtrip failed for col {col} → {letters}");
-        }
-    }
-
-    #[test]
     fn test_invalid_cell_ref() {
         // Empty string
         assert!(CellRef::parse("").is_err());
@@ -226,6 +243,45 @@ mod tests {
         assert!(CellRef::parse("ABC").is_err());
         // Row = 0
         assert!(CellRef::parse("A0").is_err());
+    }
+
+    #[test]
+    fn test_parse_rejects_out_of_sheet_refs() {
+        for input in ["AAAA1", "XFE1", "A1048577"] {
+            let err = CellRef::parse(input).unwrap_err();
+            assert_eq!(err.code(), "INVALID_CELL_REF", "{input}");
+        }
+        assert_eq!(
+            CellRef::parse("XFD1048576").unwrap(),
+            CellRef {
+                col: MAX_COL,
+                row: MAX_ROW
+            }
+        );
+    }
+
+    #[test]
+    fn test_col_to_letters_total_over_u32() {
+        assert_eq!(col_to_letters(16383), "XFD");
+        assert_eq!(col_to_letters(18278), "AAAA");
+        assert_eq!(col_to_letters(u32::MAX).len(), 7);
+        let r = CellRef {
+            col: u32::MAX,
+            row: 0,
+        };
+        assert_eq!(r.to_a1().len(), 8);
+        assert_eq!(r.to_string(), r.to_a1());
+    }
+
+    #[test]
+    fn test_letters_to_col_bounds_and_case() {
+        assert!(letters_to_col("XFE").is_err());
+        assert_eq!(letters_to_col("xfd").unwrap(), 16383);
+        let err = letters_to_col("XFE").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("exceeds maximum XFD (16384 columns)")
+        );
     }
 
     #[test]
@@ -269,13 +325,6 @@ mod prop_tests {
     use proptest::prelude::*;
 
     proptest! {
-        /// Column index -> letters -> index round-trips across the full Excel column range.
-        #[test]
-        fn col_letters_roundtrip(col in 0u32..=16_383) {
-            let letters = col_to_letters(col);
-            prop_assert_eq!(letters_to_col(&letters).unwrap(), col);
-        }
-
         /// A1 cell reference parse -> to_a1 round-trips for any valid (col, row).
         #[test]
         fn cell_ref_roundtrip(col in 0u32..=16_383, row in 0u32..=1_048_575) {

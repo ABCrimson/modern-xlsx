@@ -1,0 +1,8 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-net --allow-read main.ts"
+  },
+  "imports": {
+    "modern-xlsx": "npm:modern-xlsx@1.2.1"
+  }
+}

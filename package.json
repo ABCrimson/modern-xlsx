@@ -4,13 +4,13 @@
   "engines": {
     "node": ">=24.0.0"
   },
-  "packageManager": "pnpm@12.0.0",
+  "packageManager": "pnpm@12.21.0",
   "scripts": {
-    "build:wasm": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm --no-opt",
-    "build:wasm:lite": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm-lite --no-opt -- --no-default-features",
+    "build:wasm": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm -- --config \"profile.release.trim-paths='all'\"",
+    "build:wasm:lite": "cd crates/modern-xlsx-wasm && wasm-pack build --target web --release --out-dir ../../packages/modern-xlsx/wasm-lite -- --no-default-features --config \"profile.release.trim-paths='all'\"",
     "build:wasm:debug": "cd crates/modern-xlsx-wasm && wasm-pack build --dev --target web --out-dir ../../packages/modern-xlsx/wasm",
     "build:ts": "pnpm -C packages/modern-xlsx build",
-    "build": "pnpm build:wasm && pnpm build:ts",
+    "build": "pnpm build:wasm && pnpm build:wasm:lite && pnpm build:ts",
     "test:rust": "cargo test --workspace",
     "test:ts": "pnpm -C packages/modern-xlsx test",
     "test": "pnpm test:rust && pnpm test:ts",
@@ -18,6 +18,6 @@
     "fmt": "biome format --write ."
   },
   "devDependencies": {
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "@biomejs/biome": "2.6.7"
   }
 }

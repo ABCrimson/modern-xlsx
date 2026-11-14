@@ -1,0 +1,99 @@
+{
+  "about": "The @ this-row shorthand check of a table formula, shared by the Rust validate() (crates/modern-xlsx-core/tests/hostile_validate.rs) and the TypeScript addTable and validate() (packages/modern-xlsx/__tests__/validate.test.ts) so the two copies cannot drift. Each case is a table T with the columns `columns` plus a last column Out whose calculatedColumnFormula is `formula`, beside one table per entry of `tables` (display name: column names). Column names and formulas are as a table part stores them (_xHHHH_ escapes kept). `reported` is whether the formula is reported (validate) and refused (addTable) as the @ shorthand.",
+  "cases": [
+    { "formula": "[@Qty]", "columns": ["Qty"], "tables": {}, "reported": true },
+    { "formula": "T[@Qty]*2", "columns": ["Qty"], "tables": {}, "reported": true },
+    { "formula": "t[@Qty]", "columns": ["Qty"], "tables": {}, "reported": true },
+    { "formula": "[@]", "columns": ["Qty"], "tables": {}, "reported": true },
+    { "formula": "[@[Unit Cost]]", "columns": ["Unit Cost"], "tables": {}, "reported": true },
+    { "formula": "Other[@Home]", "columns": ["Qty"], "tables": {}, "reported": true },
+    {
+      "formula": "Ext[@Home]",
+      "columns": ["Qty"],
+      "tables": { "Ext": ["Home"] },
+      "reported": true
+    },
+    { "formula": "Sheet1!Ext[@Home]", "columns": ["Qty"], "tables": {}, "reported": true },
+    { "formula": "[1]![@Home]", "columns": ["Qty"], "tables": {}, "reported": true },
+    { "formula": "[1]!Ext[@Home]+[@Qty]", "columns": ["Qty"], "tables": {}, "reported": true },
+    { "formula": "T[@Home]+Other[@Home]", "columns": ["@Home"], "tables": {}, "reported": true },
+    { "formula": "[@a_x000a_b]", "columns": ["@a_x005f_x000a_b"], "tables": {}, "reported": true },
+    {
+      "formula": "[@Home]*2",
+      "columns": ["Qty"],
+      "tables": { "AtT": ["@Home", "Share"] },
+      "reported": true
+    },
+    { "formula": "[@x]", "columns": ["@x"], "tables": {}, "reported": false },
+    { "formula": "T[@X]", "columns": ["@x"], "tables": {}, "reported": false },
+    { "formula": "SUM(t[@x])/[@X]", "columns": ["@x"], "tables": {}, "reported": false },
+    {
+      "formula": "Ext[@Home]",
+      "columns": ["Qty"],
+      "tables": { "Ext": ["@Home"] },
+      "reported": false
+    },
+    {
+      "formula": "ext[@HOME]",
+      "columns": ["Qty"],
+      "tables": { "Ext": ["@Home"] },
+      "reported": false
+    },
+    {
+      "formula": "AtT[[#This Row],[@Home]]/SUM(AtT[@Home])",
+      "columns": ["Qty"],
+      "tables": { "AtT": ["@Home", "Share"] },
+      "reported": false
+    },
+    { "formula": "[1]!Ext[@Home]", "columns": ["Qty"], "tables": {}, "reported": false },
+    { "formula": "SUM([1]!Ext[@Home])", "columns": ["Qty"], "tables": {}, "reported": false },
+    { "formula": "SUM([2]!ExtQ[@Home])", "columns": ["Qty"], "tables": {}, "reported": false },
+    {
+      "formula": "SUM([1]!Ext[@Home])",
+      "columns": ["Qty"],
+      "tables": { "Ext": ["Home"] },
+      "reported": false
+    },
+    {
+      "formula": "SUM([2]!ExtQ[[#All],[@Home]])+T[[#This Row],[Qty]]",
+      "columns": ["Qty"],
+      "tables": {},
+      "reported": false
+    },
+    { "formula": "[1]!Ext[[#Totals],[Qty]]", "columns": ["Qty"], "tables": {}, "reported": false },
+    { "formula": "[3]!Ext[@]", "columns": ["Qty"], "tables": {}, "reported": false },
+    {
+      "formula": "SUM(T[@a_x005F_x000a_b])",
+      "columns": ["@a_x005f_x000a_b"],
+      "tables": {},
+      "reported": false
+    },
+    {
+      "formula": "[@a_x005f_x000A_B]",
+      "columns": ["@a_x005f_x000a_b"],
+      "tables": {},
+      "reported": false
+    },
+    { "formula": "SUM(T[@t\tb])", "columns": ["@t_x0009_b"], "tables": {}, "reported": false },
+    { "formula": "SUM(T[@t_x0009_b])", "columns": ["@t_x0009_b"], "tables": {}, "reported": false },
+    { "formula": "[@_x0041_]", "columns": ["@a"], "tables": {}, "reported": false },
+    { "formula": "[@_xD800_]", "columns": ["@_xD800_"], "tables": {}, "reported": false },
+    { "formula": "[@_xD800_x0041_]", "columns": ["@_xD800A"], "tables": {}, "reported": false },
+    { "formula": "T[@a']b]", "columns": ["@a]b"], "tables": {}, "reported": false },
+    { "formula": "[@Ü]", "columns": ["@ü"], "tables": {}, "reported": false },
+    {
+      "formula": "\"[@x]\"&T[[#This Row],[Qty]]",
+      "columns": ["Qty"],
+      "tables": {},
+      "reported": false
+    },
+    { "formula": "'Sheet [@x]'!A1", "columns": ["Qty"], "tables": {}, "reported": false },
+    {
+      "formula": "T[[#This Row],[Qty]]*[Qty]",
+      "columns": ["Qty"],
+      "tables": {},
+      "reported": false
+    },
+    { "formula": "T[[#This Row],[a'[@b]]", "columns": ["Qty"], "tables": {}, "reported": false }
+  ]
+}

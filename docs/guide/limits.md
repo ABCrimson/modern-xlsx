@@ -1,0 +1,9 @@
+# Limits in detail
+
+The [package README](../../packages/modern-xlsx/README.md#limits) lists the read limits (`ReadOptions.limits`), their defaults and ceilings, and the short form of each limit below. This page gives the full text of three of them: what `maxJsonLength` counts, why highly repetitive text trips the compression-ratio limit, and the size limit of an encrypted write.
+
+- `maxJsonLength` also bounds the total text a read copies from shared strings, comment authors, hyperlink targets and worksheet namespace declarations into the cells, comments, hyperlinks and kept worksheet extensions that name them: a read whose copies pass it rejects with `SIZE_LIMIT` at once, so a small file cannot expand to gigabytes in memory. It also bounds the memory of the records a read keeps: defined names, shared string entries and rich text runs, the formats, fonts, fills and borders of `xl/styles.xml`, chart series and axes, threaded comments and mentions, then the worksheet lists (data validations, conditional formats, hyperlinks, merged ranges and the like), so a part of millions of tiny records rejects with `SIZE_LIMIT`.
+- Text of thousands of copies of one character compresses past the default `maxCompressionRatio`: an Excel-saved cell of 32,767 copies of one character gives a `xl/sharedStrings.xml` that deflates past 100:1, so the default read rejects with `SECURITY`. Raise the ratio for files you trust (`{ limits: { maxCompressionRatio: 10_000 } }` reads it).
+- An encrypted write fails with `SIZE_LIMIT` when the encrypted package stream exceeds 2,147,483,648 bytes (2 GiB), the most an MS-CFB version 3 stream can hold.
+
+The defaults, the ceilings and how the reader enforces them are also in [SECURITY.md](../../SECURITY.md#default-read-limits) and the [threat model](../security/threat-model.md).

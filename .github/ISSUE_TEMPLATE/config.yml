@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Documentation
-    url: https://abcrimson.github.io/modern-xlsx
+    url: https://abcrimson.github.io/modern-xlsx/
     about: Check the documentation before filing an issue
+  - name: Security vulnerability
+    url: https://github.com/ABCrimson/modern-xlsx/security/policy
+    about: Do not file a public issue for a vulnerability. Follow SECURITY.md to report it privately

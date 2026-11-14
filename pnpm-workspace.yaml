@@ -1,16 +1,48 @@
 packages:
-  - 'packages/*'
-
-onlyBuiltDependencies:
-  - esbuild
-
-allowBuilds:
-  esbuild: true
+  - "packages/*"
 
 # Supply-chain gate: newly published packages must be at least 1 day old before install
-# (mitigates compromised just-published versions). Exclusions below are deliberate bleeding-edge pins.
+# (mitigates compromised just-published versions). Exclusions below are deliberate bleeding-edge pins:
+# the exact pnpm (packageManager), typescript, playwright and biome builds and their native exe/compiler/core/CLI packages are still younger than the gate
+# (pnpm rejects a name pattern combined with a version, so each platform package is listed exactly).
+# pnpm add/update/remove drop rows the lockfile no longer resolves (minimumReleaseAgeExcludePrune); drop a still-resolved row by hand once its version is at least 1440 minutes old.
 minimumReleaseAge: 1440
+minimumReleaseAgeExcludePrune: true
 minimumReleaseAgeExclude:
-  - playwright-core@1.63.0-alpha-2026-08-27
-  - playwright@1.63.0-alpha-2026-08-27
-  - "@types/node@26.4.0"
+  - typescript@7.1.0-dev.20261114.1
+  - "@typescript/typescript-darwin-arm64@7.1.0-dev.20261114.1"
+  - "@typescript/typescript-darwin-x64@7.1.0-dev.20261114.1"
+  - "@typescript/typescript-linux-arm@7.1.0-dev.20261114.1"
+  - "@typescript/typescript-linux-arm64@7.1.0-dev.20261114.1"
+  - "@typescript/typescript-linux-x64@7.1.0-dev.20261114.1"
+  - "@typescript/typescript-win32-arm64@7.1.0-dev.20261114.1"
+  - "@typescript/typescript-win32-x64@7.1.0-dev.20261114.1"
+  - playwright@1.66.0-alpha-2026-11-14
+  - playwright-core@1.66.0-alpha-2026-11-14
+  - "@biomejs/biome@2.6.7"
+  - "@biomejs/cli-linux-x64@2.6.7"
+  - "@biomejs/cli-win32-x64@2.6.7"
+  - "@biomejs/cli-darwin-x64@2.6.7"
+  - "@biomejs/cli-android-x64@2.6.7"
+  - "@biomejs/cli-linux-arm64@2.6.7"
+  - "@biomejs/cli-win32-arm64@2.6.7"
+  - "@biomejs/cli-darwin-arm64@2.6.7"
+  - "@biomejs/cli-android-arm64@2.6.7"
+  - "@biomejs/cli-linux-x64-musl@2.6.7"
+  - "@biomejs/cli-linux-arm64-musl@2.6.7"
+  - pnpm@12.21.0
+  - "@pnpm/exe.android-arm64@12.21.0"
+  - "@pnpm/exe.android-x64@12.21.0"
+  - "@pnpm/exe.darwin-arm64@12.21.0"
+  - "@pnpm/exe.darwin-x64@12.21.0"
+  - "@pnpm/exe.freebsd-x64@12.21.0"
+  - "@pnpm/exe.linux-arm64-musl@12.21.0"
+  - "@pnpm/exe.linux-arm64@12.21.0"
+  - "@pnpm/exe.linux-ppc64@12.21.0"
+  - "@pnpm/exe.linux-riscv64@12.21.0"
+  - "@pnpm/exe.linux-s390x@12.21.0"
+  - "@pnpm/exe.linux-x64-musl@12.21.0"
+  - "@pnpm/exe.linux-x64@12.21.0"
+  - "@pnpm/exe.netbsd-x64@12.21.0"
+  - "@pnpm/exe.win32-arm64@12.21.0"
+  - "@pnpm/exe.win32-x64@12.21.0"

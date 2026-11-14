@@ -3,13 +3,14 @@
     {
       "name": "FrozenPane",
       "worksheet": {
+        "dimension": "A1:A3",
         "rows": [
           {
             "index": 1,
             "cells": [
               {
                 "reference": "A1",
-                "cellType": "number",
+                "cellType": "sharedString",
                 "value": "Header1"
               }
             ]
@@ -19,7 +20,7 @@
             "cells": [
               {
                 "reference": "A2",
-                "cellType": "number",
+                "cellType": "sharedString",
                 "value": "Data1"
               }
             ]
@@ -29,7 +30,7 @@
             "cells": [
               {
                 "reference": "A3",
-                "cellType": "number",
+                "cellType": "sharedString",
                 "value": "Data2"
               }
             ]
@@ -47,7 +48,7 @@
     "numFmts": [],
     "fonts": [
       {
-        "name": "Aptos",
+        "name": "Calibri",
         "size": 11.0,
         "bold": false,
         "italic": false,
@@ -76,6 +77,14 @@
         "bottom": null
       }
     ],
+    "cellStyleXfs": [
+      {
+        "numFmtId": 0,
+        "fontId": 0,
+        "fillId": 0,
+        "borderId": 0
+      }
+    ],
     "cellXfs": [
       {
         "numFmtId": 0,
@@ -87,6 +96,24 @@
   },
   "definedNames": [],
   "sharedStrings": {
-    "strings": []
+    "strings": [
+      "Header1",
+      "Data1",
+      "Data2"
+    ]
+  },
+  "themeColors": {
+    "dk1": "000000",
+    "lt1": "FFFFFF",
+    "dk2": "44546A",
+    "lt2": "E7E6E6",
+    "accent1": "4472C4",
+    "accent2": "ED7D31",
+    "accent3": "A5A5A5",
+    "accent4": "FFC000",
+    "accent5": "5B9BD5",
+    "accent6": "70AD47",
+    "hlink": "0563C1",
+    "folHlink": "954F72"
   }
 }

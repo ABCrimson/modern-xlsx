@@ -1,5 +1,8 @@
 [toolchain]
-# Bleeding-edge: track the Rust beta channel (matches CI dtolnay/rust-toolchain@beta).
-channel = "beta"
+# Dated nightly = the newest Rust channel, pinned so local builds and CI resolve the same compiler.
+# CI's nightly jobs (rust, rust-i686, build-wasm, encryption-oracle, fuzz) install exactly this file with `rustup toolchain install`; the
+# rust-beta and msrv jobs override it with RUSTUP_TOOLCHAIN.
+channel = "nightly-2026-11-14"
+profile = "minimal"
 components = ["clippy", "rustfmt"]
 targets = ["wasm32-unknown-unknown"]

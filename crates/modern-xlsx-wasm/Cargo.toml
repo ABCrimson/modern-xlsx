@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 readme = "../../README.md"
 description = "WASM bridge for modern-xlsx-core — wasm-bindgen exports for reading and writing XLSX in JavaScript"
 keywords = ["xlsx", "wasm", "wasm-bindgen", "excel", "spreadsheet"]
@@ -23,11 +24,9 @@ workspace = true
 [dependencies]
 modern-xlsx-core = { path = "../modern-xlsx-core", default-features = false }
 wasm-bindgen.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 js-sys.workspace = true
 web-sys.workspace = true
-log.workspace = true
 
 # Debug-only: routes Rust panics to console.error with a readable message + stack.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -35,6 +34,9 @@ console_error_panic_hook.workspace = true
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
+semver.workspace = true
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-Oz", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--vacuous-drops"]
+# wasm-pack (WASM_PACK_VERSION in .github/workflows/ci.yml and pages.yml) downloads its pinned Binaryen for this step.
+# The release profile keeps target_features (strip = "debuginfo"), so wasm-opt needs no --enable flags.
+wasm-opt = ["-Oz"]

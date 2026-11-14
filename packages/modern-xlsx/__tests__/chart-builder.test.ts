@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { ChartBuilder } from '../src/chart-builder.js';
+import { assert, describe, expect, it } from 'vitest';
+import { ChartBuilder } from '../src/authoring/chart-builder.js';
+
+/** Element `index` of `items`, narrowed with `assert.isDefined` (noUncheckedIndexedAccess). */
+function at<T>(items: readonly T[] | undefined, index: number): T {
+  const item = items?.[index];
+  assert.isDefined(item);
+  return item;
+}
 
 describe('ChartBuilder', () => {
   it('creates a minimal bar chart', () => {
@@ -7,9 +14,9 @@ describe('ChartBuilder', () => {
 
     expect(result.chart.chartType).toBe('bar');
     expect(result.chart.series).toHaveLength(1);
-    expect(result.chart.series[0].valRef).toBe('Sheet1!$B$2:$B$5');
-    expect(result.chart.series[0].idx).toBe(0);
-    expect(result.chart.series[0].order).toBe(0);
+    expect(at(result.chart.series, 0).valRef).toBe('Sheet1!$B$2:$B$5');
+    expect(at(result.chart.series, 0).idx).toBe(0);
+    expect(at(result.chart.series, 0).order).toBe(0);
   });
 
   it('sets title with formatting', () => {
@@ -34,10 +41,10 @@ describe('ChartBuilder', () => {
       .build();
 
     expect(result.chart.series).toHaveLength(3);
-    expect(result.chart.series[0].idx).toBe(0);
-    expect(result.chart.series[1].idx).toBe(1);
-    expect(result.chart.series[2].idx).toBe(2);
-    expect(result.chart.series[1].fillColor).toBe('FF0000');
+    expect(at(result.chart.series, 0).idx).toBe(0);
+    expect(at(result.chart.series, 1).idx).toBe(1);
+    expect(at(result.chart.series, 2).idx).toBe(2);
+    expect(at(result.chart.series, 1).fillColor).toBe('FF0000');
   });
 
   it('configures category axis', () => {
@@ -107,8 +114,8 @@ describe('ChartBuilder', () => {
 
     expect(result.chart.chartType).toBe('scatter');
     expect(result.chart.scatterStyle).toBe('lineMarker');
-    expect(result.chart.series[0].xValRef).toBe('Sheet1!$A$2:$A$10');
-    expect(result.chart.series[0].marker).toBe('diamond');
+    expect(at(result.chart.series, 0).xValRef).toBe('Sheet1!$A$2:$A$10');
+    expect(at(result.chart.series, 0).marker).toBe('diamond');
   });
 
   it('configures doughnut chart', () => {
@@ -194,8 +201,8 @@ describe('ChartBuilder', () => {
       })
       .build();
 
-    expect(result.chart.series[0].dataLabels?.showPercent).toBe(true);
-    expect(result.chart.series[0].dataLabels?.showLeaderLines).toBe(true);
+    expect(at(result.chart.series, 0).dataLabels?.showPercent).toBe(true);
+    expect(at(result.chart.series, 0).dataLabels?.showLeaderLines).toBe(true);
   });
 
   it('creates pie chart without axes', () => {
@@ -207,7 +214,7 @@ describe('ChartBuilder', () => {
     expect(result.chart.chartType).toBe('pie');
     expect(result.chart.catAxis).toBeNull();
     expect(result.chart.valAxis).toBeNull();
-    expect(result.chart.series[0].explosion).toBe(25);
+    expect(at(result.chart.series, 0).explosion).toBe(25);
   });
 
   it('sets radar style', () => {
@@ -223,8 +230,8 @@ describe('ChartBuilder', () => {
       })
       .build();
 
-    expect(result.chart.series[0].trendline?.trendType).toBe('linear');
-    expect(result.chart.series[0].trendline?.displayEq).toBe(true);
+    expect(at(result.chart.series, 0).trendline?.trendType).toBe('linear');
+    expect(at(result.chart.series, 0).trendline?.displayEq).toBe(true);
   });
 
   it('creates series with error bars', () => {
@@ -235,19 +242,102 @@ describe('ChartBuilder', () => {
       })
       .build();
 
-    expect(result.chart.series[0].errorBars?.errType).toBe('percentage');
-    expect(result.chart.series[0].errorBars?.value).toBe(5);
+    expect(at(result.chart.series, 0).errorBars?.errType).toBe('percentage');
+    expect(at(result.chart.series, 0).errorBars?.value).toBe(5);
   });
 
   it('sets 3D rotation', () => {
     const result = new ChartBuilder('bar').view3d({ rotX: 15, rotY: 20, perspective: 30 }).build();
 
-    expect(result.chart.view3d?.rotX).toBe(15);
-    expect(result.chart.view3d?.rotY).toBe(20);
+    expect(result.chart.view3d).toEqual({ rotX: 15, rotY: 20, perspective: 30, rAngAx: null });
   });
 
   it('shows data table', () => {
     const result = new ChartBuilder('bar').showDataTable().build();
     expect(result.chart.showDataTable).toBe(true);
+  });
+
+  it('keeps showLegendKey and showBubbleSize in dataLabels', () => {
+    const r = new ChartBuilder('bubble')
+      .dataLabels({ showVal: true, showBubbleSize: true, showLegendKey: true })
+      .build();
+    expect(r.chart.dataLabels?.showBubbleSize).toBe(true);
+    expect(r.chart.dataLabels?.showLegendKey).toBe(true);
+    const s = new ChartBuilder('bar')
+      .addSeries({ valRef: 'Sheet1!$B$2:$B$5', dataLabels: { showLegendKey: true } })
+      .build();
+    expect(at(s.chart.series, 0).dataLabels?.showLegendKey).toBe(true);
+  });
+});
+
+describe('ChartBuilder combo charts', () => {
+  /** `[idx, order]` of every series of `series`. */
+  function ids(series: readonly { idx: number; order: number }[] | undefined): number[][] {
+    return (series ?? []).map((s) => [s.idx, s.order]);
+  }
+
+  // Excel refuses a chart whose series share a c:order anywhere in its c:plotArea (excel-check.ps1,
+  // 2026-11-12), so the secondary chart's series continue the primary chart's numbering.
+  it('numbers the series 0..n-1 across the primary then the secondary chart', () => {
+    const line = new ChartBuilder('line')
+      .addSeries({ valRef: 'Sheet1!$C$2:$C$5' })
+      .addSeries({ valRef: 'Sheet1!$D$2:$D$5' });
+    const result = new ChartBuilder('column')
+      .addSeries({ valRef: 'Sheet1!$A$2:$A$5' })
+      .addSeries({ valRef: 'Sheet1!$B$2:$B$5' })
+      .secondaryChart(line)
+      .build();
+
+    expect(ids(result.chart.series)).toEqual([
+      [0, 0],
+      [1, 1],
+    ]);
+    expect(result.chart.secondaryChart?.chartType).toBe('line');
+    expect(ids(result.chart.secondaryChart?.series)).toEqual([
+      [2, 2],
+      [3, 3],
+    ]);
+    // The secondary builder on its own still numbers from 0.
+    expect(ids(line.build().chart.series)).toEqual([
+      [0, 0],
+      [1, 1],
+    ]);
+  });
+
+  it('keeps an idx and order the caller set and numbers the others around them', () => {
+    const result = new ChartBuilder('column')
+      .addSeries({ valRef: 'Sheet1!$A$2:$A$5', idx: 1, order: 5 })
+      .addSeries({ valRef: 'Sheet1!$B$2:$B$5' })
+      .secondaryChart(new ChartBuilder('line').addSeries({ valRef: 'Sheet1!$C$2:$C$5' }))
+      .build();
+
+    expect(ids(result.chart.series)).toEqual([
+      [1, 5],
+      [0, 0],
+    ]);
+    expect(ids(result.chart.secondaryChart?.series)).toEqual([[2, 1]]);
+  });
+
+  it('writes no axes of its own for the secondary chart and leaves a plain chart without one', () => {
+    const result = new ChartBuilder('column')
+      .addSeries({ valRef: 'Sheet1!$A$2:$A$5' })
+      .secondaryChart(new ChartBuilder('line').addSeries({ valRef: 'Sheet1!$C$2:$C$5' }))
+      .build();
+    expect(result.chart.secondaryChart?.catAxis).toBeNull();
+    expect(result.chart.secondaryChart?.valAxis).toBeNull();
+    expect(result.chart.catAxis?.id).toBe(0);
+
+    const plain = new ChartBuilder('column').addSeries({ valRef: 'Sheet1!$A$2:$A$5' }).build();
+    expect('secondaryChart' in plain.chart).toBe(false);
+  });
+
+  it('refuses a secondary chart that has a secondary chart of its own', () => {
+    const inner = new ChartBuilder('line')
+      .addSeries({ valRef: 'Sheet1!$C$2:$C$5' })
+      .secondaryChart(new ChartBuilder('area').addSeries({ valRef: 'Sheet1!$D$2:$D$5' }));
+    const outer = new ChartBuilder('column')
+      .addSeries({ valRef: 'Sheet1!$A$2:$A$5' })
+      .secondaryChart(inner);
+    expect(() => outer.build()).toThrow(RangeError);
   });
 });

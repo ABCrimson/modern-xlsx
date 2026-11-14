@@ -1,0 +1,45 @@
+{
+  "calcChain": [
+    {
+      "cellRef": "A1",
+      "sheetId": 1
+    },
+    {
+      "cellRef": "B2",
+      "l": true,
+      "sheetId": 2
+    }
+  ],
+  "calcPr": {
+    "calcId": 191029,
+    "calcMode": "manual",
+    "fullCalcOnLoad": true,
+    "fullPrecision": false,
+    "iterate": true,
+    "iterateCount": 50,
+    "iterateDelta": 0.01
+  },
+  "docProperties": {
+    "application": "Microsoft Excel",
+    "company": "R&D <x>",
+    "creator": "Ada",
+    "docSecurity": "0",
+    "identifier": "id-1",
+    "language": "en-US",
+    "lastPrinted": "2024-01-02T03:04:05Z",
+    "title": "AT&T report",
+    "totalTime": "5",
+    "version": "1.2"
+  },
+  "fileVersion": {
+    "appName": "xl",
+    "lastEdited": "7",
+    "lowestEdited": "7",
+    "rupBuild": "22228"
+  },
+  "workbookPr": {
+    "codeName": "ThisWorkbook",
+    "defaultThemeVersion": 166925,
+    "filterPrivacy": true
+  }
+}

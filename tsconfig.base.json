@@ -4,13 +4,9 @@
     "lib": ["ESNext", "DOM"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "strict": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
     "isolatedModules": true,
     "isolatedDeclarations": true,
     "verbatimModuleSyntax": true,
@@ -22,7 +18,6 @@
     "noPropertyAccessFromIndexSignature": true,
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
-    "erasableSyntaxOnly": true,
-    "noUncheckedSideEffectImports": true
+    "erasableSyntaxOnly": true
   }
 }

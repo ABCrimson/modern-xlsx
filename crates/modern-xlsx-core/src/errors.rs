@@ -1,3 +1,10 @@
+//! The crate's error type, [`ModernXlsxError`], and its [`Result`] alias.
+//!
+//! Each variant carries a message and maps to a stable code through
+//! [`ModernXlsxError::code`]. [`ModernXlsxError::to_coded_string`] formats an
+//! error as `[CODE] message`, the form the WASM bridge sends to JavaScript,
+//! where the code becomes `ModernXlsxError.code`.
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -27,14 +34,8 @@ pub enum ModernXlsxError {
     #[error("invalid cell value: {0}")]
     InvalidCellValue(String),
 
-    #[error("invalid style: {0}")]
-    InvalidStyle(String),
-
     #[error("invalid date serial number: {0}")]
     InvalidDate(String),
-
-    #[error("invalid number format: {0}")]
-    InvalidFormat(String),
 
     #[error("missing required part: {0}")]
     MissingPart(String),
@@ -42,7 +43,14 @@ pub enum ModernXlsxError {
     #[error("security violation: {0}")]
     Security(String),
 
-    /// The file is a password-protected OLE2 compound document.
+    /// A hard size limit was exceeded: the JSON of a read grew longer than the configured maximum, or a read copied text stored once (a shared string, a comment author, a hyperlink target) past that same maximum; an OLE2 document being written exceeds what MS-CFB v3 can address (a stream above 0x8000_0000 bytes, too many sectors) or this platform's address space; or the writer would complete a pivot field of a table built in code with more than [`MAX_FIELD_ITEMS`](crate::ooxml::pivot_table::MAX_FIELD_ITEMS) items, or add more than [`MAX_ADDED_ITEMS`](crate::ooxml::pivot_table::MAX_ADDED_ITEMS) items and pivot fields to the pivot tables of one workbook; or one write would generate more than `vml::MAX_GENERATED_NOTE_SHAPES` (131,072) notes, the VML note shapes for legacy comments and the `tc=` placeholders for threaded comments.
+    #[error("size limit exceeded: {0}")]
+    SizeLimit(String),
+
+    /// A password-protected (encrypted) file cannot be handled: it was read
+    /// without a password or in a build without `encryption`, the password is
+    /// wrong, the integrity check fails, the encryption is unsupported or
+    /// malformed, or a cipher step failed while encrypting or decrypting.
     #[error("Password protected: {0}")]
     PasswordProtected(String),
 
@@ -54,8 +62,24 @@ pub enum ModernXlsxError {
     #[error("Unrecognized format: {0}")]
     UnrecognizedFormat(String),
 
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    /// JSON could not be (de)serialized; a parse error's message ends with serde_json's "at line N column M".
+    #[error("JSON error: {0}")]
+    Json(String),
+
+    /// The workbook cannot be written as given: it has no sheets, two pivot
+    /// caches share a `cacheId` or a pivot table names one no cache has, a
+    /// theme colour of a generated theme is not 6-digit hex, a colour `rgb` (a
+    /// font, fill, border, dxf, tab, conditional-format, sparkline or rich-text
+    /// run colour) is not 6 or 8 hex digits after an optional `#`, a
+    /// conditional-formatting rule has more than three formulas (`formula` plus
+    /// `additional_formulas`), two series of a chart share a `c:order` (within
+    /// one chart-type element or across its primary and secondary chart), or a sheet's `sheetProtection` password is not a
+    /// legacy hash (1 to 4 hex digits) and
+    /// no `plain_password` replaces it, or, in a build without `encryption`, a
+    /// `plain_password` holds a non-ASCII character (the legacy hash takes ASCII
+    /// passwords only).
+    #[error("invalid workbook: {0}")]
+    InvalidWorkbook(String),
 }
 
 impl ModernXlsxError {
@@ -75,15 +99,15 @@ impl ModernXlsxError {
             Self::XmlWrite(_) => "XML_WRITE",
             Self::InvalidCellRef(_) => "INVALID_CELL_REF",
             Self::InvalidCellValue(_) => "INVALID_CELL_VALUE",
-            Self::InvalidStyle(_) => "INVALID_STYLE",
             Self::InvalidDate(_) => "INVALID_DATE",
-            Self::InvalidFormat(_) => "INVALID_FORMAT",
             Self::MissingPart(_) => "MISSING_PART",
             Self::Security(_) => "SECURITY",
+            Self::SizeLimit(_) => "SIZE_LIMIT",
             Self::PasswordProtected(_) => "PASSWORD_PROTECTED",
             Self::LegacyFormat(_) => "LEGACY_FORMAT",
             Self::UnrecognizedFormat(_) => "UNRECOGNIZED_FORMAT",
-            Self::Io(_) => "IO_ERROR",
+            Self::Json(_) => "JSON",
+            Self::InvalidWorkbook(_) => "INVALID_WORKBOOK",
         }
     }
 
@@ -95,70 +119,12 @@ impl ModernXlsxError {
     pub fn to_coded_string(&self) -> String {
         format!("[{}] {}", self.code(), self)
     }
-
-    /// Actionable, human-facing guidance for resolving this error.
-    ///
-    /// Unlike [`Self::code`] (stable, machine-readable), this guidance text may be
-    /// refined across versions. Pairs with [`Self::docs_url`] for a deep link.
-    #[inline]
-    pub fn help(&self) -> &'static str {
-        match self {
-            Self::ZipRead(_) => {
-                "The bytes are not a valid ZIP/XLSX archive or are truncated. Verify you passed a complete .xlsx file."
-            }
-            Self::ZipWrite(_) | Self::ZipEntry(_) | Self::ZipFinalize(_) | Self::XmlWrite(_) => {
-                "Failed while assembling the workbook — this usually indicates an internal bug; please report it with a reproducer."
-            }
-            Self::XmlParse(_) => {
-                "An OOXML part could not be parsed. The file may be malformed or use a feature modern-xlsx does not yet read."
-            }
-            Self::InvalidCellRef(_) => {
-                "Use A1-style references (e.g. \"B2\"): columns A-XFD, rows 1-1048576."
-            }
-            Self::InvalidCellValue(_) => "The value is out of range or does not match its cell type.",
-            Self::InvalidStyle(_) => {
-                "Build styles via Workbook.createStyle()/StyleBuilder and apply the returned index."
-            }
-            Self::InvalidDate(_) => "Excel date serials must be valid; convert dates with dateToSerial().",
-            Self::InvalidFormat(_) => {
-                "The number-format code is invalid; see the Styling guide for supported tokens."
-            }
-            Self::MissingPart(_) => {
-                "The workbook is missing a required OOXML part and is likely corrupted or not a real .xlsx."
-            }
-            Self::Security(_) => {
-                "A security limit (e.g. zip-bomb / entry-count) was exceeded. If the file is trusted, raise the limits via ZipSecurityLimits."
-            }
-            Self::PasswordProtected(_) => {
-                "The file is encrypted - read it with the password-enabled API (e.g. readWithPassword)."
-            }
-            Self::LegacyFormat(_) => {
-                "Legacy .xls (BIFF/OLE2) files are not supported; convert to .xlsx first."
-            }
-            Self::UnrecognizedFormat(_) => "The bytes are not a recognized XLSX/OOXML file.",
-            Self::Io(_) => {
-                "An underlying I/O operation failed; check the path/permissions or the provided reader."
-            }
-        }
-    }
-
-    /// Stable documentation deep-link for this error code (wiki error reference).
-    #[inline]
-    pub fn docs_url(&self) -> String {
-        format!(
-            "https://github.com/ABCrimson/modern-xlsx/wiki/FAQ#{}",
-            self.code().to_lowercase()
-        )
-    }
 }
 
+/// serde_json's `Display` already ends with "at line N column M" when the error has a position.
 impl From<serde_json::Error> for ModernXlsxError {
     fn from(e: serde_json::Error) -> Self {
-        ModernXlsxError::XmlParse(format!(
-            "Failed to deserialize JSON: {e} (line {}, column {})",
-            e.line(),
-            e.column()
-        ))
+        Self::Json(e.to_string())
     }
 }
 
@@ -188,22 +154,15 @@ mod tests {
             "INVALID_CELL_VALUE"
         );
         assert_eq!(
-            ModernXlsxError::InvalidStyle("x".into()).code(),
-            "INVALID_STYLE"
-        );
-        assert_eq!(
             ModernXlsxError::InvalidDate("x".into()).code(),
             "INVALID_DATE"
-        );
-        assert_eq!(
-            ModernXlsxError::InvalidFormat("x".into()).code(),
-            "INVALID_FORMAT"
         );
         assert_eq!(
             ModernXlsxError::MissingPart("x".into()).code(),
             "MISSING_PART"
         );
         assert_eq!(ModernXlsxError::Security("x".into()).code(), "SECURITY");
+        assert_eq!(ModernXlsxError::SizeLimit("x".into()).code(), "SIZE_LIMIT");
         assert_eq!(
             ModernXlsxError::PasswordProtected("x".into()).code(),
             "PASSWORD_PROTECTED"
@@ -216,41 +175,27 @@ mod tests {
             ModernXlsxError::UnrecognizedFormat("x".into()).code(),
             "UNRECOGNIZED_FORMAT"
         );
+        assert_eq!(ModernXlsxError::Json("x".into()).code(), "JSON");
+        assert_eq!(
+            ModernXlsxError::InvalidWorkbook("x".into()).code(),
+            "INVALID_WORKBOOK"
+        );
     }
 
     #[test]
-    fn test_every_error_has_help_and_docs_url() {
-        let samples = [
-            ModernXlsxError::ZipRead("x".into()),
-            ModernXlsxError::ZipWrite("x".into()),
-            ModernXlsxError::XmlParse("x".into()),
-            ModernXlsxError::InvalidCellRef("x".into()),
-            ModernXlsxError::InvalidCellValue("x".into()),
-            ModernXlsxError::InvalidStyle("x".into()),
-            ModernXlsxError::InvalidDate("x".into()),
-            ModernXlsxError::InvalidFormat("x".into()),
-            ModernXlsxError::MissingPart("x".into()),
-            ModernXlsxError::Security("x".into()),
-            ModernXlsxError::PasswordProtected("x".into()),
-            ModernXlsxError::LegacyFormat("x".into()),
-            ModernXlsxError::UnrecognizedFormat("x".into()),
-        ];
-        for err in &samples {
-            assert!(!err.help().is_empty(), "{} has empty help", err.code());
-            let url = err.docs_url();
-            assert!(url.starts_with("https://"), "docs_url not a URL: {url}");
-            assert!(
-                url.ends_with(&err.code().to_lowercase()),
-                "docs_url anchor mismatch: {url}"
-            );
-        }
+    fn test_size_limit_contract() {
+        let err = ModernXlsxError::SizeLimit("x".into());
+        assert_eq!(err.to_coded_string(), "[SIZE_LIMIT] size limit exceeded: x");
     }
 
     #[test]
     fn test_coded_string_format() {
         let err = ModernXlsxError::MissingPart("xl/workbook.xml".into());
         let coded = err.to_coded_string();
-        assert_eq!(coded, "[MISSING_PART] missing required part: xl/workbook.xml");
+        assert_eq!(
+            coded,
+            "[MISSING_PART] missing required part: xl/workbook.xml"
+        );
     }
 
     #[test]
@@ -259,12 +204,41 @@ mod tests {
         let err: ModernXlsxError = serde_json::from_str::<serde_json::Value>(bad_json)
             .unwrap_err()
             .into();
+        assert_eq!(err.code(), "JSON");
         let msg = err.to_string();
         assert!(
-            msg.contains("Failed to deserialize JSON"),
+            msg.starts_with("JSON error: "),
             "expected context prefix, got: {msg}"
         );
-        assert!(msg.contains("line"), "expected line info, got: {msg}");
-        assert!(msg.contains("column"), "expected column info, got: {msg}");
+        assert_eq!(
+            msg.matches("line").count(),
+            1,
+            "position printed once: {msg}"
+        );
+        assert_eq!(
+            msg.matches("column").count(),
+            1,
+            "position printed once: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_json_error_code_and_position() {
+        let err = ModernXlsxError::from(serde_json::from_str::<u8>("x").unwrap_err());
+        assert_eq!(err.code(), "JSON");
+        assert_eq!(err.to_string().matches("line").count(), 1, "got: {err}");
+        assert!(err.to_coded_string().starts_with("[JSON] JSON error: "));
+    }
+
+    #[test]
+    fn test_empty_workbook_is_invalid_workbook() {
+        let err = crate::writer::write_xlsx(&crate::WorkbookData::default())
+            .expect_err("a workbook without sheets must not be written");
+        assert_eq!(err.code(), "INVALID_WORKBOOK");
+
+        let err = crate::streaming_writer::StreamingWriterCore::new()
+            .finish()
+            .expect_err("a streaming workbook without sheets must not be finished");
+        assert_eq!(err.code(), "INVALID_WORKBOOK");
     }
 }

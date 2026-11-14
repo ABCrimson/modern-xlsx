@@ -1,0 +1,52 @@
+{
+  "definedNames": [],
+  "sheets": [
+    {
+      "name": "Sheet1",
+      "rows": [
+        {
+          "cells": [
+            {
+              "cellType": "sharedString",
+              "reference": "A1",
+              "styleIndex": 1,
+              "value": "lorem"
+            },
+            {
+              "cellType": "sharedString",
+              "reference": "B1",
+              "styleIndex": 1,
+              "value": "ipsum"
+            }
+          ],
+          "index": 1
+        }
+      ],
+      "state": null
+    }
+  ],
+  "styles": {
+    "borders": 1,
+    "cellStyleXfs": 1,
+    "cellStyles": 1,
+    "cellXfs": 2,
+    "dxfs": 0,
+    "fills": 2,
+    "fonts": 2,
+    "numFmts": 0
+  },
+  "themeColors": {
+    "accent1": "4472C4",
+    "accent2": "ED7D31",
+    "accent3": "A5A5A5",
+    "accent4": "FFC000",
+    "accent5": "5B9BD5",
+    "accent6": "70AD47",
+    "dk1": "000000",
+    "dk2": "44546A",
+    "folHlink": "954F72",
+    "hlink": "0563C1",
+    "lt1": "FFFFFF",
+    "lt2": "E7E6E6"
+  }
+}

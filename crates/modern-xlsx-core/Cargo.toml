@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 readme = "../../README.md"
 description = "Rust core for reading and writing OOXML/XLSX files — ZIP, SAX XML parsing, shared string tables, styles"
 keywords = ["xlsx", "excel", "ooxml", "spreadsheet", "xml"]
@@ -21,9 +22,9 @@ chrono.workspace = true
 thiserror.workspace = true
 log.workspace = true
 itoa.workspace = true
-ryu.workspace = true
+zmij.workspace = true
 serde_json.workspace = true
-rayon = { version = "1.10", optional = true }
+rayon = { workspace = true, optional = true }
 
 # Cryptography — optional, behind "encryption" feature
 digest = { workspace = true, optional = true }
@@ -49,9 +50,15 @@ encryption = [
     "dep:constant_time_eq",
     "dep:getrandom",
 ]
-parallel = ["rayon"]
+parallel = ["dep:rayon"]
 
 [dev-dependencies]
-serde_json.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
+cfb.workspace = true
+criterion.workspace = true
+peak_alloc.workspace = true
+
+[[bench]]
+name = "read_write"
+harness = false

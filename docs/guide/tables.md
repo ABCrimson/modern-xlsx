@@ -1,6 +1,6 @@
 # Table Layout Engine
 
-Generate styled XLSX tables from declarative options — no manual cell coordinate math.
+Generate styled XLSX tables from declarative options — no manual cell coordinate math. The [package README](../../packages/modern-xlsx/README.md#table-layout) lists the two functions; this guide covers their options.
 
 ## Quick Start
 
@@ -33,21 +33,23 @@ Draws a styled table on a worksheet.
 
 **Parameters:**
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `wb` | `Workbook` | Workbook instance (needed for styles) |
-| `ws` | `Worksheet` | Target worksheet |
-| `opts` | `DrawTableOptions` | Table configuration |
+| Param  | Type               | Description                           |
+| ------ | ------------------ | ------------------------------------- |
+| `wb`   | `Workbook`         | Workbook instance (needed for styles) |
+| `ws`   | `Worksheet`        | Target worksheet                      |
+| `opts` | `DrawTableOptions` | Table configuration                   |
+
+`drawTable` throws `RangeError` when `headers` is empty.
 
 **Returns:** `TableResult` with layout metadata:
 
 ```typescript
 interface TableResult {
-  range: string;       // "A1:D10" — full table range
-  rowCount: number;    // Total rows (header + data)
-  colCount: number;    // Number of columns
-  firstDataRow: number; // 0-based first data row index
-  lastDataRow: number;  // 0-based last data row index
+  range: string; // "A1:D10" — full table range; drawTableFromData returns '' when there is nothing to draw
+  rowCount: number; // Total rows (header + data); drawTableFromData returns 0 when there is nothing to draw
+  colCount: number; // Number of columns
+  firstDataRow: number; // 0-based worksheet row index of the first data row
+  lastDataRow: number; // 0-based worksheet row index of the last data row
 }
 ```
 
@@ -69,53 +71,57 @@ drawTableFromData(wb, ws, data, {
 
 Accepts every `drawTable` option (except `headers`/`rows`, which are derived from the data) plus:
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `headers` | `string[]` | Explicit column order — object keys to include, in order (default: `Object.keys` of the first item) |
-| `headerMap` | `Record<string, string>` | Map object keys to display header labels |
+| Option      | Type                     | Description                                                                                         |
+| ----------- | ------------------------ | --------------------------------------------------------------------------------------------------- |
+| `headers`   | `string[]`               | Explicit column order — object keys to include, in order (default: `Object.keys` of the first item) |
+| `headerMap` | `Record<string, string>` | Map object keys to display header labels                                                            |
 
-Non-primitive values are stringified; `null`/`undefined` become empty cells.
+Strings, numbers, booleans, `Date` and `bigint` values are kept as they are; any other value is stringified, and `null`/`undefined` become empty cells. With no data and no explicit `headers`, nothing is drawn and `range` is `''`; with explicit `headers` only the header row is drawn.
 
 ## Options
 
 ### Layout
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `headers` | `string[]` | required | Header labels |
-| `rows` | `(string\|number\|boolean\|null)[][]` | required | Data rows |
-| `origin` | `string` | `"A1"` | A1-style origin cell |
-| `columns` | `TableColumn[]` | — | Per-column config |
-| `columnWidths` | `number[]` | — | Fixed column widths |
-| `autoWidth` | `boolean` | `false` | Auto-calculate widths |
-| `freezeHeader` | `boolean` | `false` | Freeze the header row |
-| `autoFilter` | `boolean` | `false` | Add filter dropdowns |
-| `wrapText` | `boolean` | `false` | Enable text wrapping |
-| `merges` | `{ row, col, rowSpan?, colSpan? }[]` | — | Cells to merge (0-based, data area) |
-| `cellStyles` | `Record<string, CellStyle>` | — | Per-cell overrides keyed `"row,col"` (0-based, data area) |
+| Option         | Type                                                          | Default  | Description                                                                                                      |
+| -------------- | ------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
+| `headers`      | `string[]`                                                    | required | Header labels                                                                                                    |
+| `rows`         | `(string \| number \| boolean \| Date \| bigint \| null)[][]` | required | Data rows                                                                                                        |
+| `origin`       | `string`                                                      | `"A1"`   | A1-style origin cell                                                                                             |
+| `columns`      | `TableColumn[]`                                               | —        | Per-column config; `columns[c].header` overrides `headers[c]`                                                    |
+| `columnWidths` | `number[]`                                                    | —        | Fixed column widths; a width above 0 wins over `columns[c].width` and `autoWidth`, and 0 or less counts as unset |
+| `autoWidth`    | `boolean`                                                     | `false`  | Auto-calculate widths from content (used where no fixed width is set)                                            |
+| `freezeHeader` | `boolean`                                                     | `false`  | Freeze every row down to and including the header row, wherever `origin` is; no columns are frozen               |
+| `autoFilter`   | `boolean`                                                     | `false`  | Add filter dropdowns; the filter range spans the header row through the last data row                            |
+| `wrapText`     | `boolean`                                                     | `false`  | Enable text wrapping                                                                                             |
+| `merges`       | `{ row, col, rowSpan?, colSpan? }[]`                          | —        | Cells to merge (0-based, data area)                                                                              |
+| `cellStyles`   | `Record<string, CellStyle>`                                   | —        | Per-cell overrides keyed `"row,col"` (0-based, data area)                                                        |
 
 ### Styling
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `headerFont` | `Partial<FontData>` | bold white | Header font |
-| `headerColor` | `string` | `'4472C4'` | Header background (hex) |
-| `bodyFont` | `Partial<FontData>` | — | Body font override |
-| `borderStyle` | `BorderStyle\|null` | `'thin'` | Border style (`null` = none) |
-| `borderColor` | `string` | `'000000'` | Border color (hex) |
-| `alternateRowColor` | `string\|null` | — | Zebra stripe color (hex) |
-| `headerAlign` | `'left'\|'center'\|'right'` | `'center'` | Header alignment |
-| `bodyAlign` | `'left'\|'center'\|'right'` | — | Body alignment |
-| `verticalAlign` | `'top'\|'center'\|'bottom'` | — | Vertical alignment |
+| Option              | Type                        | Default    | Description                  |
+| ------------------- | --------------------------- | ---------- | ---------------------------- |
+| `headerFont`        | `Partial<FontData>`         | bold white | Header font                  |
+| `headerColor`       | `string`                    | `'4472C4'` | Header background (hex)      |
+| `bodyFont`          | `Partial<FontData>`         | —          | Body font override           |
+| `borderStyle`       | `BorderStyle\|null`         | `'thin'`   | Border style (`null` = none) |
+| `borderColor`       | `string`                    | `'000000'` | Border color (hex)           |
+| `alternateRowColor` | `string\|null`              | —          | Zebra stripe color (hex)     |
+| `headerAlign`       | `'left'\|'center'\|'right'` | `'center'` | Header alignment             |
+| `bodyAlign`         | `'left'\|'center'\|'right'` | —          | Body alignment               |
+| `verticalAlign`     | `'top'\|'center'\|'bottom'` | —          | Vertical alignment           |
+
+### Dates and BigInts
+
+A `Date` cell is written as the serial number of its UTC instant in the workbook's date system, and an invalid `Date` leaves the cell empty. A column that holds a `Date` gets the number format `yyyy-mm-dd` unless its `columns[c].numberFormat` is set. A `bigint` is written as a number when it is a safe integer and as a string otherwise.
 
 ### Per-Column Configuration
 
 ```typescript
 interface TableColumn {
-  header?: string;        // Header label override
-  width?: number;         // Fixed width (character units)
+  header?: string; // Header label override
+  width?: number; // Fixed width (character units); a width above 0 in columnWidths wins
   align?: 'left' | 'center' | 'right';
-  numberFormat?: string;  // e.g. '#,##0.00'
+  numberFormat?: string; // e.g. '#,##0.00'
 }
 ```
 
@@ -149,7 +155,11 @@ drawTable(wb, ws, {
 ```typescript
 drawTable(wb, ws, {
   headers: ['ID', 'Name', 'Status'],
-  rows: data,
+  rows: [
+    [1, 'Alice', 'Active'],
+    [2, 'Bob', 'Inactive'],
+    [3, 'Carol', 'Active'],
+  ],
   alternateRowColor: 'F2F2F2',
 });
 ```

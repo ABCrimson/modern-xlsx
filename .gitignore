@@ -3,11 +3,10 @@ target/
 # Cargo.lock is committed for reproducible CI (the npm package ships a WASM binary
 # built from these exact crate versions). Run `cargo update` to refresh deliberately.
 
-# cargo-fuzz (keep Cargo.toml + fuzz_targets/, ignore generated artifacts)
+# cargo-fuzz (keep Cargo.toml, Cargo.lock and fuzz_targets/; ignore generated artifacts)
 fuzz/target/
 fuzz/corpus/
 fuzz/artifacts/
-fuzz/Cargo.lock
 
 # Node
 node_modules/
@@ -36,9 +35,12 @@ Thumbs.db
 
 # Test output
 packages/modern-xlsx/test-output/
+coverage/
 
 # Generated API reference (TypeDoc — built at docs-deploy time, not committed)
 docs/site/api/
+# Playground bundle (modern-xlsx.min.js and its .wasm, copied from dist/ by pages.yml at deploy time)
+docs/site/vendor/
 
 # Lock files (pnpm uses pnpm-lock.yaml)
 package-lock.json

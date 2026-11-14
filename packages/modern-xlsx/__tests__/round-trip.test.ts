@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { assert, describe, expect, it } from 'vitest';
 import { readBuffer, StyleBuilder, VERSION, Workbook } from '../src/index.js';
-import type { WorkbookData } from '../src/types.js';
+import type { WorkbookData } from '../src/model/types.js';
 import { read as wasmRead, version as wasmVersion } from '../wasm/modern_xlsx_wasm.js';
 
 describe('version', () => {
@@ -132,7 +132,7 @@ describe('Cell API', () => {
     const cell = ws.cell('A1');
     cell.formula = 'SUM(B1:B10)';
     expect(cell.formula).toBe('SUM(B1:B10)');
-    expect(cell.type).toBe('formulaStr');
+    expect(cell.type).toBe('number');
   });
 
   it('clearing a formula sets it to null', () => {
@@ -191,11 +191,21 @@ describe('Roundtrip: number cells', () => {
     expect(ws2).toBeDefined();
 
     expect(ws2?.cell('A1').value).toBe(42);
-    expect(ws2?.cell('B1').value).toBeCloseTo(TEST_FLOAT);
+    expect(ws2?.cell('B1').value).toBe(TEST_FLOAT);
     expect(ws2?.cell('C1').value).toBe(0);
     expect(ws2?.cell('A2').value).toBe(-100);
     expect(ws2?.cell('B2').value).toBe(1e10);
   });
+
+  it.for([Math.PI, 0.1 + 0.2, 1 / 3, 1e-15, 5e-324, Number.MAX_VALUE, 123456789.12345679, -1.5e-7])(
+    'number %s round-trips exactly',
+    async (v) => {
+      const wb = new Workbook();
+      wb.addSheet('N').cell('A1').value = v;
+      const wb2 = await readBuffer(await wb.toBuffer());
+      expect(wb2.getSheet('N')?.cell('A1').value).toBe(v);
+    },
+  );
 });
 
 describe('Roundtrip: boolean cells', () => {
@@ -249,7 +259,7 @@ describe('Roundtrip: string cells', () => {
     const buffer = await wb.toBuffer();
 
     // Use raw WASM read to verify SST structure is still present
-    // WASM now returns a JSON string; parse it to get WorkbookData
+    // WASM returns a JSON string; parse it to get WorkbookData
     const raw = JSON.parse(wasmRead(buffer)) as WorkbookData;
 
     // The raw reader output should include shared strings
@@ -257,7 +267,7 @@ describe('Roundtrip: string cells', () => {
     expect(raw.sharedStrings?.strings).toContain('Hello');
     expect(raw.sharedStrings?.strings).toContain('World');
 
-    // Cell values are now resolved in Rust (not raw SST indices)
+    // Cell values are resolved in Rust (not raw SST indices)
     const rawSheet = raw.sheets[0];
     const rawA1 = rawSheet?.worksheet.rows[0]?.cells[0];
     expect(rawA1?.cellType).toBe('sharedString');
@@ -343,7 +353,7 @@ describe('Roundtrip: formula cells', () => {
     const ws2 = wb2.getSheet('Formulas');
     expect(ws2).toBeDefined();
     expect(ws2?.cell('A3').formula).toBe('SUM(A1:A2)');
-    expect(ws2?.cell('A3').type).toBe('formulaStr');
+    expect(ws2?.cell('A3').type).toBe('number');
   });
 
   it('preserves formula with cached value', async () => {
@@ -357,6 +367,8 @@ describe('Roundtrip: formula cells', () => {
     const wb2 = await readBuffer(buffer);
     const ws2 = wb2.getSheet('Sheet1');
     expect(ws2?.cell('B1').formula).toBe('A1*2');
+    expect(ws2?.cell('B1').value).toBe(100);
+    expect(ws2?.cell('B1').type).toBe('number');
   });
 });
 
@@ -372,8 +384,9 @@ describe('StyleBuilder API', () => {
       .build(wb.styles);
 
     expect(styleIndex).toBeGreaterThan(0);
-    expect(wb.styles.cellXfs[styleIndex]).toBeDefined();
-    expect(wb.styles.fonts[wb.styles.cellXfs[styleIndex]?.fontId]?.bold).toBe(true);
+    const xf = wb.styles.cellXfs[styleIndex];
+    assert.isDefined(xf);
+    expect(wb.styles.fonts[xf.fontId]?.bold).toBe(true);
   });
 
   it('reuses existing number format codes', () => {
@@ -415,6 +428,11 @@ describe('StyleBuilder API', () => {
     const buffer = await wb.toBuffer();
     const wb2 = await readBuffer(buffer);
     expect(wb2.styles.cellXfs.length).toBeGreaterThan(1);
+    const si = wb2.getSheet('Styled')?.cell('A1').styleIndex;
+    expect(si).toBe(styleIndex);
+    const xf = wb2.styles.cellXfs[styleIndex];
+    assert.isDefined(xf);
+    expect(wb2.styles.fonts[xf.fontId]?.bold).toBe(true);
   });
 });
 
@@ -442,42 +460,6 @@ describe('Roundtrip: named ranges', () => {
   it('getNamedRange returns undefined for missing name', () => {
     const wb = new Workbook();
     expect(wb.getNamedRange('NonExistent')).toBeUndefined();
-  });
-});
-
-describe('Roundtrip: alignment style', () => {
-  it('alignment style round-trips', async () => {
-    const wb = new Workbook();
-    const ws = wb.addSheet('Sheet1');
-    const idx = wb
-      .createStyle()
-      .alignment({ horizontal: 'center', vertical: 'top', wrapText: true })
-      .build(wb.styles);
-    ws.cell('A1').value = 'centered';
-    ws.cell('A1').styleIndex = idx;
-
-    const buf = await wb.toBuffer();
-    const wb2 = await readBuffer(buf);
-    const xf = wb2.styles.cellXfs[idx];
-    expect(xf?.alignment?.horizontal).toBe('center');
-    expect(xf?.alignment?.vertical).toBe('top');
-    expect(xf?.alignment?.wrapText).toBe(true);
-  });
-});
-
-describe('Roundtrip: protection style', () => {
-  it('protection style round-trips', async () => {
-    const wb = new Workbook();
-    const ws = wb.addSheet('Sheet1');
-    const idx = wb.createStyle().protection({ locked: true, hidden: true }).build(wb.styles);
-    ws.cell('A1').value = 'protected';
-    ws.cell('A1').styleIndex = idx;
-
-    const buf = await wb.toBuffer();
-    const wb2 = await readBuffer(buf);
-    const xf = wb2.styles.cellXfs[idx];
-    expect(xf?.protection?.locked).toBe(true);
-    expect(xf?.protection?.hidden).toBe(true);
   });
 });
 

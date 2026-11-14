@@ -1,0 +1,23 @@
+[
+  {
+    "index": 1,
+    "cells": [
+      {
+        "reference": "A1",
+        "cellType": "error",
+        "value": "#N/A"
+      },
+      {
+        "reference": "B1",
+        "cellType": "error",
+        "value": "#DIV/0!"
+      },
+      {
+        "reference": "C1",
+        "cellType": "error",
+        "value": "#DIV/0!",
+        "formula": "1/0"
+      }
+    ]
+  }
+]

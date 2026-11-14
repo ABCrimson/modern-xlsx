@@ -8,6 +8,5 @@
   "excludePrivate": true,
   "excludeInternal": true,
   "readme": "none",
-  "skipErrorChecking": true,
   "githubPages": false
 }

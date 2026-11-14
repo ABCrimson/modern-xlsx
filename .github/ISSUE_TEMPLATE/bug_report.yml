@@ -31,12 +31,32 @@ body:
     validations:
       required: true
 
+  - type: textarea
+    id: sample-file
+    attributes:
+      label: Sample file
+      description: Drag the smallest .xlsx that shows the problem into this box (GitHub accepts .xlsx files up to 25 MB). Remove anything confidential first. Leave it empty if the code above builds the file.
+
+  - type: dropdown
+    id: entry-point
+    attributes:
+      label: Entry point
+      description: The import or script that loads modern-xlsx.
+      options:
+        - modern-xlsx (full build)
+        - modern-xlsx/lite
+        - Browser bundle (modern-xlsx/browser, the global ModernXlsx)
+        - Web Worker (createXlsxWorker, modern-xlsx/worker)
+        - modern-xlsx/wasm with initWasmSync
+    validations:
+      required: true
+
   - type: input
     id: version
     attributes:
       label: Version
       description: "modern-xlsx version (run: npm ls modern-xlsx)"
-      placeholder: "0.5.0"
+      placeholder: "for example 1.3.0"
     validations:
       required: true
 
@@ -49,6 +69,7 @@ body:
         - Bun
         - Deno
         - Browser (Chrome)
+        - Browser (Edge)
         - Browser (Firefox)
         - Browser (Safari)
         - Cloudflare Workers
@@ -61,10 +82,10 @@ body:
     id: runtime-version
     attributes:
       label: Runtime Version
-      placeholder: "Node.js 25.0.0"
+      placeholder: "Output of node --version, or the browser and its version"
 
   - type: input
     id: os
     attributes:
       label: Operating System
-      placeholder: "Windows 11 / macOS 15 / Ubuntu 24.04"
+      placeholder: "Operating system and version"

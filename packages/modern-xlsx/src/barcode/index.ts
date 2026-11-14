@@ -30,5 +30,5 @@ export { generateBarcode } from './generate.js';
 export { encodeGS1128 } from './gs1128.js';
 export { encodeITF14 } from './itf14.js';
 export { encodePDF417 } from './pdf417.js';
-// Per-codec exports
+export type { QrEcLevel } from './qr.js';
 export { encodeQR } from './qr.js';

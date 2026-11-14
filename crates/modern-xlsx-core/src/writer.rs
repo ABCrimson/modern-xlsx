@@ -4,52 +4,429 @@
 //! complete `.xlsx` file.
 
 use core::hint::cold_path;
-use std::collections::HashSet;
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 
-use log::{debug, trace};
+use log::{debug, trace, warn};
+use quick_xml::Reader;
+use quick_xml::events::{BytesStart, Event};
 
 use crate::ooxml::{
-    calc_chain,
+    calc_chain::{self, CalcChainEntry},
     charts::ChartAnchor,
     comments,
     content_types::{
-        ContentTypes, CT_CHART, CT_COMMENTS, CT_CUSTOM_XML_PROPS, CT_DRAWING, CT_EXTERNAL_LINK,
-        CT_PERSONS, CT_PIVOT_CACHE_DEF, CT_PIVOT_CACHE_REC, CT_PIVOT_TABLE, CT_SLICER,
-        CT_SLICER_CACHE, CT_TABLE, CT_THREADED_COMMENTS, CT_TIMELINE, CT_TIMELINE_CACHE, CT_XML,
+        CT_CALC_CHAIN, CT_CHART, CT_CHART_COLOR_STYLE, CT_CHART_EX, CT_CHART_SHAPES,
+        CT_CHART_STYLE, CT_COMMENTS, CT_CORE_PROPERTIES, CT_CUSTOM_PROPERTIES, CT_CUSTOM_XML_PROPS,
+        CT_DOCX_PACKAGE, CT_DRAWING, CT_EXTENDED_PROPERTIES, CT_EXTERNAL_LINK, CT_HD_PHOTO,
+        CT_OLE_OBJECT, CT_PERSONS, CT_PIVOT_CACHE_DEF, CT_PIVOT_CACHE_REC, CT_PIVOT_TABLE,
+        CT_PPTX_PACKAGE, CT_PRINTER_SETTINGS, CT_SHEET_METADATA, CT_SLICER, CT_SLICER_CACHE,
+        CT_TABLE, CT_THEME, CT_THREADED_COMMENTS, CT_TIMELINE, CT_TIMELINE_CACHE, CT_VML_DRAWING,
+        CT_XLSX_PACKAGE, CT_XML, ContentTypes,
     },
+    pivot_table::PivotCacheDefinitionData,
     relationships::{
-        Relationships, REL_CHART, REL_COMMENTS, REL_DRAWING, REL_PERSONS, REL_PIVOT_CACHE_DEF,
-        REL_PIVOT_CACHE_REC, REL_PIVOT_TABLE, REL_SLICER, REL_SLICER_CACHE, REL_TABLE,
-        REL_THREADED_COMMENTS, REL_TIMELINE, REL_TIMELINE_CACHE,
+        REL_CALC_CHAIN, REL_CHART, REL_CHART_COLOR_STYLE, REL_CHART_STYLE, REL_CHART_USER_SHAPES,
+        REL_COMMENTS, REL_CORE_PROPERTIES, REL_CUSTOM_PROPERTIES, REL_CUSTOM_XML, REL_DRAWING,
+        REL_EXTENDED_PROPERTIES, REL_EXTERNAL_LINK, REL_HYPERLINK, REL_PERSONS,
+        REL_PIVOT_CACHE_DEF, REL_PIVOT_CACHE_REC, REL_PIVOT_TABLE, REL_SHEET_METADATA, REL_SLICER,
+        REL_SLICER_CACHE, REL_TABLE, REL_THEME, REL_THREADED_COMMENTS, REL_TIMELINE,
+        REL_TIMELINE_CACHE, REL_VML_DRAWING, Relationship, Relationships, make_rid, rels_path,
+        resolve_target,
     },
     shared_strings::SharedStringTableBuilder,
-    slicers, threaded_comments, timelines,
-    workbook::{SheetInfo, SheetState, WorkbookXml},
-    worksheet::CellType,
+    slicers,
+    theme::ThemeColors,
+    threaded_comments, timelines, vml,
+    workbook::{PivotCacheRef, SheetInfo, SheetState, WorkbookXml},
+    worksheet::{Cell, CellType},
+    xml::root_namespaces,
 };
-use crate::zip::writer::{write_zip, ZipEntry};
+use crate::zip::writer::{ZipEntry, write_zip};
 use crate::{ModernXlsxError, Result, WorkbookData};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Format an rId string (e.g. "rId3") without `format!()` heap overhead.
-#[inline]
-fn make_rid(num: impl itoa::Integer) -> String {
-    let mut s = String::with_capacity(12);
-    s.push_str("rId");
-    s.push_str(itoa::Buffer::new().format(num));
-    s
+/// A worksheet part's ZIP path: the folder worksheet relationship targets are
+/// resolved against (the file name does not matter).
+const SHEET_PART: &str = "xl/worksheets/sheet.xml";
+
+/// The theme part's ZIP path, preserved or generated.
+const THEME_PATH: &str = "xl/theme/theme1.xml";
+
+/// The content types part's ZIP path; always generated.
+const CONTENT_TYPES_PATH: &str = "[Content_Types].xml";
+
+/// The ZIP path prefix of external link parts (`externalLink{n}.xml`).
+const EXTERNAL_LINK_PREFIX: &str = "xl/externalLinks/externalLink";
+
+/// Whether `path` names an external link part.
+fn is_external_link(path: &str) -> bool {
+    path.starts_with(EXTERNAL_LINK_PREFIX) && path.ends_with(".xml")
 }
 
-/// Format a prefixed rId string (e.g. "rId_pc3") without `format!()`.
-#[inline]
-fn make_prefixed_rid(prefix: &str, num: impl itoa::Integer) -> String {
-    let mut s = String::with_capacity(prefix.len() + 10);
-    s.push_str(prefix);
-    s.push_str(itoa::Buffer::new().format(num));
-    s
+/// The custom file properties part's ZIP path.
+const CUSTOM_PROPERTIES_PATH: &str = "docProps/custom.xml";
+
+/// Whether `path` names a custom XML data part (`customXml/item{n}.xml`):
+/// not its properties part (`itemProps{n}.xml`) nor a `.rels`.
+fn is_custom_xml_item(path: &str) -> bool {
+    path.starts_with("customXml/item")
+        && path.ends_with(".xml")
+        && !path.contains("Props")
+        && !path.contains("/_rels/")
+}
+
+/// Whether `path` (ASCII case ignored) can be a sheet drawing part: an
+/// `.xml` part under `xl/drawings/` that is not a `.rels`.
+fn is_sheet_drawing_part(path: &str) -> bool {
+    let path = path.to_ascii_lowercase();
+    path.starts_with("xl/drawings/") && path.ends_with(".xml") && !path.contains("/_rels/")
+}
+
+/// The `cacheId` each pivot cache is written under, in `pivot_caches` order:
+/// its own `cache_id`, else its index; and the index of the cache each id
+/// names, so a table finds its cache in one lookup ([`pivot_cache`]).
+///
+/// # Errors
+///
+/// `InvalidWorkbook` when two caches share an id, or a pivot table's
+/// `cacheId` names no cache.
+fn pivot_cache_ids(workbook: &WorkbookData) -> Result<(Vec<u32>, HashMap<u32, usize>)> {
+    let ids: Vec<u32> = workbook
+        .pivot_caches
+        .iter()
+        .enumerate()
+        .map(|(i, cache)| {
+            cache
+                .cache_id
+                .unwrap_or_else(|| u32::try_from(i).unwrap_or(u32::MAX))
+        })
+        .collect();
+    let mut index = HashMap::with_capacity(ids.len());
+    for (i, &id) in ids.iter().enumerate() {
+        if index.insert(id, i).is_some() {
+            cold_path();
+            return Err(ModernXlsxError::InvalidWorkbook(format!(
+                "Write failed: two pivot caches have cacheId {id} — give each cache in pivotCaches its own cacheId (an unset cacheId is the cache's index)"
+            )));
+        }
+    }
+    for sheet in &workbook.sheets {
+        for table in &sheet.worksheet.pivot_tables {
+            if !index.contains_key(&table.cache_id) {
+                cold_path();
+                return Err(ModernXlsxError::InvalidWorkbook(format!(
+                    "Write failed: pivot table '{}' in sheet '{}' has cacheId {}, which no pivot cache has — add its cache to pivotCaches (its cacheId, or its index when cacheId is unset)",
+                    table.name, sheet.name, table.cache_id
+                )));
+            }
+        }
+    }
+    Ok((ids, index))
+}
+
+/// The pivot cache written under `cache_id`, given the index by id from
+/// [`pivot_cache_ids`].
+fn pivot_cache<'w>(
+    workbook: &'w WorkbookData,
+    index: &HashMap<u32, usize>,
+    cache_id: u32,
+) -> Option<&'w PivotCacheDefinitionData> {
+    index
+        .get(&cache_id)
+        .and_then(|&i| workbook.pivot_caches.get(i))
+}
+
+/// Counts what the writer adds to every pivot table from its cache before
+/// any part is written, so a workbook past the limits fails at once rather
+/// than after writing the tables before the one that crosses them.
+///
+/// # Errors
+///
+/// `SizeLimit` as for `PivotTableData::count_added_items`.
+fn check_pivot_additions(workbook: &WorkbookData, index: &HashMap<u32, usize>) -> Result<()> {
+    let mut added = 0;
+    for sheet in &workbook.sheets {
+        for table in &sheet.worksheet.pivot_tables {
+            table.count_added_items(pivot_cache(workbook, index, table.cache_id), &mut added)?;
+        }
+    }
+    Ok(())
+}
+
+/// Checks that every colour of a theme to be generated is 6 hex digits, the
+/// only form `generate_theme_xml` writes into `srgbClr`/`sysClr` values.
+///
+/// # Errors
+///
+/// `InvalidWorkbook` naming the first bad slot.
+fn check_theme_colors(colors: &ThemeColors) -> Result<()> {
+    let slots = [
+        ("dk1", &colors.dk1),
+        ("lt1", &colors.lt1),
+        ("dk2", &colors.dk2),
+        ("lt2", &colors.lt2),
+        ("accent1", &colors.accent1),
+        ("accent2", &colors.accent2),
+        ("accent3", &colors.accent3),
+        ("accent4", &colors.accent4),
+        ("accent5", &colors.accent5),
+        ("accent6", &colors.accent6),
+        ("hlink", &colors.hlink),
+        ("folHlink", &colors.fol_hlink),
+    ];
+    for (slot, value) in slots {
+        if value.len() != 6 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+            cold_path();
+            return Err(ModernXlsxError::InvalidWorkbook(format!(
+                "Write failed: theme colour {slot} is '{value}', not 6 hex digits (RRGGBB) — fix themeColors or keep the workbook's own xl/theme/theme1.xml"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// The external link parts to reference from workbook.xml, in order: the
+/// preserved ones `external_references` lists, then the other preserved
+/// ones by their number.
+fn external_link_order(workbook: &WorkbookData) -> Vec<&str> {
+    let mut order: Vec<&str> = Vec::new();
+    // The paths in `order`: both loops below look up every candidate once, and
+    // both counts come from the file.
+    let mut seen: HashSet<&str> = HashSet::new();
+    for path in &workbook.external_references {
+        if !workbook.preserved_entries.contains_key(path) {
+            warn!("external reference {path} is not a preserved entry; skipped");
+        } else if seen.insert(path.as_str()) {
+            order.push(path);
+        }
+    }
+    let mut rest: Vec<&str> = workbook
+        .preserved_entries
+        .keys()
+        .map(String::as_str)
+        .filter(|path| is_external_link(path) && !seen.contains(path))
+        .collect();
+    rest.sort_by_key(|path| {
+        let number = path[EXTERNAL_LINK_PREFIX.len()..path.len() - ".xml".len()]
+            .parse::<u64>()
+            .unwrap_or(u64::MAX);
+        (number, *path)
+    });
+    order.extend(rest);
+    order
+}
+
+/// Points the sheet's relationship of `rel_type` at `target`: the first one
+/// keeps its Id (a preserved worksheet `extLst` may refer to it) and any
+/// further one is removed; with none, one is added under the next free rId.
+fn upsert_typed_rel(ws_rels: &mut Relationships, rel_type: &'static str, target: String) {
+    let existing = ws_rels
+        .find_by_type(rel_type)
+        .next()
+        .map(|rel| rel.id.clone());
+    ws_rels.retain(|rel| rel.rel_type != rel_type);
+    let r_id = existing.unwrap_or_else(|| make_rid(ws_rels.next_r_id()));
+    ws_rels.add(r_id, rel_type, target);
+}
+
+/// Drops the sheet's relationships of `rel_type` whose part the reader
+/// consumed: the writer writes the model's parts of that type, if any, under
+/// relationships of its own. One whose target is still a preserved entry (a
+/// part the reader kept verbatim) stays.
+fn drop_unwritten_typed_rels(
+    ws_rels: &mut Relationships,
+    rel_type: &str,
+    preserved: &std::collections::BTreeMap<String, Vec<u8>>,
+) {
+    ws_rels.retain(|rel| {
+        rel.rel_type != rel_type || preserved.contains_key(&resolve_target(SHEET_PART, &rel.target))
+    });
+}
+
+/// What a VML drawing holding note or form-control shapes has in each shape
+/// (`<x:ClientData ObjectType="Note">` and the like); a VML drawing of header
+/// and footer pictures has none.
+const VML_CLIENT_DATA: &[u8] = b"ClientData";
+
+/// Whether `path` ends in `.vml`, ASCII case ignored: the name the vml
+/// Default of `[Content_Types].xml` covers.
+fn has_vml_extension(path: &str) -> bool {
+    path.rsplit_once('.')
+        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("vml"))
+}
+
+/// Whether the preserved part at `path` is a VML drawing: its name ends in
+/// `.vml` ([`has_vml_extension`]), or the source package declared it with
+/// the VML drawing content type (`preserved_content_types`; a `.rels` is
+/// always a relationships part). Only such a part is named by
+/// `<legacyDrawing>` or `<legacyDrawingHF>` and merged with a sheet's notes,
+/// whatever a vmlDrawing relationship targets: a `.rels` part, or any part
+/// neither named `.vml` nor typed as a VML drawing, is never rewritten as a
+/// drawing, wherever it sits.
+fn is_vml_drawing(path: &str, workbook: &WorkbookData) -> bool {
+    has_vml_extension(path)
+        || (!path.ends_with(".rels")
+            && workbook
+                .preserved_content_types
+                .get(path)
+                .is_some_and(|content_type| content_type == CT_VML_DRAWING))
+}
+
+/// The `r:id`s a sheet names its preserved VML drawings by: `<legacyDrawing>`
+/// for the first one with cell-anchored shapes ([`VML_CLIENT_DATA`]: notes or
+/// form controls) and `<legacyDrawingHF>` for the first one without; the
+/// search stops once both are found. A relationship counts when its target
+/// is a VML drawing ([`is_vml_drawing`]) that is a preserved entry no
+/// generated part supersedes, or one an earlier sheet merged its notes into
+/// (`merged`: the drawing stays at its path, so every sheet that shares it
+/// keeps naming it).
+///
+/// `cell_anchored` holds, by path, whether a drawing's preserved bytes hold
+/// [`VML_CLIENT_DATA`]: each drawing is searched once per write, however
+/// many relationships and sheets name it.
+///
+/// For a sheet with comments, the writer then merges the notes into the
+/// `<legacyDrawing>` one, or generates a note drawing when there is none
+/// (see [`crate::ooxml::vml`]).
+fn legacy_drawing_r_ids<'r>(
+    rels: &'r Relationships,
+    workbook: &WorkbookData,
+    generated: &HashSet<String>,
+    merged: &HashSet<String>,
+    cell_anchored: &mut HashMap<String, bool>,
+) -> (Option<&'r str>, Option<&'r str>) {
+    let (mut legacy, mut header_footer) = (None, None);
+    for rel in rels.find_by_type(REL_VML_DRAWING) {
+        if legacy.is_some() && header_footer.is_some() {
+            break;
+        }
+        let target = resolve_target(SHEET_PART, &rel.target);
+        if !is_vml_drawing(&target, workbook) {
+            continue;
+        }
+        let Some(vml) = workbook
+            .preserved_entries
+            .get(&target)
+            .filter(|_| !generated.contains(&target) || merged.contains(&target))
+        else {
+            continue;
+        };
+        let slot = if *cell_anchored.entry(target).or_insert_with(|| {
+            vml.windows(VML_CLIENT_DATA.len())
+                .any(|window| window == VML_CLIENT_DATA)
+        }) {
+            &mut legacy
+        } else {
+            &mut header_footer
+        };
+        slot.get_or_insert(rel.id.as_str());
+    }
+    (legacy, header_footer)
+}
+
+/// The metadata part's ZIP path.
+const METADATA_PATH: &str = "xl/metadata.xml";
+
+/// The metadata part generated for workbooks whose cells carry `cm="1"`: one
+/// XLDAPR (dynamic array) record, byte for byte the part Microsoft Excel 16.0
+/// (build 20527) saved for a workbook holding `=SEQUENCE(3)` in A1 on
+/// 2026-11-11.
+const DYNAMIC_ARRAY_METADATA_XML: &str = concat!(
+    r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
+    "\r\n",
+    r#"<metadata xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:xda="http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray">"#,
+    r#"<metadataTypes count="1"><metadataType name="XLDAPR" minSupportedVersion="120000" copy="1" pasteAll="1" pasteValues="1" merge="1" splitFirst="1" rowColShift="1" clearFormats="1" clearComments="1" assign="1" coerce="1" cellMeta="1"/></metadataTypes>"#,
+    r#"<futureMetadata name="XLDAPR" count="1"><bk><extLst><ext uri="{bdbb8cdc-fa1e-496e-a857-3c3f30c029c3}"><xda:dynamicArrayProperties fDynamic="1" fCollapsed="0"/></ext></extLst></bk></futureMetadata>"#,
+    r#"<cellMetadata count="1"><bk><rc t="1" v="0"/></bk></cellMetadata>"#,
+    "</metadata>",
+);
+
+/// Whether a cell is written with `cm` on `<c>` (see the worksheet writer).
+fn writes_cell_metadata(cell: &Cell) -> bool {
+    cell.cell_metadata.is_some() || cell.dynamic_array == Some(true)
+}
+
+/// The metadata part to add as a generated entry, if any: none when the
+/// workbook keeps its own `xl/metadata.xml` or no cell is written with `cm`,
+/// else the one-record dynamic-array part.
+///
+/// # Errors
+///
+/// `InvalidCellValue` when the part is generated and a cell's
+/// `cell_metadata` is not 1, the only record the generated part holds.
+fn generated_metadata_part(workbook: &WorkbookData) -> Result<Option<&'static str>> {
+    if workbook.preserved_entries.contains_key(METADATA_PATH) {
+        return Ok(None);
+    }
+    let mut any = false;
+    for sheet in &workbook.sheets {
+        for cell in sheet.worksheet.rows.iter().flat_map(|r| &r.cells) {
+            if let Some(cm) = cell.cell_metadata.filter(|&cm| cm != 1) {
+                cold_path();
+                return Err(ModernXlsxError::InvalidCellValue(format!(
+                    "Write failed: cell '{}' in sheet '{}' has cellMetadata {cm}, but the workbook has no xl/metadata.xml to hold it — only 1 (a dynamic array) can be generated",
+                    cell.reference, sheet.name
+                )));
+            }
+            any |= writes_cell_metadata(cell);
+        }
+    }
+    Ok(any.then_some(DYNAMIC_ARRAY_METADATA_XML))
+}
+
+/// The calcChain entries to write: those whose `sheet_id` is a sheet position
+/// (`1..=sheets.len()`) and whose cell gets an `<f>` ([`Cell::writes_formula`]
+/// against the shared-formula masters of its sheet, the predicate the
+/// worksheet writer uses).
+/// Excel does not open a package whose linked calcChain names a cell without
+/// a formula, so the rest are dropped. Borrowed when every entry is kept.
+fn written_calc_chain(workbook: &WorkbookData) -> Cow<'_, [CalcChainEntry]> {
+    let sheets = &workbook.sheets;
+    // Formula cell references per sheet position, built on first use.
+    let mut formula_cells: Vec<Option<HashSet<&str>>> = vec![None; sheets.len()];
+    let mut keep = |entry: &CalcChainEntry| {
+        let Some(pos) = usize::try_from(entry.sheet_id)
+            .ok()
+            .and_then(|id| id.checked_sub(1))
+            .filter(|&pos| pos < sheets.len())
+        else {
+            return false;
+        };
+        formula_cells[pos]
+            .get_or_insert_with(|| {
+                let worksheet = &sheets[pos].worksheet;
+                let shared_masters = worksheet.shared_formula_masters();
+                worksheet
+                    .rows
+                    .iter()
+                    .flat_map(|row| &row.cells)
+                    .filter(|cell| cell.writes_formula(&shared_masters))
+                    .map(|cell| cell.reference.as_str())
+                    .collect()
+            })
+            .contains(entry.cell_ref.as_str())
+    };
+    let chain = workbook.calc_chain.as_slice();
+    let Some(first) = chain.iter().position(|entry| !keep(entry)) else {
+        return Cow::Borrowed(chain);
+    };
+    let mut kept = chain[..first].to_vec();
+    kept.extend(
+        chain[first + 1..]
+            .iter()
+            .filter(|entry| keep(entry))
+            .cloned(),
+    );
+    debug!(
+        "calcChain: {} of {} entries name no formula cell; dropped",
+        chain.len() - kept.len(),
+        chain.len()
+    );
+    Cow::Owned(kept)
 }
 
 // ---------------------------------------------------------------------------
@@ -67,12 +444,15 @@ fn make_prefixed_rid(prefix: &str, num: impl itoa::Integer) -> String {
 pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
     if workbook.sheets.is_empty() {
         cold_path();
-        return Err(ModernXlsxError::InvalidCellValue(
+        return Err(ModernXlsxError::InvalidWorkbook(
             "Write failed: workbook must contain at least one sheet — add a sheet before calling write()".into(),
         ));
     }
 
     let sheet_count = workbook.sheets.len();
+    let (pivot_cache_ids, pivot_cache_index) = pivot_cache_ids(workbook)?;
+    check_pivot_additions(workbook, &pivot_cache_index)?;
+    crate::validate::check_writable(workbook)?;
     debug!("collecting shared strings from {sheet_count} sheets");
 
     // 1. Build the SharedStringTable from all string cells.
@@ -90,7 +470,7 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
                         )));
                     };
                     if let Some(ref runs) = cell.rich_text {
-                        sst_builder.insert_rich(val, runs.clone());
+                        sst_builder.insert_rich(val, runs.as_slice());
                     } else {
                         sst_builder.insert(val);
                     }
@@ -101,11 +481,898 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 
     debug!("SST built with {} unique strings", sst_builder.len());
 
-    // 2. Generate XML parts.
+    // 2. The content types and the package and workbook relationships. The
+    // workbook relationships grow with every workbook-level part below;
+    // workbook.xml and its .rels are written in step 5h, once every
+    // relationship Id they list exists.
     let mut content_types = ContentTypes::for_basic_workbook(sheet_count);
-    let root_rels = Relationships::root_rels();
-    let wb_rels = Relationships::workbook_rels(sheet_count);
+    let mut root_rels = Relationships::root_rels();
+    let mut wb_rels = Relationships::workbook_rels(sheet_count);
 
+    // 3. Assemble ZIP entries, starting with the shared strings and styles.
+    // [Content_Types].xml is pushed last (step 7), once every part below has
+    // added its Override or Default.
+    let preserved_count = workbook.preserved_entries.len();
+    let mut entries = Vec::with_capacity(11 + sheet_count * 3 + preserved_count);
+
+    entries.push(ZipEntry {
+        name: "xl/sharedStrings.xml".to_string(),
+        data: sst_builder.to_xml()?,
+    });
+    entries.push(ZipEntry {
+        name: "xl/styles.xml".to_string(),
+        data: workbook.styles.to_xml()?,
+    });
+
+    // 3b. Theme: a preserved xl/theme/theme1.xml keeps its bytes (step 6);
+    // otherwise the writer emits a generated Office theme
+    // (`generate_theme_xml`) in the workbook's theme colours, or the default
+    // ones when it has none. Either way it gets its workbook relationship and
+    // Override.
+    if !workbook.preserved_entries.contains_key(THEME_PATH) {
+        if let Some(colors) = &workbook.theme_colors {
+            check_theme_colors(colors)?;
+        }
+        entries.push(ZipEntry {
+            name: THEME_PATH.to_owned(),
+            data: crate::ooxml::theme::generate_theme_xml(workbook.theme_colors.as_ref()),
+        });
+    }
+    wb_rels.add(
+        make_rid(wb_rels.next_r_id()),
+        REL_THEME,
+        target_from_workbook(THEME_PATH).to_owned(),
+    );
+    content_types.add_override(format!("/{THEME_PATH}"), CT_THEME);
+
+    // 4a. Write document properties if present, each with its package
+    // relationship and Override.
+    if let Some(ref props) = workbook.doc_properties {
+        if props.has_core() {
+            entries.push(ZipEntry {
+                name: "docProps/core.xml".to_string(),
+                data: props.to_core_xml()?,
+            });
+            root_rels.add(
+                make_rid(root_rels.next_r_id()),
+                REL_CORE_PROPERTIES,
+                "docProps/core.xml",
+            );
+            content_types.add_override("/docProps/core.xml", CT_CORE_PROPERTIES);
+        }
+        if props.has_app() {
+            entries.push(ZipEntry {
+                name: "docProps/app.xml".to_string(),
+                data: props.to_app_xml()?,
+            });
+            root_rels.add(
+                make_rid(root_rels.next_r_id()),
+                REL_EXTENDED_PROPERTIES,
+                "docProps/app.xml",
+            );
+            content_types.add_override("/docProps/app.xml", CT_EXTENDED_PROPERTIES);
+        }
+    }
+    // A preserved docProps/custom.xml (step 6) gets its package relationship
+    // and Override.
+    if workbook
+        .preserved_entries
+        .contains_key(CUSTOM_PROPERTIES_PATH)
+    {
+        root_rels.add(
+            make_rid(root_rels.next_r_id()),
+            REL_CUSTOM_PROPERTIES,
+            CUSTOM_PROPERTIES_PATH,
+        );
+        content_types.add_override(format!("/{CUSTOM_PROPERTIES_PATH}"), CT_CUSTOM_PROPERTIES);
+    }
+    entries.push(ZipEntry {
+        name: "_rels/.rels".to_string(),
+        data: root_rels.to_xml()?,
+    });
+
+    // 4b. Write the calculation chain, keeping only entries on a formula cell
+    // (see `written_calc_chain`); with none left there is no part, rel or
+    // Override.
+    let chain = written_calc_chain(workbook);
+    if !chain.is_empty() {
+        entries.push(ZipEntry {
+            name: "xl/calcChain.xml".to_string(),
+            data: calc_chain::to_xml(&chain)?,
+        });
+        wb_rels.add(
+            make_rid(wb_rels.next_r_id()),
+            REL_CALC_CHAIN,
+            "calcChain.xml",
+        );
+        content_types.add_override("/xl/calcChain.xml", CT_CALC_CHAIN);
+    }
+
+    // 5. Write each worksheet, looking up its shared-string indices in the SST
+    // builder while its XML is serialized (the worksheet is not cloned), with
+    // its tables, charts and drawing, comments, threaded comments, pivot
+    // tables, slicers, timelines and .rels.
+    // Generated part names are allocated around the preserved ones (see
+    // `PartNames`).
+    let mut names = PartNames::new(workbook.preserved_entries.keys());
+    // Generated part paths that supersede a preserved entry at the same path
+    // (step 6 skips those entries).
+    let mut generated_paths: HashSet<String> = HashSet::with_capacity(sheet_count * 2);
+    // The preserved VML drawings a sheet merged its notes into: written once,
+    // at their own paths (also in `generated_paths`).
+    let mut merged_vml: HashSet<String> = HashSet::new();
+    // Whether each preserved VML drawing holds cell-anchored shapes, by path
+    // (see `legacy_drawing_r_ids`).
+    let mut vml_cell_anchored: HashMap<String, bool> = HashMap::new();
+    // The preserved VML drawings handed to the note merge: each one at most
+    // once per write, for the first sheet with comments that names it.
+    let mut examined_vml: HashSet<String> = HashSet::new();
+    // The parts the chart .rels name (user shapes, chart styles, colour
+    // styles), with their content types (declared in step 6b).
+    let mut chart_part_types: HashMap<String, &'static str> = HashMap::new();
+    // Each written pivot table's path and cacheId; its .rels to the cache
+    // definition is written in step 5b, once the caches have their paths.
+    let mut pivot_table_paths: Vec<(String, u32)> = Vec::new();
+    // The cacheIds of the caches a pivot table built in code uses: step 5b
+    // writes them with `refreshOnLoad`.
+    let mut refresh_on_load: HashSet<u32> = HashSet::new();
+    // The items and pivot fields added to the pivot tables written so far
+    // (`check_pivot_additions` has checked the total).
+    let mut pivot_added: usize = 0;
+    // The first `o:idmap` block no generated note drawing has taken yet.
+    let mut next_vml_block: u32 = 1;
+    // The note shapes and thread placeholders generated so far, each counted
+    // before it is built (`vml::MAX_GENERATED_NOTE_SHAPES`).
+    let mut generated_notes: usize = 0;
+
+    for (i, sheet) in workbook.sheets.iter().enumerate() {
+        let sheet_num = i + 1;
+        // The legacy comments the sheet's comments part holds: its own, then
+        // the `tc={root id}` placeholder Excel needs to show each thread
+        // whose cell has none (`threaded_comments::placeholder_comments`).
+        // They exist only in the written file: the model is not changed, and
+        // the sheet's comments are copied only when a placeholder is added.
+        let placeholders = threaded_comments::placeholder_comments(
+            &sheet.worksheet.threaded_comments,
+            &sheet.worksheet.comments,
+            &mut generated_notes,
+        )?;
+        let placeholder_count = placeholders.len();
+        let sheet_comments: Cow<'_, [comments::Comment]> = if placeholders.is_empty() {
+            Cow::Borrowed(&sheet.worksheet.comments)
+        } else {
+            let mut all = sheet.worksheet.comments.clone();
+            all.extend(placeholders);
+            Cow::Owned(all)
+        };
+        let has_comments = !sheet_comments.is_empty();
+        let has_tables = !sheet.worksheet.tables.is_empty();
+        let has_charts = !sheet.worksheet.charts.is_empty();
+        let has_pivot_tables = !sheet.worksheet.pivot_tables.is_empty();
+        let has_threaded_comments = !sheet.worksheet.threaded_comments.is_empty();
+        let has_slicers = !sheet.worksheet.slicers.is_empty();
+        let has_timelines = !sheet.worksheet.timelines.is_empty();
+        let has_external_links = sheet
+            .worksheet
+            .hyperlinks
+            .iter()
+            .any(|hl| hl.external_target().is_some());
+
+        // Build (or merge) the worksheet .rels when we need to add relationships.
+        let sheet_rels_path = format!("xl/worksheets/_rels/sheet{sheet_num}.xml.rels");
+        // Parsed once: moved into `ws_rels` when the sheet needs generated rels;
+        // otherwise kept here as the only place a preserved drawing relationship shows.
+        // A malformed preserved .rels is not merged (a warning is logged): without
+        // generated rels its verbatim copy is written; otherwise the generated rels
+        // supersede it.
+        let preserved_rels = match workbook
+            .preserved_entries
+            .get(&sheet_rels_path)
+            .map(|bytes| Relationships::parse(bytes))
+        {
+            Some(Ok(rels)) => Some(rels),
+            Some(Err(e)) => {
+                cold_path();
+                warn!("{sheet_rels_path}: {e}; preserved rels not merged");
+                None
+            }
+            None => None,
+        };
+        // Hyperlink rels are regenerated from the model, so preserved ones must
+        // go even when no hyperlink is left.
+        let has_preserved_link_rels = preserved_rels
+            .as_ref()
+            .is_some_and(|rels| rels.find_by_type(REL_HYPERLINK).next().is_some());
+        // Comments, threaded comments, slicers and timelines are written as one
+        // part each, under this writer's own names: a preserved rel of such a
+        // type is repointed at the written part or, when the sheet has none of
+        // it now, dropped unless it still names a preserved part.
+        let typed_parts = [
+            (REL_COMMENTS, has_comments),
+            (REL_THREADED_COMMENTS, has_threaded_comments),
+            (REL_SLICER, has_slicers),
+            (REL_TIMELINE, has_timelines),
+        ];
+        // Tables and pivot tables are written under new relationships, one per
+        // part: a preserved rel of such a type is dropped unless it still names
+        // a preserved part, whether the sheet has any of them now or not.
+        let regenerated_parts = [(REL_TABLE, has_tables), (REL_PIVOT_TABLE, has_pivot_tables)];
+        let has_stale_typed_rels = preserved_rels.as_ref().is_some_and(|rels| {
+            typed_parts
+                .iter()
+                .chain(&regenerated_parts)
+                .any(|&(rel_type, has)| !has && rels.find_by_type(rel_type).next().is_some())
+        });
+        let needs_rels = has_comments
+            || has_tables
+            || has_charts
+            || has_pivot_tables
+            || has_threaded_comments
+            || has_slicers
+            || has_timelines
+            || has_external_links
+            || has_preserved_link_rels
+            || has_stale_typed_rels;
+        let (mut ws_rels, preserved_rels) = if needs_rels {
+            (preserved_rels.unwrap_or_default(), None)
+        } else {
+            (Relationships::new(), preserved_rels)
+        };
+
+        for (rel_type, has) in typed_parts {
+            if !has {
+                drop_unwritten_typed_rels(&mut ws_rels, rel_type, &workbook.preserved_entries);
+            }
+        }
+        for (rel_type, _) in regenerated_parts {
+            drop_unwritten_typed_rels(&mut ws_rels, rel_type, &workbook.preserved_entries);
+        }
+
+        // --- External hyperlinks: one TargetMode="External" rel each ---
+        ws_rels.retain(|rel| rel.rel_type != REL_HYPERLINK);
+        let hyperlink_r_ids: Vec<Option<String>> = if has_external_links {
+            sheet
+                .worksheet
+                .hyperlinks
+                .iter()
+                .map(|hl| {
+                    hl.external_target()
+                        .map(|target| ws_rels.add_external(REL_HYPERLINK, target.to_owned()))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        // --- Tables ---
+        let mut table_r_ids: Vec<String> = Vec::with_capacity(sheet.worksheet.tables.len());
+        if has_tables {
+            debug!(
+                "writing {} tables for sheet {}",
+                sheet.worksheet.tables.len(),
+                sheet_num
+            );
+            for table in &sheet.worksheet.tables {
+                let table_xml = table.to_xml()?;
+                let table_path = names.alloc("xl/tables/table", ".xml");
+
+                content_types.add_override(format!("/{table_path}"), CT_TABLE);
+
+                let rid_num = ws_rels.next_r_id();
+                let rid = make_rid(rid_num);
+                ws_rels.add(rid.clone(), REL_TABLE, target_from_xl_folder(&table_path));
+                table_r_ids.push(rid);
+
+                generated_paths.insert(table_path.clone());
+                entries.push(ZipEntry {
+                    name: table_path,
+                    data: table_xml,
+                });
+            }
+        }
+
+        // --- Charts ---
+        let mut drawing_r_id_str: Option<String> = None;
+        if has_charts {
+            debug!(
+                "writing {} charts for sheet {}",
+                sheet.worksheet.charts.len(),
+                sheet_num
+            );
+
+            // The sheet's own drawing relationship (from its preserved .rels) says
+            // where its drawing lives: that part (an `addImage` drawing, or the
+            // drawing a read consumed) is regenerated in place under the same rId.
+            // A target that is not a sheet drawing part (`is_sheet_drawing_part`),
+            // or that another sheet's drawing already took, is moved to a free
+            // name under the same rId; a sheet without one gets a free name and a
+            // new rel.
+            let existing = ws_rels
+                .find_by_type(REL_DRAWING)
+                .next()
+                .map(|rel| (rel.id.clone(), resolve_target(SHEET_PART, &rel.target)));
+            let (drawing_r_id, drawing_path) = match existing {
+                Some((r_id, path))
+                    if is_sheet_drawing_part(&path) && !generated_paths.contains(&path) =>
+                {
+                    names.take(&path);
+                    (r_id, path)
+                }
+                Some((r_id, _)) => {
+                    let path = names.alloc("xl/drawings/drawing", ".xml");
+                    ws_rels.retain(|rel| rel.id != r_id);
+                    ws_rels.add(r_id.clone(), REL_DRAWING, target_from_xl_folder(&path));
+                    (r_id, path)
+                }
+                None => {
+                    let path = names.alloc_preferring("xl/drawings/drawing", sheet_num, ".xml");
+                    let r_id = make_rid(ws_rels.next_r_id());
+                    ws_rels.add(r_id.clone(), REL_DRAWING, target_from_xl_folder(&path));
+                    (r_id, path)
+                }
+            };
+            let drawing_rels_path = rels_path(&drawing_path);
+
+            // Create drawing .rels for this sheet's charts.
+            let mut drawing_rels = Relationships::new();
+            let mut chart_r_ids: Vec<String> = Vec::with_capacity(sheet.worksheet.charts.len());
+
+            for (ci, wsc) in sheet.worksheet.charts.iter().enumerate() {
+                // A chart with `raw_xml` comes back verbatim from `to_xml`.
+                let chart_xml = wsc.chart.to_xml()?;
+                let chart_path = names.alloc("xl/charts/chart", ".xml");
+
+                content_types.add_override(format!("/{chart_path}"), CT_CHART);
+
+                let rid = make_rid(ci + 1);
+                drawing_rels.add(rid.clone(), REL_CHART, target_from_xl_folder(&chart_path));
+                chart_r_ids.push(rid);
+
+                // Its .rels goes beside it at the new path; the targets are relative
+                // to xl/charts/, so they still resolve.
+                if let Some(ref raw_rels) = wsc.chart.raw_rels {
+                    collect_chart_part_types(
+                        &chart_path,
+                        raw_rels.as_bytes(),
+                        &mut chart_part_types,
+                    );
+                    let chart_rels_path = rels_path(&chart_path);
+                    generated_paths.insert(chart_rels_path.clone());
+                    entries.push(ZipEntry {
+                        name: chart_rels_path,
+                        data: raw_rels.as_bytes().to_vec(),
+                    });
+                }
+
+                generated_paths.insert(chart_path.clone());
+                entries.push(ZipEntry {
+                    name: chart_path,
+                    data: chart_xml,
+                });
+            }
+
+            // Generate drawing XML, then keep the pictures, shapes and other
+            // anchors of the drawing it replaces (`addImage` stores pictures as a
+            // preserved drawing at this path).
+            let mut drawing_xml =
+                ChartAnchor::generate_drawing_xml(&sheet.worksheet.charts, &chart_r_ids)?;
+            if let Some(preserved) = workbook.preserved_entries.get(&drawing_path) {
+                drawing_xml = merge_preserved_drawing(
+                    drawing_xml,
+                    &drawing_path,
+                    preserved,
+                    workbook
+                        .preserved_entries
+                        .get(&drawing_rels_path)
+                        .map(Vec::as_slice),
+                    &mut drawing_rels,
+                )?;
+            }
+
+            content_types.add_override(format!("/{drawing_path}"), CT_DRAWING);
+
+            entries.push(ZipEntry {
+                name: drawing_path.clone(),
+                data: drawing_xml,
+            });
+            entries.push(ZipEntry {
+                name: drawing_rels_path.clone(),
+                data: drawing_rels.to_xml()?,
+            });
+
+            // The preserved copies of both are superseded.
+            generated_paths.insert(drawing_path);
+            generated_paths.insert(drawing_rels_path);
+            drawing_r_id_str = Some(drawing_r_id);
+        }
+
+        // --- Preserved-only drawing (image-only sheets) ---
+        // `addImage` stores the drawing, its rels and the sheet rels as preserved
+        // entries, so a chart-free sheet reaches this point with no drawing rId even
+        // though its rels already point at one. Reference it from the worksheet XML,
+        // but only when the target is a preserved entry, looked up by key: a
+        // dangling rId makes Excel repair the file. A part generated at that
+        // path supersedes the entry and belongs to another owner (for a
+        // drawing, the earlier sheet the reader gave a shared drawing to), and
+        // Excel rejects two sheets on one drawing, so it is not referenced.
+        if drawing_r_id_str.is_none() {
+            let drawing_rel = ws_rels.find_by_type(REL_DRAWING).next().or_else(|| {
+                preserved_rels
+                    .as_ref()
+                    .and_then(|rels| rels.find_by_type(REL_DRAWING).next())
+            });
+            if let Some(rel) = drawing_rel {
+                let target = resolve_target(SHEET_PART, &rel.target);
+                if workbook.preserved_entries.contains_key(&target)
+                    && !generated_paths.contains(&target)
+                {
+                    drawing_r_id_str = Some(rel.id.clone());
+                }
+            }
+        }
+
+        // --- VML drawings ---
+        // The sheet's preserved VML drawings (notes and form controls, header
+        // and footer pictures) and their rels are kept, and the sheet XML
+        // names them: Excel rejects a sheet with notes and a <drawing> but no
+        // <legacyDrawing>. A sheet with comments (thread placeholders
+        // included) needs a note shape for each commented cell in the
+        // <legacyDrawing> one: a preserved drawing is
+        // merged with the comments (kept byte for byte when its notes match
+        // them, or when it cannot be merged), and without one a note drawing
+        // is generated. Only a VML drawing is named or merged
+        // (`is_vml_drawing`). A drawing shared by several sheets goes to the
+        // merge once, for the first sheet with comments that names it by
+        // <legacyDrawing> (`examined_vml`); each sheet that shares it names
+        // it, merged or as it is. The shapes added for legacy comments count
+        // toward `vml::MAX_GENERATED_NOTE_SHAPES` before the drawing is built
+        // (the shapes of thread placeholders were counted with them).
+        let (legacy_drawing_r_id, legacy_drawing_hf_r_id) = legacy_drawing_r_ids(
+            preserved_rels.as_ref().unwrap_or(&ws_rels),
+            workbook,
+            &generated_paths,
+            &merged_vml,
+            &mut vml_cell_anchored,
+        );
+        let legacy_drawing_hf_r_id = legacy_drawing_hf_r_id.map(str::to_owned);
+        let mut legacy_drawing_r_id = legacy_drawing_r_id.map(str::to_owned);
+        if has_comments {
+            // With comments the sheet's rels are `ws_rels` (`needs_rels`).
+            let preserved_vml = legacy_drawing_r_id
+                .as_deref()
+                .and_then(|r_id| ws_rels.get_by_id(r_id))
+                .map(|rel| resolve_target(SHEET_PART, &rel.target));
+            // The placeholders come last, each on a cell of its own that no
+            // legacy comment names: the last `placeholder_count` cells. A
+            // generated drawing has a shape for each legacy comment's cell,
+            // counted as the cells are found; a merge counts its own.
+            let legacy_count = sheet_comments.len() - placeholder_count;
+            let cells = vml::note_cells(
+                &sheet_comments,
+                if preserved_vml.is_none() {
+                    legacy_count
+                } else {
+                    0
+                },
+                &mut generated_notes,
+            )?;
+            if let Some(path) = preserved_vml {
+                // A drawing an earlier sheet examined is named as it is,
+                // merged or not.
+                let merged = if examined_vml.insert(path.clone())
+                    && let Some(vml) = workbook.preserved_entries.get(&path)
+                {
+                    vml::merge_note_drawing(
+                        vml,
+                        &path,
+                        &cells,
+                        placeholder_count,
+                        &mut generated_notes,
+                    )?
+                } else {
+                    None
+                };
+                if let Some(merged) = merged {
+                    // A generated part loses its preserved Override (step
+                    // 6c), and the vml Default covers only a `.vml` name.
+                    if !has_vml_extension(&path) {
+                        content_types.add_override(format!("/{path}"), CT_VML_DRAWING);
+                    }
+                    generated_paths.insert(path.clone());
+                    merged_vml.insert(path.clone());
+                    entries.push(ZipEntry {
+                        name: path,
+                        data: merged,
+                    });
+                }
+            } else if !cells.is_empty() {
+                let path = names.alloc_preferring("xl/drawings/vmlDrawing", sheet_num, ".vml");
+                let block = u32::try_from(sheet_num)
+                    .unwrap_or(u32::MAX)
+                    .max(next_vml_block);
+                let (vml, next_block) = vml::note_drawing(&cells, block);
+                next_vml_block = next_block;
+                let r_id = make_rid(ws_rels.next_r_id());
+                ws_rels.add(r_id.clone(), REL_VML_DRAWING, target_from_xl_folder(&path));
+                content_types.add_default("vml", CT_VML_DRAWING);
+                generated_paths.insert(path.clone());
+                entries.push(ZipEntry {
+                    name: path,
+                    data: vml,
+                });
+                legacy_drawing_r_id = Some(r_id);
+            }
+        }
+
+        // --- Worksheet XML (must come after table/chart/hyperlink rIds are computed) ---
+        let ws_xml = sheet.worksheet.to_xml_with_legacy_drawings(
+            Some(&sst_builder),
+            &table_r_ids,
+            drawing_r_id_str.as_deref(),
+            legacy_drawing_r_id.as_deref(),
+            legacy_drawing_hf_r_id.as_deref(),
+            &hyperlink_r_ids,
+        )?;
+        entries.push(ZipEntry {
+            name: format!("xl/worksheets/sheet{sheet_num}.xml"),
+            data: ws_xml,
+        });
+
+        // --- Comments (the sheet's own, then the thread placeholders) ---
+        if has_comments {
+            debug!(
+                "writing {} comments ({} thread placeholders) for sheet {}",
+                sheet_comments.len(),
+                placeholder_count,
+                sheet_num
+            );
+            let comments_xml = comments::write_comments(&sheet_comments)?;
+            let comments_path = names.alloc_preferring("xl/comments", sheet_num, ".xml");
+
+            content_types.add_override(format!("/{comments_path}"), CT_COMMENTS);
+
+            upsert_typed_rel(
+                &mut ws_rels,
+                REL_COMMENTS,
+                target_from_xl_folder(&comments_path),
+            );
+
+            generated_paths.insert(comments_path.clone());
+            entries.push(ZipEntry {
+                name: comments_path,
+                data: comments_xml,
+            });
+        }
+
+        // --- Threaded Comments ---
+        if has_threaded_comments {
+            debug!(
+                "writing {} threaded comments for sheet {}",
+                sheet.worksheet.threaded_comments.len(),
+                sheet_num
+            );
+            let tc_xml =
+                threaded_comments::write_threaded_comments(&sheet.worksheet.threaded_comments)?;
+            let tc_path =
+                names.alloc_preferring("xl/threadedComments/threadedComment", sheet_num, ".xml");
+
+            content_types.add_override(format!("/{tc_path}"), CT_THREADED_COMMENTS);
+
+            upsert_typed_rel(
+                &mut ws_rels,
+                REL_THREADED_COMMENTS,
+                target_from_xl_folder(&tc_path),
+            );
+
+            generated_paths.insert(tc_path.clone());
+            entries.push(ZipEntry {
+                name: tc_path,
+                data: tc_xml,
+            });
+        }
+
+        // --- Pivot Tables ---
+        if has_pivot_tables {
+            debug!(
+                "writing {} pivot tables for sheet {}",
+                sheet.worksheet.pivot_tables.len(),
+                sheet_num
+            );
+            for pt in &sheet.worksheet.pivot_tables {
+                // The cache the table's cacheId names (`pivot_cache_ids`
+                // checked that one does) completes a table built in code,
+                // and refreshes on open so Excel lays that table out.
+                let cache = pivot_cache(workbook, &pivot_cache_index, pt.cache_id);
+                if pt.has_axis_field_without_items() {
+                    refresh_on_load.insert(pt.cache_id);
+                }
+                let pt_xml = pt.to_xml_with_cache(cache, &mut pivot_added)?;
+                let pt_path = names.alloc("xl/pivotTables/pivotTable", ".xml");
+
+                content_types.add_override(format!("/{pt_path}"), CT_PIVOT_TABLE);
+
+                let rid_num = ws_rels.next_r_id();
+                ws_rels.add(
+                    make_rid(rid_num),
+                    REL_PIVOT_TABLE,
+                    target_from_xl_folder(&pt_path),
+                );
+
+                generated_paths.insert(pt_path.clone());
+                pivot_table_paths.push((pt_path.clone(), pt.cache_id));
+                entries.push(ZipEntry {
+                    name: pt_path,
+                    data: pt_xml,
+                });
+            }
+        }
+
+        // --- Slicers ---
+        if has_slicers {
+            debug!(
+                "writing {} slicers for sheet {}",
+                sheet.worksheet.slicers.len(),
+                sheet_num
+            );
+            let slicer_xml = slicers::write_slicers(&sheet.worksheet.slicers)?;
+            let slicer_path = names.alloc("xl/slicers/slicer", ".xml");
+
+            content_types.add_override(format!("/{slicer_path}"), CT_SLICER);
+
+            upsert_typed_rel(
+                &mut ws_rels,
+                REL_SLICER,
+                target_from_xl_folder(&slicer_path),
+            );
+
+            generated_paths.insert(slicer_path.clone());
+            entries.push(ZipEntry {
+                name: slicer_path,
+                data: slicer_xml,
+            });
+        }
+
+        // --- Timelines ---
+        if has_timelines {
+            debug!(
+                "writing {} timelines for sheet {}",
+                sheet.worksheet.timelines.len(),
+                sheet_num
+            );
+            let tl_xml = timelines::write_timelines(&sheet.worksheet.timelines)?;
+            let tl_path = names.alloc("xl/timelines/timeline", ".xml");
+
+            content_types.add_override(format!("/{tl_path}"), CT_TIMELINE);
+
+            upsert_typed_rel(&mut ws_rels, REL_TIMELINE, target_from_xl_folder(&tl_path));
+
+            generated_paths.insert(tl_path.clone());
+            entries.push(ZipEntry {
+                name: tl_path,
+                data: tl_xml,
+            });
+        }
+
+        // --- Write worksheet .rels ---
+        // The preserved copy is always superseded; a sheet left with no
+        // relationship (its last hyperlink removed) gets no rels part.
+        if needs_rels {
+            generated_paths.insert(sheet_rels_path.clone());
+            if !ws_rels.is_empty() {
+                entries.push(ZipEntry {
+                    name: sheet_rels_path,
+                    data: ws_rels.to_xml()?,
+                });
+            }
+        }
+    }
+
+    // 5b. Write workbook-level pivot caches, each listed in workbook.xml
+    // `<pivotCaches>` under its cacheId and workbook relationship. A cache
+    // with records names them by `r:id` (in its .rels, `rId1` unless a kept
+    // relationship holds it); one a table built in code uses refreshes on
+    // load.
+    let mut pivot_cache_refs: Vec<PivotCacheRef> = Vec::with_capacity(pivot_cache_ids.len());
+    let mut cache_paths: HashMap<u32, String> = HashMap::with_capacity(pivot_cache_ids.len());
+    for (ci, (cache, &cache_id)) in workbook
+        .pivot_caches
+        .iter()
+        .zip(&pivot_cache_ids)
+        .enumerate()
+    {
+        let part_num = ci + 1;
+        let records = workbook.pivot_cache_records.get(ci);
+        let records_r_id = records.map(|_| cache.records_r_id());
+        let cache_xml =
+            cache.write_xml(records_r_id.as_deref(), refresh_on_load.contains(&cache_id))?;
+        let cache_path = names.alloc("xl/pivotCache/pivotCacheDefinition", ".xml");
+        cache_paths.insert(cache_id, cache_path.clone());
+
+        content_types.add_override(format!("/{cache_path}"), CT_PIVOT_CACHE_DEF);
+
+        let r_id = make_rid(wb_rels.next_r_id());
+        wb_rels.add(
+            r_id.clone(),
+            REL_PIVOT_CACHE_DEF,
+            target_from_workbook(&cache_path).to_owned(),
+        );
+        pivot_cache_refs.push(PivotCacheRef { cache_id, r_id });
+        let cache_rels_path = rels_path(&cache_path);
+        generated_paths.insert(cache_path.clone());
+        entries.push(ZipEntry {
+            name: cache_path,
+            data: cache_xml,
+        });
+
+        // The definition's .rels: the relationships kept from the source
+        // under their own ids (its source names them by `r:id`), and the one
+        // to its records, in the same folder, when present.
+        let mut cache_rels = cache.kept_relationships();
+        if let Some((records, records_r_id)) = records.zip(records_r_id) {
+            let rec_xml = records.to_xml()?;
+            let rec_path =
+                names.alloc_preferring("xl/pivotCache/pivotCacheRecords", part_num, ".xml");
+
+            content_types.add_override(format!("/{rec_path}"), CT_PIVOT_CACHE_REC);
+
+            cache_rels.add(
+                records_r_id,
+                REL_PIVOT_CACHE_REC,
+                rec_path
+                    .rsplit_once('/')
+                    .map_or(rec_path.as_str(), |(_, file)| file)
+                    .to_owned(),
+            );
+
+            generated_paths.insert(rec_path.clone());
+            entries.push(ZipEntry {
+                name: rec_path,
+                data: rec_xml,
+            });
+        }
+        if !cache_rels.is_empty() {
+            entries.push(ZipEntry {
+                name: cache_rels_path.clone(),
+                data: cache_rels.to_xml()?,
+            });
+            generated_paths.insert(cache_rels_path);
+        }
+    }
+
+    // Each pivot table's .rels: rId1 to the definition of the cache its
+    // cacheId names (`pivot_cache_ids` checked that one does).
+    for (pt_path, cache_id) in &pivot_table_paths {
+        let Some(cache_path) = cache_paths.get(cache_id) else {
+            continue;
+        };
+        let file = cache_path
+            .rsplit_once('/')
+            .map_or(cache_path.as_str(), |(_, file)| file);
+        let mut pt_rels = Relationships::new();
+        pt_rels.add("rId1", REL_PIVOT_CACHE_DEF, format!("../pivotCache/{file}"));
+        let pt_rels_path = rels_path(pt_path);
+        entries.push(ZipEntry {
+            name: pt_rels_path.clone(),
+            data: pt_rels.to_xml()?,
+        });
+        generated_paths.insert(pt_rels_path);
+    }
+
+    // 5c. Write workbook-level persons list (for threaded comments). It
+    // supersedes a preserved copy (one the reader could not parse).
+    if !workbook.persons.is_empty() {
+        debug!("writing {} persons", workbook.persons.len());
+        let persons_xml = threaded_comments::write_persons(&workbook.persons)?;
+        let persons_path = "xl/persons/person.xml";
+
+        content_types.add_override(format!("/{persons_path}"), CT_PERSONS);
+
+        entries.push(ZipEntry {
+            name: persons_path.to_string(),
+            data: persons_xml,
+        });
+        generated_paths.insert(persons_path.to_owned());
+        wb_rels.add(
+            make_rid(wb_rels.next_r_id()),
+            REL_PERSONS,
+            "persons/person.xml",
+        );
+    }
+
+    // 5d. Write workbook-level slicer caches, each with its workbook
+    // relationship and Override. The x14 `slicerCaches` entry of the workbook
+    // `extLst` is not written.
+    for cache in &workbook.slicer_caches {
+        let cache_xml = cache.to_xml()?;
+        let cache_path = names.alloc("xl/slicerCaches/slicerCache", ".xml");
+
+        content_types.add_override(format!("/{cache_path}"), CT_SLICER_CACHE);
+        wb_rels.add(
+            make_rid(wb_rels.next_r_id()),
+            REL_SLICER_CACHE,
+            target_from_workbook(&cache_path).to_owned(),
+        );
+
+        generated_paths.insert(cache_path.clone());
+        entries.push(ZipEntry {
+            name: cache_path,
+            data: cache_xml,
+        });
+    }
+
+    // 5e. Write workbook-level timeline caches, each with its workbook
+    // relationship and Override. The x15 `timelineCacheRefs` entry of the
+    // workbook `extLst` is not written.
+    for cache in &workbook.timeline_caches {
+        let cache_xml = cache.to_xml()?;
+        let cache_path = names.alloc("xl/timelineCaches/timelineCache", ".xml");
+
+        content_types.add_override(format!("/{cache_path}"), CT_TIMELINE_CACHE);
+        wb_rels.add(
+            make_rid(wb_rels.next_r_id()),
+            REL_TIMELINE_CACHE,
+            target_from_workbook(&cache_path).to_owned(),
+        );
+
+        generated_paths.insert(cache_path.clone());
+        entries.push(ZipEntry {
+            name: cache_path,
+            data: cache_xml,
+        });
+    }
+
+    // 5f. Cell metadata (`<c cm>`): xl/metadata.xml needs its workbook
+    // relationship and Override. A preserved part keeps its bytes (appended in
+    // step 6); otherwise the dynamic-array part is generated when a cell
+    // carries cm.
+    let metadata_part = generated_metadata_part(workbook)?;
+    if metadata_part.is_some() || workbook.preserved_entries.contains_key(METADATA_PATH) {
+        if let Some(xml) = metadata_part {
+            entries.push(ZipEntry {
+                name: METADATA_PATH.to_owned(),
+                data: xml.as_bytes().to_vec(),
+            });
+        }
+        content_types.add_override(format!("/{METADATA_PATH}"), CT_SHEET_METADATA);
+        wb_rels.add(
+            make_rid(wb_rels.next_r_id()),
+            REL_SHEET_METADATA,
+            "metadata.xml",
+        );
+    }
+
+    // 5g. External links stay preserved entries (step 6); each gets a
+    // workbook relationship and an `<externalReference>`, in
+    // `external_link_order`: those `external_references` lists first, then the
+    // other preserved external link parts by number.
+    let external_references: Vec<String> = external_link_order(workbook)
+        .into_iter()
+        .map(|path| {
+            let r_id = make_rid(wb_rels.next_r_id());
+            wb_rels.add(
+                r_id.clone(),
+                REL_EXTERNAL_LINK,
+                target_from_workbook(path).to_owned(),
+            );
+            r_id
+        })
+        .collect();
+
+    // Custom XML data parts (`is_custom_xml_item`) also stay preserved entries
+    // (step 6); each gets a workbook relationship, in path order.
+    for path in workbook
+        .preserved_entries
+        .keys()
+        .filter(|path| is_custom_xml_item(path))
+    {
+        wb_rels.add(
+            make_rid(wb_rels.next_r_id()),
+            REL_CUSTOM_XML,
+            format!("../{path}"),
+        );
+    }
+
+    // 5h. workbook.xml and its .rels, now that every relationship it lists exists.
     let wb_xml = WorkbookXml {
         sheets: workbook
             .sheets
@@ -126,18 +1393,12 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         defined_names: workbook.defined_names.clone(),
         workbook_views: workbook.workbook_views.clone(),
         protection: workbook.protection.clone(),
+        calc_pr: workbook.calc_pr.clone(),
+        file_version: workbook.file_version.clone(),
+        workbook_pr: workbook.workbook_pr.clone(),
+        external_references,
+        pivot_caches: pivot_cache_refs,
     };
-
-    // 3. Assemble ZIP entries.
-    // NOTE: [Content_Types].xml is added last so we can append comment
-    // content-type overrides discovered while writing worksheets.
-    let preserved_count = workbook.preserved_entries.len();
-    let mut entries = Vec::with_capacity(10 + sheet_count * 3 + preserved_count);
-
-    entries.push(ZipEntry {
-        name: "_rels/.rels".to_string(),
-        data: root_rels.to_xml()?,
-    });
     entries.push(ZipEntry {
         name: "xl/workbook.xml".to_string(),
         data: wb_xml.to_xml()?,
@@ -146,612 +1407,39 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         name: "xl/_rels/workbook.xml.rels".to_string(),
         data: wb_rels.to_xml()?,
     });
-    entries.push(ZipEntry {
-        name: "xl/sharedStrings.xml".to_string(),
-        data: sst_builder.to_xml()?,
-    });
-    entries.push(ZipEntry {
-        name: "xl/styles.xml".to_string(),
-        data: workbook.styles.to_xml()?,
-    });
 
-    // 4a. Write document properties if present.
-    if let Some(ref props) = workbook.doc_properties {
-        if props.has_core() {
-            entries.push(ZipEntry {
-                name: "docProps/core.xml".to_string(),
-                data: props.to_core_xml()?,
-            });
-        }
-        if props.has_app() {
-            entries.push(ZipEntry {
-                name: "docProps/app.xml".to_string(),
-                data: props.to_app_xml()?,
-            });
+    // 6. Append preserved entries (drawings, media, charts, etc.), except those
+    // at a path in `generated_paths`, such as a worksheet .rels rebuilt with
+    // its merged relationships or a drawing merged with the sheet's charts.
+    // Every part written so far, and [Content_Types].xml (pushed in step 7),
+    // joins `generated_paths` first: a preserved entry the source package left
+    // unreferenced can sit at a name the writer generates (a worksheet part no
+    // `<sheet>` names, at the name of a sheet the writer numbers), and a ZIP
+    // holds each name once, so the generated part wins and the entry is
+    // dropped (here, and from the content types of steps 6b and 6c). OPC part
+    // names are equal ignoring ASCII case, so an entry gives way to a
+    // generated name in any letter case: one lookup of its lower-cased name
+    // per entry. A relationship that names the dropped spelling then resolves
+    // to the generated part.
+    for entry in &entries {
+        if !generated_paths.contains(&entry.name) {
+            generated_paths.insert(entry.name.clone());
         }
     }
-
-    // 4b. Write calculation chain if non-empty.
-    if !workbook.calc_chain.is_empty() {
-        entries.push(ZipEntry {
-            name: "xl/calcChain.xml".to_string(),
-            data: calc_chain::to_xml(&workbook.calc_chain)?,
-        });
-    }
-
-    // 5. Generate each worksheet, remapping SST indices inline during XML
-    // serialization (avoids cloning the entire worksheet).
-    // Also write comments XML, table XML, and worksheet .rels files.
-    let mut global_table_id: u32 = 0;
-    let mut global_chart_id: u32 = 0;
-    let mut global_pivot_id: u32 = 0;
-    let mut global_slicer_id: u32 = 0;
-    let mut global_timeline_id: u32 = 0;
-    let mut generated_rels: HashSet<String> = HashSet::with_capacity(sheet_count * 2);
-
-    for (i, sheet) in workbook.sheets.iter().enumerate() {
-        let sheet_num = i + 1;
-        let has_comments = !sheet.worksheet.comments.is_empty();
-        let has_tables = !sheet.worksheet.tables.is_empty();
-        let has_charts = !sheet.worksheet.charts.is_empty();
-        let has_pivot_tables = !sheet.worksheet.pivot_tables.is_empty();
-        let has_threaded_comments = !sheet.worksheet.threaded_comments.is_empty();
-        let has_slicers = !sheet.worksheet.slicers.is_empty();
-        let has_timelines = !sheet.worksheet.timelines.is_empty();
-        let needs_rels = has_comments
-            || has_tables
-            || has_charts
-            || has_pivot_tables
-            || has_threaded_comments
-            || has_slicers
-            || has_timelines;
-
-        // Build (or merge) the worksheet .rels when we need to add relationships.
-        let rels_path = format!("xl/worksheets/_rels/sheet{sheet_num}.xml.rels");
-        let mut ws_rels = if needs_rels {
-            if let Some(existing) = workbook.preserved_entries.get(&rels_path) {
-                Relationships::parse(existing)?
-            } else {
-                Relationships::new()
-            }
-        } else {
-            Relationships::new()
-        };
-
-        // --- Tables ---
-        let mut table_r_ids: Vec<String> = Vec::with_capacity(sheet.worksheet.tables.len());
-        if has_tables {
-            debug!(
-                "writing {} tables for sheet {}",
-                sheet.worksheet.tables.len(),
-                sheet_num
-            );
-            for table in &sheet.worksheet.tables {
-                global_table_id += 1;
-                let table_xml = table.to_xml()?;
-                let table_path = format!("xl/tables/table{global_table_id}.xml");
-
-                content_types.add_override(format!("/{table_path}"), CT_TABLE);
-
-                entries.push(ZipEntry {
-                    name: table_path,
-                    data: table_xml,
-                });
-
-                let rid_num = ws_rels.next_r_id();
-                let rid = make_rid(rid_num);
-                ws_rels.add(
-                    rid.clone(),
-                    REL_TABLE,
-                    format!("../tables/table{global_table_id}.xml"),
-                );
-                table_r_ids.push(rid);
-            }
-        }
-
-        // --- Charts ---
-        let mut drawing_r_id_str: Option<String> = None;
-        if has_charts {
-            debug!(
-                "writing {} charts for sheet {}",
-                sheet.worksheet.charts.len(),
-                sheet_num
-            );
-
-            // Create drawing .rels for this sheet's charts.
-            let mut drawing_rels = Relationships::new();
-            let mut chart_r_ids: Vec<String> = Vec::with_capacity(sheet.worksheet.charts.len());
-
-            for (ci, wsc) in sheet.worksheet.charts.iter().enumerate() {
-                global_chart_id += 1;
-                let chart_xml = wsc.chart.to_xml()?;
-                let chart_path = format!("xl/charts/chart{global_chart_id}.xml");
-
-                content_types.add_override(format!("/{chart_path}"), CT_CHART);
-
-                entries.push(ZipEntry {
-                    name: chart_path,
-                    data: chart_xml,
-                });
-
-                let rid = make_rid(ci + 1);
-                drawing_rels.add(
-                    rid.clone(),
-                    REL_CHART,
-                    format!("../charts/chart{global_chart_id}.xml"),
-                );
-                chart_r_ids.push(rid);
-            }
-
-            // Generate drawing XML.
-            let mut drawing_xml =
-                ChartAnchor::generate_drawing_xml(&sheet.worksheet.charts, &chart_r_ids)?;
-            let drawing_path = format!("xl/drawings/drawing{sheet_num}.xml");
-            let drawing_rels_path =
-                format!("xl/drawings/_rels/drawing{sheet_num}.xml.rels");
-
-            // --- Merge image anchors from preserved entries (barcode/image collision fix) ---
-            // When a worksheet has BOTH charts AND images, the image drawing XML
-            // is stored in preserved_entries at the same drawing path. We need to
-            // merge image <xdr:twoCellAnchor> blocks (containing <xdr:pic>) into
-            // the chart drawing XML, and merge image rels with remapped rIds.
-            if let Some(image_drawing_data) = workbook.preserved_entries.get(&drawing_path) {
-                let image_drawing_str = std::str::from_utf8(image_drawing_data)
-                    .unwrap_or_default();
-
-                // Extract image anchor blocks from preserved drawing XML.
-                // Each image anchor is a <xdr:twoCellAnchor ...>...</xdr:twoCellAnchor> block.
-                let image_anchors = extract_anchors_from_drawing(image_drawing_str);
-
-                if !image_anchors.is_empty() {
-                    debug!(
-                        "merging {} image anchors into chart drawing for sheet {}",
-                        image_anchors.len(),
-                        sheet_num
-                    );
-
-                    // Parse preserved image drawing rels to get image rId mappings.
-                    let image_rels = if let Some(image_rels_data) =
-                        workbook.preserved_entries.get(&drawing_rels_path)
-                    {
-                        Relationships::parse(image_rels_data)?
-                    } else {
-                        Relationships::new()
-                    };
-
-                    // Compute the next available rId number from actual rels (resilient
-                    // to future changes in chart rId numbering scheme).
-                    let base_rid = drawing_rels.next_r_id();
-
-                    // Build a rId remapping: old image rId -> new rId in merged drawing.
-                    let mut rid_remap: Vec<(String, String)> = Vec::with_capacity(image_rels.relationships.len());
-                    for (rid_num, rel) in (base_rid..).zip(image_rels.relationships.iter()) {
-                        let new_rid = make_rid(rid_num);
-                        rid_remap.push((rel.id.clone(), new_rid.clone()));
-                        drawing_rels.add(
-                            new_rid,
-                            rel.rel_type.clone(),
-                            rel.target.clone(),
-                        );
-                    }
-
-                    // Remap rId references in the image anchor XML fragments and
-                    // insert them before </xdr:wsDr> in the chart drawing XML.
-                    let anchor_capacity: usize = image_anchors.iter().map(std::string::String::len).sum();
-                    let mut remapped_anchors = String::with_capacity(anchor_capacity);
-                    for anchor_xml in &image_anchors {
-                        let mut remapped = anchor_xml.clone();
-                        for (old_rid, new_rid) in &rid_remap {
-                            // Replace r:embed="rIdN" references in blipFill.
-                            remapped = remapped.replace(
-                                &format!("r:embed=\"{old_rid}\""),
-                                &format!("r:embed=\"{new_rid}\""),
-                            );
-                            // Also handle r:link if present.
-                            remapped = remapped.replace(
-                                &format!("r:link=\"{old_rid}\""),
-                                &format!("r:link=\"{new_rid}\""),
-                            );
-                        }
-                        remapped_anchors.push_str(&remapped);
-                    }
-
-                    // Splice image anchors into chart drawing XML before </xdr:wsDr>.
-                    let drawing_str = std::str::from_utf8(&drawing_xml).unwrap_or_default();
-                    if let Some(close_pos) = drawing_str.rfind("</xdr:wsDr>") {
-                        let mut merged = String::with_capacity(
-                            drawing_str.len() + remapped_anchors.len(),
-                        );
-                        merged.push_str(&drawing_str[..close_pos]);
-                        merged.push_str(&remapped_anchors);
-                        merged.push_str("</xdr:wsDr>");
-                        drawing_xml = merged.into_bytes();
-                    }
-                }
-            }
-
-            content_types.add_override(format!("/{drawing_path}"), CT_DRAWING);
-
-            entries.push(ZipEntry {
-                name: drawing_path.clone(),
-                data: drawing_xml,
-            });
-            entries.push(ZipEntry {
-                name: drawing_rels_path.clone(),
-                data: drawing_rels.to_xml()?,
-            });
-
-            // Track generated paths to skip in preserved entries.
-            generated_rels.insert(drawing_path);
-            generated_rels.insert(drawing_rels_path);
-
-            // Add drawing relationship to worksheet .rels — but only if one
-            // does not already exist (addImage may have already added one via
-            // preserved entries that were parsed into ws_rels above).
-            if let Some(existing) = ws_rels.find_by_type(REL_DRAWING).next() {
-                // Reuse the existing drawing rId from preserved entries.
-                drawing_r_id_str = Some(existing.id.clone());
-            } else {
-                let rid_num = ws_rels.next_r_id();
-                let rid_str = make_rid(rid_num);
-                ws_rels.add(
-                    rid_str.clone(),
-                    REL_DRAWING,
-                    format!("../drawings/drawing{sheet_num}.xml"),
-                );
-                drawing_r_id_str = Some(rid_str);
-            }
-        }
-
-        // --- Worksheet XML (must come after table/chart rIds are computed) ---
-        let ws_xml = sheet.worksheet.to_xml_with_sst(
-            Some(&sst_builder),
-            &table_r_ids,
-            drawing_r_id_str.as_deref(),
-        )?;
-        entries.push(ZipEntry {
-            name: format!("xl/worksheets/sheet{sheet_num}.xml"),
-            data: ws_xml,
-        });
-
-        // --- Comments ---
-        if has_comments {
-            debug!(
-                "writing {} comments for sheet {}",
-                sheet.worksheet.comments.len(),
-                sheet_num
-            );
-            let comments_xml = comments::write_comments(&sheet.worksheet.comments)?;
-            let comments_path = format!("xl/comments{sheet_num}.xml");
-
-            content_types.add_override(format!("/{comments_path}"), CT_COMMENTS);
-
-            entries.push(ZipEntry {
-                name: comments_path,
-                data: comments_xml,
-            });
-
-            // Only add the comments relationship if not already present.
-            if ws_rels.find_by_type(REL_COMMENTS).next().is_none() {
-                let rid_num = ws_rels.next_r_id();
-                ws_rels.add(
-                    make_rid(rid_num),
-                    REL_COMMENTS,
-                    format!("../comments{sheet_num}.xml"),
-                );
-            }
-        }
-
-        // --- Threaded Comments ---
-        if has_threaded_comments {
-            debug!(
-                "writing {} threaded comments for sheet {}",
-                sheet.worksheet.threaded_comments.len(),
-                sheet_num
-            );
-            let tc_xml =
-                threaded_comments::write_threaded_comments(&sheet.worksheet.threaded_comments)?;
-            let tc_path = format!("xl/threadedComments/threadedComment{sheet_num}.xml");
-
-            content_types.add_override(format!("/{tc_path}"), CT_THREADED_COMMENTS);
-
-            entries.push(ZipEntry {
-                name: tc_path,
-                data: tc_xml,
-            });
-
-            // Only add the threaded comments relationship if not already present.
-            if ws_rels.find_by_type(REL_THREADED_COMMENTS).next().is_none() {
-                let rid_num = ws_rels.next_r_id();
-                ws_rels.add(
-                    make_rid(rid_num),
-                    REL_THREADED_COMMENTS,
-                    format!("../threadedComments/threadedComment{sheet_num}.xml"),
-                );
-            }
-        }
-
-        // --- Pivot Tables ---
-        if has_pivot_tables {
-            debug!(
-                "writing {} pivot tables for sheet {}",
-                sheet.worksheet.pivot_tables.len(),
-                sheet_num
-            );
-            for pt in &sheet.worksheet.pivot_tables {
-                global_pivot_id += 1;
-                let pt_xml = pt.to_xml()?;
-                let pt_path = format!("xl/pivotTables/pivotTable{global_pivot_id}.xml");
-
-                content_types.add_override(format!("/{pt_path}"), CT_PIVOT_TABLE);
-
-                entries.push(ZipEntry {
-                    name: pt_path,
-                    data: pt_xml,
-                });
-
-                let rid_num = ws_rels.next_r_id();
-                ws_rels.add(
-                    make_rid(rid_num),
-                    REL_PIVOT_TABLE,
-                    format!("../pivotTables/pivotTable{global_pivot_id}.xml"),
-                );
-            }
-        }
-
-        // --- Slicers ---
-        if has_slicers {
-            global_slicer_id += 1;
-            debug!(
-                "writing {} slicers for sheet {}",
-                sheet.worksheet.slicers.len(),
-                sheet_num
-            );
-            let slicer_xml = slicers::write_slicers(&sheet.worksheet.slicers)?;
-            let slicer_path = format!("xl/slicers/slicer{global_slicer_id}.xml");
-
-            content_types.add_override(format!("/{slicer_path}"), CT_SLICER);
-
-            entries.push(ZipEntry {
-                name: slicer_path,
-                data: slicer_xml,
-            });
-
-            if ws_rels.find_by_type(REL_SLICER).next().is_none() {
-                let rid_num = ws_rels.next_r_id();
-                ws_rels.add(
-                    make_rid(rid_num),
-                    REL_SLICER,
-                    format!("../slicers/slicer{global_slicer_id}.xml"),
-                );
-            }
-        }
-
-        // --- Timelines ---
-        if has_timelines {
-            global_timeline_id += 1;
-            debug!(
-                "writing {} timelines for sheet {}",
-                sheet.worksheet.timelines.len(),
-                sheet_num
-            );
-            let tl_xml = timelines::write_timelines(&sheet.worksheet.timelines)?;
-            let tl_path = format!("xl/timelines/timeline{global_timeline_id}.xml");
-
-            content_types.add_override(format!("/{tl_path}"), CT_TIMELINE);
-
-            entries.push(ZipEntry {
-                name: tl_path,
-                data: tl_xml,
-            });
-
-            if ws_rels.find_by_type(REL_TIMELINE).next().is_none() {
-                let rid_num = ws_rels.next_r_id();
-                ws_rels.add(
-                    make_rid(rid_num),
-                    REL_TIMELINE,
-                    format!("../timelines/timeline{global_timeline_id}.xml"),
-                );
-            }
-        }
-
-        // --- Write worksheet .rels ---
-        if needs_rels {
-            generated_rels.insert(rels_path.clone());
-            entries.push(ZipEntry {
-                name: rels_path,
-                data: ws_rels.to_xml()?,
-            });
-        }
-    }
-
-    // 5b. Write workbook-level pivot caches.
-    {
-        let mut wb_rels_extra = Relationships::new();
-
-        for (ci, cache) in workbook.pivot_caches.iter().enumerate() {
-            let cache_id = ci + 1;
-            let cache_xml = cache.to_xml()?;
-            let cache_path = format!("xl/pivotCache/pivotCacheDefinition{cache_id}.xml");
-
-            content_types.add_override(format!("/{cache_path}"), CT_PIVOT_CACHE_DEF);
-
-            entries.push(ZipEntry {
-                name: cache_path.clone(),
-                data: cache_xml,
-            });
-
-            wb_rels_extra.add(
-                make_prefixed_rid("rId_pc", cache_id),
-                REL_PIVOT_CACHE_DEF,
-                format!("pivotCache/pivotCacheDefinition{cache_id}.xml"),
-            );
-
-            // Write corresponding records if present.
-            if let Some(records) = workbook.pivot_cache_records.get(ci) {
-                let rec_xml = records.to_xml()?;
-                let rec_path = format!("xl/pivotCache/pivotCacheRecords{cache_id}.xml");
-
-                content_types.add_override(format!("/{rec_path}"), CT_PIVOT_CACHE_REC);
-
-                entries.push(ZipEntry {
-                    name: rec_path,
-                    data: rec_xml,
-                });
-
-                // Write cache definition .rels pointing to the records file.
-                let mut cache_rels = Relationships::new();
-                cache_rels.add(
-                    "rId1",
-                    REL_PIVOT_CACHE_REC,
-                    format!("pivotCacheRecords{cache_id}.xml"),
-                );
-                let cache_rels_path = format!(
-                    "xl/pivotCache/_rels/pivotCacheDefinition{cache_id}.xml.rels"
-                );
-                entries.push(ZipEntry {
-                    name: cache_rels_path.clone(),
-                    data: cache_rels.to_xml()?,
-                });
-                generated_rels.insert(cache_rels_path);
-            }
-
-            generated_rels.insert(cache_path);
-        }
-
-        // Merge pivot cache rels into the workbook .rels entry.
-        if !wb_rels_extra.relationships.is_empty() {
-            // Find the existing wb_rels entry and append pivot cache relationships.
-            if let Some(entry) = entries.iter_mut().find(|e| e.name == "xl/_rels/workbook.xml.rels")
-            {
-                let mut existing_wb_rels = Relationships::parse(&entry.data)?;
-                for rel in &wb_rels_extra.relationships {
-                    existing_wb_rels.add(
-                        make_rid(existing_wb_rels.next_r_id()),
-                        rel.rel_type.clone(),
-                        rel.target.clone(),
-                    );
-                }
-                entry.data = existing_wb_rels.to_xml()?;
-            }
-        }
-    }
-
-    // 5c. Write workbook-level persons list (for threaded comments).
-    if !workbook.persons.is_empty() {
-        debug!("writing {} persons", workbook.persons.len());
-        let persons_xml = threaded_comments::write_persons(&workbook.persons)?;
-        let persons_path = "xl/persons/person.xml";
-
-        content_types.add_override(format!("/{persons_path}"), CT_PERSONS);
-
-        entries.push(ZipEntry {
-            name: persons_path.to_string(),
-            data: persons_xml,
-        });
-
-        // Add persons relationship to workbook .rels.
-        if let Some(entry) = entries.iter_mut().find(|e| e.name == "xl/_rels/workbook.xml.rels")
-        {
-            let mut existing_wb_rels = Relationships::parse(&entry.data)?;
-            let rid_num = existing_wb_rels.next_r_id();
-            existing_wb_rels.add(
-                make_rid(rid_num),
-                REL_PERSONS,
-                "persons/person.xml",
-            );
-            entry.data = existing_wb_rels.to_xml()?;
-        }
-    }
-
-    // 5d. Write workbook-level slicer caches.
-    if !workbook.slicer_caches.is_empty() {
-        let mut wb_rels_extra = Relationships::new();
-
-        for (ci, cache) in workbook.slicer_caches.iter().enumerate() {
-            let cache_id = ci + 1;
-            let cache_xml = cache.to_xml()?;
-            let cache_path = format!("xl/slicerCaches/slicerCache{cache_id}.xml");
-
-            content_types.add_override(format!("/{cache_path}"), CT_SLICER_CACHE);
-
-            entries.push(ZipEntry {
-                name: cache_path.clone(),
-                data: cache_xml,
-            });
-
-            wb_rels_extra.add(
-                make_prefixed_rid("rId_sc", cache_id),
-                REL_SLICER_CACHE,
-                format!("slicerCaches/slicerCache{cache_id}.xml"),
-            );
-
-            generated_rels.insert(cache_path);
-        }
-
-        if !wb_rels_extra.relationships.is_empty()
-            && let Some(entry) =
-                entries.iter_mut().find(|e| e.name == "xl/_rels/workbook.xml.rels")
-        {
-            let mut existing_wb_rels = Relationships::parse(&entry.data)?;
-            for rel in &wb_rels_extra.relationships {
-                existing_wb_rels.add(
-                    make_rid(existing_wb_rels.next_r_id()),
-                    rel.rel_type.clone(),
-                    rel.target.clone(),
-                );
-            }
-            entry.data = existing_wb_rels.to_xml()?;
-        }
-    }
-
-    // 5e. Write workbook-level timeline caches.
-    if !workbook.timeline_caches.is_empty() {
-        let mut wb_rels_extra = Relationships::new();
-
-        for (ci, cache) in workbook.timeline_caches.iter().enumerate() {
-            let cache_id = ci + 1;
-            let cache_xml = cache.to_xml()?;
-            let cache_path = format!("xl/timelineCaches/timelineCache{cache_id}.xml");
-
-            content_types.add_override(format!("/{cache_path}"), CT_TIMELINE_CACHE);
-
-            entries.push(ZipEntry {
-                name: cache_path.clone(),
-                data: cache_xml,
-            });
-
-            wb_rels_extra.add(
-                make_prefixed_rid("rId_tc", cache_id),
-                REL_TIMELINE_CACHE,
-                format!("timelineCaches/timelineCache{cache_id}.xml"),
-            );
-
-            generated_rels.insert(cache_path);
-        }
-
-        if !wb_rels_extra.relationships.is_empty()
-            && let Some(entry) =
-                entries.iter_mut().find(|e| e.name == "xl/_rels/workbook.xml.rels")
-        {
-            let mut existing_wb_rels = Relationships::parse(&entry.data)?;
-            for rel in &wb_rels_extra.relationships {
-                existing_wb_rels.add(
-                    make_rid(existing_wb_rels.next_r_id()),
-                    rel.rel_type.clone(),
-                    rel.target.clone(),
-                );
-            }
-            entry.data = existing_wb_rels.to_xml()?;
-        }
-    }
-
-    // 6. Append preserved entries (drawings, media, charts, etc.)
-    // Skip worksheet .rels files that we already generated for comments/tables,
-    // to avoid duplicate entries in the ZIP.
+    generated_paths.insert(CONTENT_TYPES_PATH.to_owned());
+    let generated_lower: HashSet<String> = generated_paths
+        .iter()
+        .map(|path| path.to_ascii_lowercase())
+        .collect();
+    // The entries dropped for a generated name in another letter case.
+    let mut case_dropped: HashSet<&str> = HashSet::new();
     for (path, data) in &workbook.preserved_entries {
-        if generated_rels.contains(path) {
-            // Already written with comments/table relationships merged in.
+        if generated_paths.contains(path) {
+            continue;
+        }
+        if generated_lower.contains(&path.to_ascii_lowercase()) {
+            debug!("preserved entry {path} gives way to a generated part of that name");
+            case_dropped.insert(path.as_str());
             continue;
         }
         trace!("writing preserved ZIP entry: {path}");
@@ -761,38 +1449,81 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         });
     }
 
+    // A chart part left preserved keeps its .rels preserved beside it; the
+    // parts it names are typed like those of the written charts.
+    for (path, data) in &workbook.preserved_entries {
+        if let Some(file) = path
+            .strip_prefix("xl/charts/_rels/")
+            .and_then(|file| file.strip_suffix(".rels"))
+            && !generated_paths.contains(path)
+            && !case_dropped.contains(path.as_str())
+        {
+            collect_chart_part_types(&format!("xl/charts/{file}"), data, &mut chart_part_types);
+        }
+    }
+
     // 6b. Auto-detect content types from preserved entries.
-    // Images need extension defaults; drawings need part overrides.
+    // Media, VML and embedded OOXML packages need extension Defaults,
+    // registered under the lowercased extension (OPC matches extensions
+    // case-insensitively, so `PNG` and `png` would be one duplicated Default);
+    // other parts need Overrides.
+    // A part a chart .rels names takes the type that relationship implies. A
+    // userShapes part is usually named like a sheet drawing
+    // (`xl/drawings/drawing{n}.xml`) but takes the chartshapes type; it is always a
+    // preserved entry, which `PartNames` never hands to a generated sheet drawing.
     for path in workbook.preserved_entries.keys() {
-        if let Some(ext) = path.rsplit('.').next() {
-            match ext {
-                "png" => { content_types.add_default("png", "image/png"); }
-                "jpeg" | "jpg" => { content_types.add_default("jpeg", "image/jpeg"); }
-                "gif" => { content_types.add_default("gif", "image/gif"); }
-                "emf" => { content_types.add_default("emf", "image/x-emf"); }
-                "wmf" => { content_types.add_default("wmf", "image/x-wmf"); }
-                _ => {}
+        if case_dropped.contains(path.as_str()) {
+            continue;
+        }
+        let file_name = path
+            .rsplit_once('/')
+            .map_or(path.as_str(), |(_, name)| name);
+        if let Some((_, ext)) = file_name.rsplit_once('.') {
+            let ext = ext.to_ascii_lowercase();
+            let content_type = match ext.as_str() {
+                "png" => Some("image/png"),
+                "jpg" | "jpeg" => Some("image/jpeg"),
+                "gif" => Some("image/gif"),
+                "emf" => Some("image/x-emf"),
+                "wmf" => Some("image/x-wmf"),
+                "svg" => Some("image/svg+xml"),
+                "bmp" => Some("image/bmp"),
+                "tif" | "tiff" => Some("image/tiff"),
+                "wdp" => Some(CT_HD_PHOTO),
+                "vml" => Some(CT_VML_DRAWING),
+                "xlsx" => Some(CT_XLSX_PACKAGE),
+                "docx" => Some(CT_DOCX_PACKAGE),
+                "pptx" => Some(CT_PPTX_PACKAGE),
+                _ => None,
+            };
+            if let Some(content_type) = content_type {
+                content_types.add_default(ext, content_type);
             }
         }
-        if path.starts_with("xl/drawings/drawing") && path.ends_with(".xml") {
-            content_types.add_override(
-                format!("/{path}"),
-                "application/vnd.openxmlformats-officedocument.drawing+xml",
-            );
+        if path.starts_with("xl/printerSettings/") && path.ends_with(".bin") {
+            content_types.add_override(format!("/{path}"), CT_PRINTER_SETTINGS);
         }
-        if path.starts_with("xl/charts/chart") && path.ends_with(".xml") {
-            content_types.add_override(
-                format!("/{path}"),
-                "application/vnd.openxmlformats-officedocument.drawingml.chart+xml",
-            );
+        if path.starts_with("xl/embeddings/") && path.ends_with(".bin") {
+            content_types.add_override(format!("/{path}"), CT_OLE_OBJECT);
+        }
+        if let Some(&content_type) = chart_part_types.get(path)
+            && !generated_paths.contains(path)
+        {
+            content_types.add_override(format!("/{path}"), content_type);
+        } else if path.starts_with("xl/drawings/drawing") && path.ends_with(".xml") {
+            content_types.add_override(format!("/{path}"), CT_DRAWING);
+        }
+        if path.starts_with("xl/charts/chartEx") && path.ends_with(".xml") {
+            content_types.add_override(format!("/{path}"), CT_CHART_EX);
+        } else if path.starts_with("xl/charts/chart") && path.ends_with(".xml") {
+            content_types.add_override(format!("/{path}"), CT_CHART);
         }
         // External links
-        if path.starts_with("xl/externalLinks/externalLink") && path.ends_with(".xml") {
+        if is_external_link(path) {
             content_types.add_override(format!("/{path}"), CT_EXTERNAL_LINK);
         }
         // Custom XML items (plain XML, exclude itemProps files)
-        if path.starts_with("customXml/item") && path.ends_with(".xml") && !path.contains("Props")
-        {
+        if path.starts_with("customXml/item") && path.ends_with(".xml") && !path.contains("Props") {
             content_types.add_override(format!("/{path}"), CT_XML);
         }
         // Custom XML properties
@@ -801,9 +1532,34 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
         }
     }
 
-    // 7. Write [Content_Types].xml (must be first entry in the ZIP archive).
+    // 6c. The content type the source package declared for a preserved part
+    // (`preserved_content_types`) wins over the rules above, as an Override,
+    // unless the Default for its extension already gives that type; an
+    // Override set above is then kept. A part the writer generated at that
+    // path, and a `.rels`, keep their own type.
+    for (path, content_type) in &workbook.preserved_content_types {
+        if !workbook.preserved_entries.contains_key(path)
+            || generated_paths.contains(path)
+            || case_dropped.contains(path.as_str())
+            || path.ends_with(".rels")
+        {
+            continue;
+        }
+        let file_name = path
+            .rsplit_once('/')
+            .map_or(path.as_str(), |(_, name)| name);
+        let by_default = file_name.rsplit_once('.').is_some_and(|(_, ext)| {
+            content_types.defaults.get(&ext.to_ascii_lowercase()) == Some(content_type)
+        });
+        if !by_default {
+            content_types.add_override(format!("/{path}"), content_type.clone());
+        }
+    }
+
+    // 7. Write [Content_Types].xml, now that every Default and Override is
+    // known, and rotate it to be the first entry of the ZIP archive.
     entries.push(ZipEntry {
-        name: "[Content_Types].xml".to_string(),
+        name: CONTENT_TYPES_PATH.to_owned(),
         data: content_types.to_xml()?,
     });
     entries.rotate_right(1);
@@ -821,8 +1577,11 @@ pub fn write_xlsx(workbook: &WorkbookData) -> Result<Vec<u8>> {
 /// an OLE2 compound document containing `EncryptionInfo` and `EncryptedPackage`
 /// streams.
 ///
-/// The output is compatible with Microsoft Excel, LibreOffice, and our own
-/// `read_xlsx_json_with_password` / `readBuffer(data, { password })` read path.
+/// The encryption is [`crate::ole2::crypto::encrypt_file`]: Agile Encryption
+/// with SHA-512, a 256-bit AES key and 100,000 spin-count rounds. The output
+/// reads back through [`crate::reader::read_xlsx_json_with_password`], and
+/// msoffcrypto-tool decrypts `encrypt_file` output in the ignored test of
+/// `tests/interop/main.rs`, which the CI job `encryption-oracle` runs.
 #[cfg(feature = "encryption")]
 pub fn write_xlsx_with_password(workbook: &WorkbookData, password: &str) -> Result<Vec<u8>> {
     let zip_bytes = write_xlsx(workbook)?;
@@ -830,35 +1589,417 @@ pub fn write_xlsx_with_password(workbook: &WorkbookData, password: &str) -> Resu
 }
 
 // ---------------------------------------------------------------------------
-// Drawing merge helpers
+// Part naming and drawing merge helpers
 // ---------------------------------------------------------------------------
 
-/// Extract all `<xdr:twoCellAnchor ...>...</xdr:twoCellAnchor>` blocks from
-/// a drawing XML string. Used to merge image anchors into chart drawing XML
-/// when both images and charts exist on the same worksheet.
-/// NOTE: Input is always machine-generated XML from TypeScript `generateDrawingXml`
-/// (barcode.ts), which produces clean, predictable output. This function is not
-/// designed for arbitrary third-party XML with CDATA, comments, or non-prefixed
-/// namespace declarations.
-fn extract_anchors_from_drawing(drawing_xml: &str) -> Vec<String> {
-    let mut anchors = Vec::with_capacity(4);
-    // Extract all three OOXML anchor types to prevent silent data loss.
-    for tag in &["xdr:twoCellAnchor", "xdr:oneCellAnchor", "xdr:absoluteAnchor"] {
-        let tag_open = format!("<{tag}");
-        let tag_close = format!("</{tag}>");
-        let mut search_start = 0;
-        while let Some(open_pos) = drawing_xml[search_start..].find(&*tag_open) {
-            let abs_open = search_start + open_pos;
-            if let Some(close_pos) = drawing_xml[abs_open..].find(&*tag_close) {
-                let abs_close = abs_open + close_pos + tag_close.len();
-                anchors.push(drawing_xml[abs_open..abs_close].to_string());
-                search_start = abs_close;
-            } else {
-                break;
-            }
+/// The content type of the part a chart relationship of `rel_type` targets,
+/// for the types whose part the writer must declare by Override.
+fn chart_part_content_type(rel_type: &str) -> Option<&'static str> {
+    match rel_type {
+        REL_CHART_USER_SHAPES => Some(CT_CHART_SHAPES),
+        REL_CHART_STYLE => Some(CT_CHART_STYLE),
+        REL_CHART_COLOR_STYLE => Some(CT_CHART_COLOR_STYLE),
+        _ => None,
+    }
+}
+
+/// Adds to `out` the ZIP path and content type of every part with a
+/// [`chart_part_content_type`] (user shapes, style, colour style) that `rels`,
+/// the .rels of the chart at `chart_path`, names. A malformed .rels names none.
+fn collect_chart_part_types(
+    chart_path: &str,
+    rels: &[u8],
+    out: &mut HashMap<String, &'static str>,
+) {
+    match Relationships::parse(rels) {
+        Ok(rels) => out.extend(rels.iter().filter_map(|rel| {
+            chart_part_content_type(&rel.rel_type)
+                .map(|content_type| (resolve_target(chart_path, &rel.target), content_type))
+        })),
+        Err(e) => {
+            cold_path();
+            warn!("{chart_path} .rels: {e}; the parts it names are not typed");
         }
     }
-    anchors
+}
+
+/// The relationship target of the `xl/` part at `path` from a part in another
+/// folder directly under `xl/` (a worksheet, a drawing): `../charts/chart1.xml`.
+fn target_from_xl_folder(path: &str) -> String {
+    format!("../{}", target_from_workbook(path))
+}
+
+/// The relationship target of the `xl/` part at `path` from `xl/workbook.xml`:
+/// the path without `xl/`.
+fn target_from_workbook(path: &str) -> &str {
+    path.strip_prefix("xl/").unwrap_or(path)
+}
+
+/// The part names one write has taken, and for each `{prefix}{n}{ext}` family
+/// the number where the next free-name search resumes.
+///
+/// `used` holds ASCII-lowercased names, because OPC part names are equal
+/// ignoring ASCII case while the ZIP writer rejects only byte-identical
+/// duplicates. It starts as the preserved entries and only grows: no name is
+/// released during a write.
+///
+/// Invariant: for every `(prefix, ext)` in `next`, each `n` in
+/// `1..next[(prefix, ext)]` makes a name in `used`. [`Self::alloc`] moves a
+/// cursor only past numbers it found taken or took itself, and as nothing
+/// leaves `used`, the numbers below a cursor stay taken whatever
+/// [`Self::alloc_preferring`] or [`Self::take`] adds later, above the cursor
+/// or not. So the first free number at or above the cursor is the first free
+/// number from 1: `alloc` returns the name a search from 1 would, and over a
+/// whole write each family costs one probe per allocated or taken name rather
+/// than one per earlier name on every call.
+struct PartNames {
+    used: HashSet<String>,
+    next: HashMap<(&'static str, &'static str), usize>,
+}
+
+impl PartNames {
+    /// Starts from the names already `taken` (the preserved entries).
+    fn new<S: AsRef<str>>(taken: impl IntoIterator<Item = S>) -> Self {
+        Self {
+            used: taken
+                .into_iter()
+                .map(|name| name.as_ref().to_ascii_lowercase())
+                .collect(),
+            next: HashMap::new(),
+        }
+    }
+
+    /// Marks `name` taken (a part kept at a path of its own).
+    fn take(&mut self, name: &str) {
+        self.used.insert(name.to_ascii_lowercase());
+    }
+
+    /// Claims the part name `{prefix}{n}{ext}` when it is free.
+    fn claim(&mut self, prefix: &str, n: usize, ext: &str) -> Option<String> {
+        let mut name = String::with_capacity(prefix.len() + 20 + ext.len());
+        name.push_str(prefix);
+        name.push_str(itoa::Buffer::new().format(n));
+        name.push_str(ext);
+        self.used.insert(name.to_ascii_lowercase()).then_some(name)
+    }
+
+    /// Allocates the first part name `{prefix}{n}{ext}` (`n` from 1) not
+    /// taken and marks it taken, so a generated part never collides with a
+    /// preserved entry or another generated part. The search starts at the
+    /// family's cursor (see the invariant on [`PartNames`]).
+    fn alloc(&mut self, prefix: &'static str, ext: &'static str) -> String {
+        let mut n = self.next.get(&(prefix, ext)).copied().unwrap_or(1);
+        loop {
+            if let Some(name) = self.claim(prefix, n, ext) {
+                self.next.insert((prefix, ext), n + 1);
+                return name;
+            }
+            n += 1;
+        }
+    }
+
+    /// Like [`Self::alloc`], but takes `{prefix}{preferred}{ext}` when it is
+    /// free, so a part numbered after its sheet or cache (`comments2.xml` for
+    /// sheet 2) keeps that name whenever nothing collides with it.
+    fn alloc_preferring(
+        &mut self,
+        prefix: &'static str,
+        preferred: usize,
+        ext: &'static str,
+    ) -> String {
+        self.claim(prefix, preferred, ext)
+            .unwrap_or_else(|| self.alloc(prefix, ext))
+    }
+}
+
+/// The direct `<xdr:wsDr>` children a chart merge keeps from a preserved
+/// drawing, and the namespace declarations on its root.
+struct KeptDrawing<'a> {
+    /// Verbatim XML of each kept child, in document order.
+    children: Vec<&'a str>,
+    /// `(prefix, uri)` of each declaration on `<xdr:wsDr>`.
+    namespaces: Vec<(String, String)>,
+}
+
+/// Whether a direct `<xdr:wsDr>` child is kept by a merge: `Some(true)` for an
+/// anchor (dropped later if it frames a chart), `Some(false)` for an
+/// `mc:AlternateContent` block (always kept), `None` for anything else.
+fn kept_child_kind(e: &BytesStart<'_>) -> Option<bool> {
+    match e.local_name().as_ref() {
+        "twoCellAnchor" | "oneCellAnchor" | "absoluteAnchor" => Some(true),
+        "AlternateContent" => Some(false),
+        _ => None,
+    }
+}
+
+/// Scans a preserved drawing part in one forward pass over the direct
+/// children of its root `<xdr:wsDr>`.
+///
+/// The part may come from any producer (`addImage`, Excel, other libraries), so
+/// it is read as XML, not by text matching: comments, CDATA, processing
+/// instructions and any namespace prefix, or none (openpyxl declares
+/// SpreadsheetDrawing as the default namespace), are handled. The anchors
+/// (`xdr:twoCellAnchor`, `xdr:oneCellAnchor`, `xdr:absoluteAnchor`) and
+/// `mc:AlternateContent` blocks are kept verbatim in document order, which is
+/// their z-order, except an anchor whose `xdr:graphicFrame` holds a `c:chart`:
+/// the sheet's charts are regenerated from the model. Elements match by local
+/// name. Text and comments between the children are dropped. The root's
+/// namespace declarations, the default one included, are returned so the
+/// merge can declare them on the generated root.
+///
+/// # Errors
+///
+/// `XmlParse` naming `path` when the part is not well-formed, including an
+/// element still open at the end of the part (the quick-xml `Reader` reports
+/// mismatched end tags but not unclosed elements at EOF, so that is checked
+/// here).
+fn kept_drawing_children<'a>(xml: &'a str, path: &str) -> Result<KeptDrawing<'a>> {
+    let parse_err = |e: &dyn std::fmt::Display| {
+        cold_path();
+        ModernXlsxError::XmlParse(format!("{path}: {e}"))
+    };
+    let mut reader = Reader::from_str(xml);
+    let offset = |reader: &Reader<&[u8]>| {
+        usize::try_from(reader.buffer_position()).map_err(|e| parse_err(&e))
+    };
+    let mut kept = KeptDrawing {
+        children: Vec::new(),
+        namespaces: Vec::new(),
+    };
+    // Open elements; the root's children start at depth 1.
+    let mut depth = 0usize;
+    // Start offset of the kept child being scanned and whether it is an anchor.
+    let mut child: Option<(usize, bool)> = None;
+    // Depth of the open `xdr:graphicFrame`, and whether it holds a chart.
+    let mut frame_depth: Option<usize> = None;
+    let mut frames_chart = false;
+    loop {
+        let start = offset(&reader)?;
+        match reader.read_event().map_err(|e| parse_err(&e))? {
+            Event::Start(e) => {
+                match depth {
+                    0 => kept.namespaces = root_namespaces(&e)?,
+                    1 => {
+                        child = kept_child_kind(&e).map(|anchor| (start, anchor));
+                        frames_chart = false;
+                    }
+                    _ if child.is_some() => match e.local_name().as_ref() {
+                        "graphicFrame" => frame_depth = frame_depth.or(Some(depth)),
+                        "chart" if frame_depth.is_some() => frames_chart = true,
+                        _ => {}
+                    },
+                    _ => {}
+                }
+                depth += 1;
+            }
+            Event::Empty(e) => match depth {
+                0 => kept.namespaces = root_namespaces(&e)?,
+                1 => {
+                    if kept_child_kind(&e).is_some() {
+                        kept.children.push(&xml[start..offset(&reader)?]);
+                    }
+                }
+                _ => {
+                    if frame_depth.is_some() && e.local_name().as_ref() == "chart" {
+                        frames_chart = true;
+                    }
+                }
+            },
+            Event::End(_) => {
+                // The reader checks end names, so every End closes an open element.
+                depth = depth.saturating_sub(1);
+                if frame_depth == Some(depth) {
+                    frame_depth = None;
+                }
+                if depth == 1
+                    && let Some((from, anchor)) = child.take()
+                    && !(anchor && frames_chart)
+                {
+                    kept.children.push(&xml[from..offset(&reader)?]);
+                }
+            }
+            Event::Eof if depth != 0 => {
+                cold_path();
+                return Err(ModernXlsxError::XmlParse(format!(
+                    "{path}: unclosed element at end of part"
+                )));
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok(kept)
+}
+
+/// For `tail` starting with an `r:<NCName>` attribute name followed by `=` and
+/// a quoted value (XML allows whitespace around the `=`), the byte offset of
+/// the value in `tail` and the value.
+fn r_attr_value(tail: &str) -> Option<(usize, &str)> {
+    let name = tail.strip_prefix("r:")?;
+    if !name.starts_with(|c: char| c.is_alphabetic() || c == '_') {
+        return None;
+    }
+    let name_end = name
+        .find(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.')))
+        .unwrap_or(name.len());
+    let quoted = name[name_end..]
+        .trim_start_matches(crate::ooxml::xml::XML_S)
+        .strip_prefix('=')?
+        .trim_start_matches(crate::ooxml::xml::XML_S);
+    let quote = quoted.chars().next().filter(|q| matches!(q, '"' | '\''))?;
+    let inner = &quoted[1..];
+    let end = inner.find(quote)?;
+    Some((tail.len() - inner.len(), &inner[..end]))
+}
+
+/// Appends `xml` to `out` with the value of every `r:<NCName>` attribute
+/// (`r:embed`, `r:link`, `r:id`, `r:pict`, the SmartArt `r:dm`, `r:lo`, `r:qs`
+/// and `r:cs`, or any other relationship-namespace attribute) that is a key in
+/// `remap` replaced, in one forward pass: every value is looked up once, so
+/// `rId1 -> rId2` never chains into a later `rId2 -> rId3`. An attribute name
+/// must follow whitespace, so `xr:id` and element names such as `<r:x>` are
+/// left alone.
+fn push_remapped_rel_ids(out: &mut String, xml: &str, remap: &HashMap<&str, &str>) {
+    let mut rest = xml;
+    while let Some(at) = rest.find("r:") {
+        let (head, tail) = rest.split_at(at);
+        out.push_str(head);
+        // An attribute name follows whitespace inside a start tag.
+        let value = if out.ends_with(crate::ooxml::xml::XML_S) {
+            r_attr_value(tail)
+        } else {
+            None
+        };
+        if let Some((value_at, value)) = value {
+            out.push_str(&tail[..value_at]);
+            out.push_str(remap.get(value).copied().unwrap_or(value));
+            rest = &tail[value_at + value.len()..];
+        } else {
+            out.push_str("r:");
+            rest = &tail[2..];
+        }
+    }
+    out.push_str(rest);
+}
+
+/// Merges the preserved drawing at `path` (with its `.rels`, if any) into
+/// `generated`, the drawing just written for the sheet's charts, which already
+/// lives at `path`.
+///
+/// The kept children (see [`kept_drawing_children`]) are appended after the
+/// chart anchors, so they keep their relative order (z-order) and the
+/// regenerated charts are drawn behind them. The preserved relationships,
+/// chart ones excepted, move to `drawing_rels` under fresh rIds following the
+/// chart rIds, and every `r:*` attribute in the kept children whose value is
+/// one of the old rIds (`r:embed`, `r:link`, `r:id`, `r:pict`, SmartArt
+/// `r:dm`/`r:lo`/`r:qs`/`r:cs`, ...) is rewritten to match (see
+/// [`push_remapped_rel_ids`]). Namespace declarations on the preserved root
+/// that the generated one lacks are declared on it: each missing prefix, and
+/// the default namespace (openpyxl's unprefixed anchors rely on it; the
+/// generated drawing uses only prefixed names, so a default declaration never
+/// changes it).
+///
+/// A preserved drawing the merge cannot read (not UTF-8, not well-formed, or a
+/// malformed preserved `.rels`) is a warning, not an error: `generated`
+/// is returned as it is.
+///
+/// # Errors
+///
+/// `XmlParse` when `generated` is not UTF-8; `XmlWrite` when it has no
+/// `<xdr:wsDr>` root.
+fn merge_preserved_drawing(
+    generated: Vec<u8>,
+    path: &str,
+    preserved: &[u8],
+    preserved_rels: Option<&[u8]>,
+    drawing_rels: &mut Relationships,
+) -> Result<Vec<u8>> {
+    let not_merged = |e: &dyn std::fmt::Display| {
+        cold_path();
+        warn!("{path}: {e}; preserved drawing not merged");
+    };
+    let Ok(preserved) = std::str::from_utf8(preserved) else {
+        not_merged(&"not valid UTF-8");
+        return Ok(generated);
+    };
+    let kept = match kept_drawing_children(preserved, path) {
+        Ok(kept) => kept,
+        Err(e) => {
+            not_merged(&e);
+            return Ok(generated);
+        }
+    };
+    if kept.children.is_empty() {
+        return Ok(generated);
+    }
+    debug!("{path}: merging {} preserved anchors", kept.children.len());
+
+    let generated = String::from_utf8(generated).map_err(|_| {
+        cold_path();
+        ModernXlsxError::XmlParse(format!("{path}: generated drawing is not valid UTF-8"))
+    })?;
+    let root_start = generated.find("<xdr:wsDr");
+    let root_end = root_start.and_then(|s| generated[s..].find('>').map(|e| s + e));
+    let close = generated.rfind("</xdr:wsDr>");
+    let (Some(root_start), Some(root_end), Some(close)) = (root_start, root_end, close) else {
+        cold_path();
+        return Err(ModernXlsxError::XmlWrite(format!(
+            "{path}: generated drawing has no <xdr:wsDr> root"
+        )));
+    };
+
+    let preserved_rels = match preserved_rels.map(Relationships::parse).transpose() {
+        Ok(rels) => rels.unwrap_or_default(),
+        Err(e) => {
+            not_merged(&e);
+            return Ok(generated.into_bytes());
+        }
+    };
+    // Chart relationships belong to the chart frames the merge drops; an image
+    // copied whole keeps an `r:link` TargetMode="External".
+    let carried: Vec<&Relationship> = preserved_rels
+        .iter()
+        .filter(|rel| rel.rel_type != REL_CHART)
+        .collect();
+    let new_ids: Vec<String> = carried
+        .iter()
+        .map(|rel| {
+            let id = make_rid(drawing_rels.next_r_id());
+            drawing_rels.push(Relationship {
+                id: id.clone(),
+                ..(*rel).clone()
+            });
+            id
+        })
+        .collect();
+    let remap: HashMap<&str, &str> = carried
+        .iter()
+        .map(|rel| rel.id.as_str())
+        .zip(new_ids.iter().map(String::as_str))
+        .collect();
+
+    let root = &generated[root_start..root_end];
+    let mut merged = String::with_capacity(generated.len() + preserved.len());
+    merged.push_str(&generated[..root_end]);
+    for (prefix, uri) in &kept.namespaces {
+        let attr = if prefix.is_empty() {
+            " xmlns=".to_owned()
+        } else {
+            format!(" xmlns:{prefix}=")
+        };
+        if !root.contains(&attr) {
+            merged.push_str(&attr);
+            merged.push('"');
+            merged.push_str(&quick_xml::escape::escape(uri.as_str()));
+            merged.push('"');
+        }
+    }
+    merged.push_str(&generated[root_end..close]);
+    for child in &kept.children {
+        push_remapped_rel_ids(&mut merged, child, &remap);
+    }
+    merged.push_str(&generated[close..]);
+    Ok(merged.into_bytes())
 }
 
 // ---------------------------------------------------------------------------
@@ -866,2353 +2007,4 @@ fn extract_anchors_from_drawing(drawing_xml: &str) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use pretty_assertions::assert_eq;
-    use crate::SheetData;
-    use crate::dates::DateSystem;
-    use crate::ooxml::shared_strings::SharedStringTable;
-    use crate::ooxml::styles::Styles;
-    use crate::ooxml::workbook::WorkbookXml as WbXml;
-    use crate::ooxml::worksheet::{Cell, CellType, Row, WorksheetXml};
-    use crate::zip::reader::{read_zip_entries, ZipSecurityLimits};
-
-    /// Helper: build a minimal single-sheet workbook with the given rows.
-    fn minimal_workbook(name: &str, rows: Vec<Row>) -> WorkbookData {
-        WorkbookData {
-            sheets: vec![SheetData {
-                name: name.to_string(),
-                state: None,
-                worksheet: WorksheetXml {
-                    dimension: Some("A1".to_string()),
-                    rows,
-                    merge_cells: Vec::new(),
-                    auto_filter: None,
-                    frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-                    columns: Vec::new(),
-                    data_validations: Vec::new(),
-                    conditional_formatting: Vec::new(),
-                    hyperlinks: Vec::new(),
-                    page_setup: None,
-                    sheet_protection: None,
-                    comments: Vec::new(),
-                    tab_color: None,
-                    tables: Vec::new(),
-                    header_footer: None,
-                    page_breaks: None,
-                    outline_properties: None,
-                    sparkline_groups: Vec::new(),
-                    charts: Vec::new(),
-                    pivot_tables: Vec::new(),
-                    threaded_comments: Vec::new(),
-                    slicers: Vec::new(),
-                    timelines: Vec::new(),
-                    preserved_extensions: Vec::new(),
-                },
-            }],
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        }
-    }
-
-    #[test]
-    fn test_write_empty_workbook() {
-        let wb = WorkbookData {
-            sheets: vec![SheetData {
-                name: "Sheet1".to_string(),
-                state: None,
-                worksheet: WorksheetXml {
-                    dimension: None,
-                    rows: Vec::new(),
-                    merge_cells: Vec::new(),
-                    auto_filter: None,
-                    frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-                    columns: Vec::new(),
-                    data_validations: Vec::new(),
-                    conditional_formatting: Vec::new(),
-                    hyperlinks: Vec::new(),
-                    page_setup: None,
-                    sheet_protection: None,
-                    comments: Vec::new(),
-                    tab_color: None,
-                    tables: Vec::new(),
-                    header_footer: None,
-                    page_breaks: None,
-                    outline_properties: None,
-                    sparkline_groups: Vec::new(),
-                    charts: Vec::new(),
-                    pivot_tables: Vec::new(),
-                    threaded_comments: Vec::new(),
-                    slicers: Vec::new(),
-                    timelines: Vec::new(),
-                    preserved_extensions: Vec::new(),
-                },
-            }],
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        };
-
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-        assert!(!bytes.is_empty(), "output should not be empty");
-
-        // Verify it is a valid ZIP with expected entries.
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).expect("should be a valid ZIP");
-
-        assert!(entries.contains_key("[Content_Types].xml"));
-        assert!(entries.contains_key("_rels/.rels"));
-        assert!(entries.contains_key("xl/workbook.xml"));
-        assert!(entries.contains_key("xl/_rels/workbook.xml.rels"));
-        assert!(entries.contains_key("xl/sharedStrings.xml"));
-        assert!(entries.contains_key("xl/styles.xml"));
-        assert!(entries.contains_key("xl/worksheets/sheet1.xml"));
-    }
-
-    #[test]
-    fn test_write_zero_sheets_errors() {
-        let wb = WorkbookData {
-            sheets: Vec::new(),
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        };
-        let result = write_xlsx(&wb);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_zip_contains_expected_entries_for_two_sheets() {
-        let wb = WorkbookData {
-            sheets: vec![
-                SheetData {
-                    name: "First".to_string(),
-                    state: None,
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-                SheetData {
-                    name: "Second".to_string(),
-                    state: None,
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-            ],
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        };
-
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        assert!(entries.contains_key("xl/worksheets/sheet1.xml"));
-        assert!(entries.contains_key("xl/worksheets/sheet2.xml"));
-        assert!(!entries.contains_key("xl/worksheets/sheet3.xml"));
-    }
-
-    #[test]
-    fn test_write_with_string_cells() {
-        let rows = vec![Row {
-            index: 1,
-            cells: vec![
-                Cell {
-                    reference: "A1".to_string(),
-                    cell_type: CellType::SharedString,
-                    style_index: None,
-                    value: Some("Hello".to_string()),
-                    ..Default::default()
-                },
-                Cell {
-                    reference: "B1".to_string(),
-                    cell_type: CellType::SharedString,
-                    style_index: None,
-                    value: Some("World".to_string()),
-                    ..Default::default()
-                },
-            ],
-            height: None,
-            hidden: false,
-            outline_level: None,
-            collapsed: false,
-        }];
-
-        let wb = minimal_workbook("Sheet1", rows);
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        // Verify the shared string table contains both strings.
-        let sst_xml = std::str::from_utf8(entries.get("xl/sharedStrings.xml").unwrap()).unwrap();
-        let sst = SharedStringTable::parse(sst_xml.as_bytes()).unwrap();
-        assert_eq!(sst.len(), 2);
-        assert_eq!(sst.get(0), Some("Hello"));
-        assert_eq!(sst.get(1), Some("World"));
-
-        // Verify the worksheet uses SST indices, not raw strings.
-        let ws_xml = std::str::from_utf8(entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
-        let ws = WorksheetXml::parse(ws_xml.as_bytes()).unwrap();
-        assert_eq!(ws.rows.len(), 1);
-        assert_eq!(ws.rows[0].cells.len(), 2);
-        assert_eq!(ws.rows[0].cells[0].cell_type, CellType::SharedString);
-        assert_eq!(ws.rows[0].cells[0].value.as_deref(), Some("0"));
-        assert_eq!(ws.rows[0].cells[1].cell_type, CellType::SharedString);
-        assert_eq!(ws.rows[0].cells[1].value.as_deref(), Some("1"));
-    }
-
-    #[test]
-    fn test_write_with_number_cells() {
-        let rows = vec![Row {
-            index: 1,
-            cells: vec![
-                Cell {
-                    reference: "A1".to_string(),
-                    cell_type: CellType::Number,
-                    style_index: None,
-                    value: Some("42".to_string()),
-                    ..Default::default()
-                },
-                Cell {
-                    reference: "B1".to_string(),
-                    cell_type: CellType::Number,
-                    style_index: None,
-                    value: Some("3.14".to_string()),
-                    ..Default::default()
-                },
-            ],
-            height: None,
-            hidden: false,
-            outline_level: None,
-            collapsed: false,
-        }];
-
-        let wb = minimal_workbook("Sheet1", rows);
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        let ws_xml = std::str::from_utf8(entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
-        let ws = WorksheetXml::parse(ws_xml.as_bytes()).unwrap();
-        assert_eq!(ws.rows[0].cells[0].cell_type, CellType::Number);
-        assert_eq!(ws.rows[0].cells[0].value.as_deref(), Some("42"));
-        assert_eq!(ws.rows[0].cells[1].value.as_deref(), Some("3.14"));
-    }
-
-    #[test]
-    fn test_write_with_boolean_cells() {
-        let rows = vec![Row {
-            index: 1,
-            cells: vec![
-                Cell {
-                    reference: "A1".to_string(),
-                    cell_type: CellType::Boolean,
-                    style_index: None,
-                    value: Some("1".to_string()),
-                    ..Default::default()
-                },
-                Cell {
-                    reference: "B1".to_string(),
-                    cell_type: CellType::Boolean,
-                    style_index: None,
-                    value: Some("0".to_string()),
-                    ..Default::default()
-                },
-            ],
-            height: None,
-            hidden: false,
-            outline_level: None,
-            collapsed: false,
-        }];
-
-        let wb = minimal_workbook("Sheet1", rows);
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        let ws_xml = std::str::from_utf8(entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
-        let ws = WorksheetXml::parse(ws_xml.as_bytes()).unwrap();
-        assert_eq!(ws.rows[0].cells[0].cell_type, CellType::Boolean);
-        assert_eq!(ws.rows[0].cells[0].value.as_deref(), Some("1"));
-        assert_eq!(ws.rows[0].cells[1].cell_type, CellType::Boolean);
-        assert_eq!(ws.rows[0].cells[1].value.as_deref(), Some("0"));
-    }
-
-    #[test]
-    fn test_write_with_mixed_cell_types() {
-        let rows = vec![
-            Row {
-                index: 1,
-                cells: vec![
-                    Cell {
-                        reference: "A1".to_string(),
-                        cell_type: CellType::SharedString,
-                        style_index: None,
-                        value: Some("Name".to_string()),
-                        ..Default::default()
-                    },
-                    Cell {
-                        reference: "B1".to_string(),
-                        cell_type: CellType::SharedString,
-                        style_index: None,
-                        value: Some("Value".to_string()),
-                        ..Default::default()
-                    },
-                    Cell {
-                        reference: "C1".to_string(),
-                        cell_type: CellType::SharedString,
-                        style_index: None,
-                        value: Some("Active".to_string()),
-                        ..Default::default()
-                    },
-                ],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-            Row {
-                index: 2,
-                cells: vec![
-                    Cell {
-                        reference: "A2".to_string(),
-                        cell_type: CellType::SharedString,
-                        style_index: None,
-                        value: Some("Pi".to_string()),
-                        ..Default::default()
-                    },
-                    Cell {
-                        reference: "B2".to_string(),
-                        cell_type: CellType::Number,
-                        style_index: None,
-                        value: Some("3.14159".to_string()),
-                        ..Default::default()
-                    },
-                    Cell {
-                        reference: "C2".to_string(),
-                        cell_type: CellType::Boolean,
-                        style_index: None,
-                        value: Some("1".to_string()),
-                        ..Default::default()
-                    },
-                ],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-        ];
-
-        let wb = minimal_workbook("MixedTypes", rows);
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        // Verify SST has 4 unique strings: "Name", "Value", "Active", "Pi".
-        let sst_xml = std::str::from_utf8(entries.get("xl/sharedStrings.xml").unwrap()).unwrap();
-        let sst = SharedStringTable::parse(sst_xml.as_bytes()).unwrap();
-        assert_eq!(sst.len(), 4);
-
-        // Verify workbook XML round-trips.
-        let wb_xml = std::str::from_utf8(entries.get("xl/workbook.xml").unwrap()).unwrap();
-        let wb_parsed = WbXml::parse(wb_xml.as_bytes()).unwrap();
-        assert_eq!(wb_parsed.sheets.len(), 1);
-        assert_eq!(wb_parsed.sheets[0].name, "MixedTypes");
-
-        // Verify the worksheet.
-        let ws_xml = std::str::from_utf8(entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
-        let ws = WorksheetXml::parse(ws_xml.as_bytes()).unwrap();
-        assert_eq!(ws.rows.len(), 2);
-
-        // Row 1: all shared strings (SST indices).
-        assert_eq!(ws.rows[0].cells[0].cell_type, CellType::SharedString);
-        assert_eq!(ws.rows[0].cells[0].value.as_deref(), Some("0")); // "Name"
-        assert_eq!(ws.rows[0].cells[1].value.as_deref(), Some("1")); // "Value"
-        assert_eq!(ws.rows[0].cells[2].value.as_deref(), Some("2")); // "Active"
-
-        // Row 2: string, number, boolean.
-        assert_eq!(ws.rows[1].cells[0].cell_type, CellType::SharedString);
-        assert_eq!(ws.rows[1].cells[0].value.as_deref(), Some("3")); // "Pi"
-        assert_eq!(ws.rows[1].cells[1].cell_type, CellType::Number);
-        assert_eq!(ws.rows[1].cells[1].value.as_deref(), Some("3.14159"));
-        assert_eq!(ws.rows[1].cells[2].cell_type, CellType::Boolean);
-        assert_eq!(ws.rows[1].cells[2].value.as_deref(), Some("1"));
-    }
-
-    #[test]
-    fn test_duplicate_strings_are_deduplicated() {
-        let rows = vec![
-            Row {
-                index: 1,
-                cells: vec![Cell {
-                    reference: "A1".to_string(),
-                    cell_type: CellType::SharedString,
-                    style_index: None,
-                    value: Some("Repeat".to_string()),
-                    ..Default::default()
-                }],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-            Row {
-                index: 2,
-                cells: vec![Cell {
-                    reference: "A2".to_string(),
-                    cell_type: CellType::SharedString,
-                    style_index: None,
-                    value: Some("Repeat".to_string()),
-                    ..Default::default()
-                }],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-            Row {
-                index: 3,
-                cells: vec![Cell {
-                    reference: "A3".to_string(),
-                    cell_type: CellType::SharedString,
-                    style_index: None,
-                    value: Some("Other".to_string()),
-                    ..Default::default()
-                }],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-        ];
-
-        let wb = minimal_workbook("Sheet1", rows);
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        // Only 2 unique strings despite 3 cells.
-        let sst_xml = std::str::from_utf8(entries.get("xl/sharedStrings.xml").unwrap()).unwrap();
-        let sst = SharedStringTable::parse(sst_xml.as_bytes()).unwrap();
-        assert_eq!(sst.len(), 2);
-        assert_eq!(sst.get(0), Some("Repeat"));
-        assert_eq!(sst.get(1), Some("Other"));
-
-        // Both "Repeat" cells should map to SST index 0.
-        let ws_xml = std::str::from_utf8(entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
-        let ws = WorksheetXml::parse(ws_xml.as_bytes()).unwrap();
-        assert_eq!(ws.rows[0].cells[0].value.as_deref(), Some("0"));
-        assert_eq!(ws.rows[1].cells[0].value.as_deref(), Some("0"));
-        assert_eq!(ws.rows[2].cells[0].value.as_deref(), Some("1"));
-    }
-
-    #[test]
-    fn test_workbook_xml_contains_sheet_names() {
-        let wb = WorkbookData {
-            sheets: vec![
-                SheetData {
-                    name: "Sales".to_string(),
-                    state: None,
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-                SheetData {
-                    name: "Inventory".to_string(),
-                    state: None,
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-            ],
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        };
-
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        let wb_xml = std::str::from_utf8(entries.get("xl/workbook.xml").unwrap()).unwrap();
-        let wb_parsed = WbXml::parse(wb_xml.as_bytes()).unwrap();
-        assert_eq!(wb_parsed.sheets.len(), 2);
-        assert_eq!(wb_parsed.sheets[0].name, "Sales");
-        assert_eq!(wb_parsed.sheets[0].sheet_id, 1);
-        assert_eq!(wb_parsed.sheets[0].r_id, "rId1");
-        assert_eq!(wb_parsed.sheets[1].name, "Inventory");
-        assert_eq!(wb_parsed.sheets[1].sheet_id, 2);
-        assert_eq!(wb_parsed.sheets[1].r_id, "rId2");
-    }
-
-    #[test]
-    fn test_to_xml_with_sst_inline_remap() {
-        let ws = WorksheetXml {
-            dimension: Some("A1:B1".to_string()),
-            rows: vec![Row {
-                index: 1,
-                cells: vec![
-                    Cell {
-                        reference: "A1".to_string(),
-                        cell_type: CellType::SharedString,
-                        style_index: None,
-                        value: Some("Alpha".to_string()),
-                        ..Default::default()
-                    },
-                    Cell {
-                        reference: "B1".to_string(),
-                        cell_type: CellType::Number,
-                        style_index: Some(1),
-                        value: Some("99".to_string()),
-                        ..Default::default()
-                    },
-                ],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            }],
-            merge_cells: Vec::new(),
-            auto_filter: None,
-            frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-            columns: Vec::new(),
-            data_validations: Vec::new(),
-            conditional_formatting: Vec::new(),
-            hyperlinks: Vec::new(),
-            page_setup: None,
-            sheet_protection: None,
-            comments: Vec::new(),
-            tab_color: None,
-            tables: Vec::new(),
-            header_footer: None,
-            page_breaks: None,
-            outline_properties: None,
-            sparkline_groups: Vec::new(),
-            charts: Vec::new(),
-            pivot_tables: Vec::new(),
-            threaded_comments: Vec::new(),
-            slicers: Vec::new(),
-            timelines: Vec::new(),
-            preserved_extensions: Vec::new(),
-        };
-
-        let mut sst = SharedStringTableBuilder::new();
-        // Insert some dummy strings first to push "Alpha" to index 7.
-        for i in 0..7 {
-            sst.insert(&format!("dummy{i}"));
-        }
-        sst.insert("Alpha"); // index 7
-
-        // Generate XML with inline SST remapping (no clone needed).
-        let xml_bytes = ws.to_xml_with_sst(Some(&sst), &[], None).expect("to_xml_with_sst should succeed");
-        let xml_str = std::str::from_utf8(&xml_bytes).unwrap();
-
-        // The SharedString cell's <v> should contain the SST index "7", not "Alpha".
-        assert!(xml_str.contains("<v>7</v>"), "SST cell should have index 7, got: {xml_str}");
-        // The Number cell should be unchanged.
-        assert!(xml_str.contains("<v>99</v>"), "Number cell should remain 99");
-    }
-
-    #[test]
-    fn test_content_types_has_correct_overrides() {
-        let wb = minimal_workbook("Sheet1", Vec::new());
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        let ct_xml =
-            std::str::from_utf8(entries.get("[Content_Types].xml").unwrap()).unwrap();
-        let ct = ContentTypes::parse(ct_xml.as_bytes()).unwrap();
-
-        assert!(ct.overrides.contains_key("/xl/workbook.xml"));
-        assert!(ct.overrides.contains_key("/xl/sharedStrings.xml"));
-        assert!(ct.overrides.contains_key("/xl/styles.xml"));
-        assert!(ct.overrides.contains_key("/xl/worksheets/sheet1.xml"));
-    }
-
-    #[test]
-    fn test_relationships_are_correct() {
-        let wb = WorkbookData {
-            sheets: vec![
-                SheetData {
-                    name: "S1".to_string(),
-                    state: None,
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-                SheetData {
-                    name: "S2".to_string(),
-                    state: None,
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-            ],
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        };
-
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        // Root rels should point to xl/workbook.xml.
-        let root_rels_xml =
-            std::str::from_utf8(entries.get("_rels/.rels").unwrap()).unwrap();
-        let root_rels = Relationships::parse(root_rels_xml.as_bytes()).unwrap();
-        assert_eq!(root_rels.relationships.len(), 1);
-        assert_eq!(root_rels.relationships[0].target, "xl/workbook.xml");
-
-        // Workbook rels should have 2 worksheets + sharedStrings + styles = 4.
-        let wb_rels_xml =
-            std::str::from_utf8(entries.get("xl/_rels/workbook.xml.rels").unwrap()).unwrap();
-        let wb_rels = Relationships::parse(wb_rels_xml.as_bytes()).unwrap();
-        assert_eq!(wb_rels.relationships.len(), 4);
-        assert_eq!(wb_rels.get_by_id("rId1").unwrap().target, "worksheets/sheet1.xml");
-        assert_eq!(wb_rels.get_by_id("rId2").unwrap().target, "worksheets/sheet2.xml");
-        assert_eq!(wb_rels.get_by_id("rId3").unwrap().target, "sharedStrings.xml");
-        assert_eq!(wb_rels.get_by_id("rId4").unwrap().target, "styles.xml");
-    }
-
-    #[test]
-    fn test_write_then_read_roundtrip() {
-        // Write a workbook with mixed cell types, then read it back via the
-        // reader module and verify the data survived the round-trip.
-        let rows = vec![
-            Row {
-                index: 1,
-                cells: vec![
-                    Cell {
-                        reference: "A1".to_string(),
-                        cell_type: CellType::SharedString,
-                        style_index: None,
-                        value: Some("Header".to_string()),
-                        ..Default::default()
-                    },
-                    Cell {
-                        reference: "B1".to_string(),
-                        cell_type: CellType::Number,
-                        style_index: None,
-                        value: Some("100".to_string()),
-                        ..Default::default()
-                    },
-                    Cell {
-                        reference: "C1".to_string(),
-                        cell_type: CellType::Boolean,
-                        style_index: None,
-                        value: Some("1".to_string()),
-                        ..Default::default()
-                    },
-                ],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-        ];
-
-        let wb = minimal_workbook("RoundTrip", rows);
-        let xlsx_bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        // Read back via the reader module.
-        let read_wb = crate::reader::read_xlsx(&xlsx_bytes)
-            .expect("read_xlsx should succeed on writer output");
-
-        assert_eq!(read_wb.sheets.len(), 1);
-        assert_eq!(read_wb.sheets[0].name, "RoundTrip");
-        assert_eq!(read_wb.date_system, DateSystem::Date1900);
-
-        // Shared strings table should have 1 entry: "Header".
-        let sst = read_wb.shared_strings.as_ref().expect("shared_strings should be Some");
-        assert_eq!(sst.len(), 1);
-        assert_eq!(sst.get(0), Some("Header"));
-
-        // Worksheet should have 1 row with 3 cells.
-        let ws = &read_wb.sheets[0].worksheet;
-        assert_eq!(ws.rows.len(), 1);
-        assert_eq!(ws.rows[0].cells.len(), 3);
-
-        // A1: SharedString resolved from SST index "0" -> "Header".
-        assert_eq!(ws.rows[0].cells[0].cell_type, CellType::SharedString);
-        assert_eq!(ws.rows[0].cells[0].value.as_deref(), Some("Header"));
-
-        // B1: Number "100".
-        assert_eq!(ws.rows[0].cells[1].cell_type, CellType::Number);
-        assert_eq!(ws.rows[0].cells[1].value.as_deref(), Some("100"));
-
-        // C1: Boolean "1".
-        assert_eq!(ws.rows[0].cells[2].cell_type, CellType::Boolean);
-        assert_eq!(ws.rows[0].cells[2].value.as_deref(), Some("1"));
-    }
-
-    #[test]
-    fn test_formula_roundtrip() {
-        // Write a workbook with formula cells, read it back, and verify
-        // formulas survive the full XLSX round-trip.
-        let rows = vec![
-            Row {
-                index: 1,
-                cells: vec![Cell {
-                    reference: "A1".to_string(),
-                    cell_type: CellType::Number,
-                    style_index: None,
-                    value: Some("10".to_string()),
-                    ..Default::default()
-                }],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-            Row {
-                index: 2,
-                cells: vec![Cell {
-                    reference: "A2".to_string(),
-                    cell_type: CellType::Number,
-                    style_index: None,
-                    value: Some("20".to_string()),
-                    ..Default::default()
-                }],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-            Row {
-                index: 3,
-                cells: vec![Cell {
-                    reference: "A3".to_string(),
-                    cell_type: CellType::Number,
-                    value: Some("30".to_string()),
-                    formula: Some("SUM(A1:A2)".to_string()),
-                    ..Default::default()
-                }],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-        ];
-
-        let wb = minimal_workbook("Formulas", rows);
-        let xlsx_bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        // Read back via the reader module.
-        let read_wb = crate::reader::read_xlsx(&xlsx_bytes)
-            .expect("read_xlsx should succeed on writer output");
-
-        assert_eq!(read_wb.sheets.len(), 1);
-        assert_eq!(read_wb.sheets[0].name, "Formulas");
-
-        let ws = &read_wb.sheets[0].worksheet;
-        assert_eq!(ws.rows.len(), 3);
-
-        // A1: plain number, no formula.
-        assert_eq!(ws.rows[0].cells[0].reference, "A1");
-        assert_eq!(ws.rows[0].cells[0].cell_type, CellType::Number);
-        assert_eq!(ws.rows[0].cells[0].value.as_deref(), Some("10"));
-        assert_eq!(ws.rows[0].cells[0].formula, None);
-
-        // A2: plain number, no formula.
-        assert_eq!(ws.rows[1].cells[0].reference, "A2");
-        assert_eq!(ws.rows[1].cells[0].cell_type, CellType::Number);
-        assert_eq!(ws.rows[1].cells[0].value.as_deref(), Some("20"));
-        assert_eq!(ws.rows[1].cells[0].formula, None);
-
-        // A3: formula cell with cached value.
-        assert_eq!(ws.rows[2].cells[0].reference, "A3");
-        assert_eq!(
-            ws.rows[2].cells[0].formula,
-            Some("SUM(A1:A2)".to_string())
-        );
-        assert_eq!(ws.rows[2].cells[0].value.as_deref(), Some("30"));
-    }
-
-    #[test]
-    fn test_formula_str_roundtrip() {
-        // Test formula with t="str" type (formula returning a string result).
-        let rows = vec![Row {
-            index: 1,
-            cells: vec![Cell {
-                reference: "B1".to_string(),
-                cell_type: CellType::FormulaStr,
-                value: Some("100".to_string()),
-                formula: Some("A1*2".to_string()),
-                ..Default::default()
-            }],
-            height: None,
-            hidden: false,
-            outline_level: None,
-            collapsed: false,
-        }];
-
-        let wb = minimal_workbook("FormulaStr", rows);
-        let xlsx_bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        let read_wb = crate::reader::read_xlsx(&xlsx_bytes)
-            .expect("read_xlsx should succeed on writer output");
-
-        let ws = &read_wb.sheets[0].worksheet;
-        assert_eq!(ws.rows.len(), 1);
-        assert_eq!(ws.rows[0].cells[0].reference, "B1");
-        assert_eq!(ws.rows[0].cells[0].cell_type, CellType::FormulaStr);
-        assert_eq!(
-            ws.rows[0].cells[0].formula,
-            Some("A1*2".to_string())
-        );
-        assert_eq!(ws.rows[0].cells[0].value.as_deref(), Some("100"));
-    }
-
-    #[test]
-    fn test_write_workbook_with_tables() {
-        use crate::ooxml::content_types::ContentTypes;
-        use crate::ooxml::tables::{TableColumn, TableDefinition, TableStyleInfo};
-
-        let rows = vec![
-            Row {
-                index: 1,
-                cells: vec![
-                    Cell {
-                        reference: "A1".to_string(),
-                        cell_type: CellType::SharedString,
-                        style_index: None,
-                        value: Some("Name".to_string()),
-                        ..Default::default()
-                    },
-                    Cell {
-                        reference: "B1".to_string(),
-                        cell_type: CellType::SharedString,
-                        style_index: None,
-                        value: Some("Age".to_string()),
-                        ..Default::default()
-                    },
-                ],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-            Row {
-                index: 2,
-                cells: vec![
-                    Cell {
-                        reference: "A2".to_string(),
-                        cell_type: CellType::SharedString,
-                        style_index: None,
-                        value: Some("Alice".to_string()),
-                        ..Default::default()
-                    },
-                    Cell {
-                        reference: "B2".to_string(),
-                        cell_type: CellType::Number,
-                        style_index: None,
-                        value: Some("30".to_string()),
-                        ..Default::default()
-                    },
-                ],
-                height: None,
-                hidden: false,
-                outline_level: None,
-                collapsed: false,
-            },
-        ];
-
-        let table = TableDefinition {
-            id: 1,
-            name: Some("Table1".into()),
-            display_name: "Table1".into(),
-            ref_range: "A1:B2".into(),
-            header_row_count: 1,
-            totals_row_count: 0,
-            totals_row_shown: false,
-            columns: vec![
-                TableColumn {
-                    id: 1,
-                    name: "Name".into(),
-                    ..Default::default()
-                },
-                TableColumn {
-                    id: 2,
-                    name: "Age".into(),
-                    ..Default::default()
-                },
-            ],
-            style_info: Some(TableStyleInfo {
-                name: Some("TableStyleMedium2".into()),
-                show_first_column: false,
-                show_last_column: false,
-                show_row_stripes: true,
-                show_column_stripes: false,
-            }),
-            auto_filter_ref: Some("A1:B2".into()),
-        };
-
-        let wb = WorkbookData {
-            sheets: vec![SheetData {
-                name: "Sheet1".to_string(),
-                state: None,
-                worksheet: WorksheetXml {
-                    dimension: Some("A1:B2".to_string()),
-                    rows,
-                    merge_cells: Vec::new(),
-                    auto_filter: None,
-                    frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-                    columns: Vec::new(),
-                    data_validations: Vec::new(),
-                    conditional_formatting: Vec::new(),
-                    hyperlinks: Vec::new(),
-                    page_setup: None,
-                    sheet_protection: None,
-                    comments: Vec::new(),
-                    tab_color: None,
-                    tables: vec![table],
-                    header_footer: None,
-                    page_breaks: None,
-                    outline_properties: None,
-                    sparkline_groups: Vec::new(),
-                    charts: Vec::new(),
-                    pivot_tables: Vec::new(),
-                    threaded_comments: Vec::new(),
-                    slicers: Vec::new(),
-                    timelines: Vec::new(),
-                    preserved_extensions: Vec::new(),
-                },
-            }],
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        };
-
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        // Verify it is a valid ZIP with table entries.
-        let limits = ZipSecurityLimits::default();
-        let zip_entries = read_zip_entries(&bytes, &limits).expect("should be a valid ZIP");
-
-        // Table XML file should exist.
-        assert!(
-            zip_entries.contains_key("xl/tables/table1.xml"),
-            "should contain xl/tables/table1.xml"
-        );
-
-        // Worksheet .rels should reference the table.
-        let rels_xml = std::str::from_utf8(
-            zip_entries
-                .get("xl/worksheets/_rels/sheet1.xml.rels")
-                .expect("should have worksheet rels"),
-        )
-        .unwrap();
-        assert!(
-            rels_xml.contains("tables/table1.xml"),
-            "rels should reference table: {rels_xml}"
-        );
-
-        // Content types should include the table override.
-        let ct_xml =
-            std::str::from_utf8(zip_entries.get("[Content_Types].xml").unwrap()).unwrap();
-        let ct = ContentTypes::parse(ct_xml.as_bytes()).unwrap();
-        assert!(
-            ct.overrides.contains_key("/xl/tables/table1.xml"),
-            "content types should have table override"
-        );
-
-        // Worksheet XML should contain <tableParts>.
-        let ws_xml =
-            std::str::from_utf8(zip_entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
-        assert!(
-            ws_xml.contains("<tableParts"),
-            "worksheet should contain tableParts: {ws_xml}"
-        );
-        assert!(
-            ws_xml.contains("r:id=\"rId1\""),
-            "tablePart should reference rId1: {ws_xml}"
-        );
-
-        // Table XML should parse back correctly.
-        let table_data = zip_entries.get("xl/tables/table1.xml").unwrap();
-        let parsed_table = crate::ooxml::tables::TableDefinition::parse(table_data).unwrap();
-        assert_eq!(parsed_table.display_name, "Table1");
-        assert_eq!(parsed_table.columns.len(), 2);
-    }
-
-    #[test]
-    fn test_write_workbook_with_tables_across_sheets() {
-        use crate::ooxml::tables::{TableColumn, TableDefinition, TableStyleInfo};
-
-        let make_table = |id: u32, name: &str| TableDefinition {
-            id,
-            name: Some(name.into()),
-            display_name: name.into(),
-            ref_range: "A1:B2".into(),
-            header_row_count: 1,
-            totals_row_count: 0,
-            totals_row_shown: true,
-            columns: vec![TableColumn {
-                id: 1,
-                name: "Col1".into(),
-                ..Default::default()
-            }],
-            style_info: Some(TableStyleInfo {
-                name: Some("TableStyleLight1".into()),
-                show_first_column: false,
-                show_last_column: false,
-                show_row_stripes: true,
-                show_column_stripes: false,
-            }),
-            auto_filter_ref: None,
-        };
-
-        let make_sheet = |name: &str, tables: Vec<TableDefinition>| SheetData {
-            name: name.to_string(),
-            state: None,
-            worksheet: WorksheetXml {
-                dimension: None,
-                rows: Vec::new(),
-                merge_cells: Vec::new(),
-                auto_filter: None,
-                frozen_pane: None,
-            split_pane: None,
-            pane_selections: vec![],
-            sheet_view: None,
-                columns: Vec::new(),
-                data_validations: Vec::new(),
-                conditional_formatting: Vec::new(),
-                hyperlinks: Vec::new(),
-                page_setup: None,
-                sheet_protection: None,
-                comments: Vec::new(),
-                tab_color: None,
-                tables,
-                header_footer: None,
-                page_breaks: None,
-                outline_properties: None,
-                sparkline_groups: Vec::new(),
-                charts: Vec::new(),
-                pivot_tables: Vec::new(),
-                threaded_comments: Vec::new(),
-                slicers: Vec::new(),
-                timelines: Vec::new(),
-                preserved_extensions: Vec::new(),
-            },
-        };
-
-        let wb = WorkbookData {
-            sheets: vec![
-                make_sheet("Sheet1", vec![make_table(1, "T1"), make_table(2, "T2")]),
-                make_sheet("Sheet2", vec![make_table(3, "T3")]),
-            ],
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        };
-
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-        let limits = ZipSecurityLimits::default();
-        let zip_entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        // Global table numbering: table1, table2 on Sheet1; table3 on Sheet2.
-        assert!(zip_entries.contains_key("xl/tables/table1.xml"));
-        assert!(zip_entries.contains_key("xl/tables/table2.xml"));
-        assert!(zip_entries.contains_key("xl/tables/table3.xml"));
-
-        // Sheet1 rels should have 2 table references.
-        let rels1 = std::str::from_utf8(
-            zip_entries.get("xl/worksheets/_rels/sheet1.xml.rels").unwrap(),
-        )
-        .unwrap();
-        assert!(rels1.contains("tables/table1.xml"));
-        assert!(rels1.contains("tables/table2.xml"));
-
-        // Sheet2 rels should have 1 table reference.
-        let rels2 = std::str::from_utf8(
-            zip_entries.get("xl/worksheets/_rels/sheet2.xml.rels").unwrap(),
-        )
-        .unwrap();
-        assert!(rels2.contains("tables/table3.xml"));
-
-        // Sheet1 worksheet should have tableParts count="2".
-        let ws1 =
-            std::str::from_utf8(zip_entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
-        assert!(ws1.contains("count=\"2\""), "sheet1 tableParts count should be 2: {ws1}");
-
-        // Sheet2 worksheet should have tableParts count="1".
-        let ws2 =
-            std::str::from_utf8(zip_entries.get("xl/worksheets/sheet2.xml").unwrap()).unwrap();
-        assert!(ws2.contains("count=\"1\""), "sheet2 tableParts count should be 1: {ws2}");
-    }
-
-    #[test]
-    fn test_sheet_state_hidden_roundtrip() {
-        let wb = WorkbookData {
-            sheets: vec![
-                SheetData {
-                    name: "Visible".into(),
-                    state: None,
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-                        split_pane: None,
-                        pane_selections: vec![],
-                        sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-                SheetData {
-                    name: "Hidden".into(),
-                    state: Some("hidden".into()),
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-                        split_pane: None,
-                        pane_selections: vec![],
-                        sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-                SheetData {
-                    name: "VeryHidden".into(),
-                    state: Some("veryHidden".into()),
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-                        split_pane: None,
-                        pane_selections: vec![],
-                        sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-            ],
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        };
-
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-        let wb2 = crate::reader::read_xlsx(&bytes).expect("read_xlsx should succeed");
-
-        assert_eq!(wb2.sheets.len(), 3);
-
-        // Visible sheet: state should be None (omitted).
-        assert!(wb2.sheets[0].state.is_none(), "visible sheet state should be None");
-        assert_eq!(wb2.sheets[0].name, "Visible");
-
-        // Hidden sheet: state should be Some("hidden").
-        assert_eq!(wb2.sheets[1].state.as_deref(), Some("hidden"));
-        assert_eq!(wb2.sheets[1].name, "Hidden");
-
-        // VeryHidden sheet: state should be Some("veryHidden").
-        assert_eq!(wb2.sheets[2].state.as_deref(), Some("veryHidden"));
-        assert_eq!(wb2.sheets[2].name, "VeryHidden");
-    }
-
-    #[test]
-    fn test_sheet_state_hidden_json_roundtrip() {
-        let wb = WorkbookData {
-            sheets: vec![
-                SheetData {
-                    name: "Visible".into(),
-                    state: None,
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-                        split_pane: None,
-                        pane_selections: vec![],
-                        sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-                SheetData {
-                    name: "Hidden".into(),
-                    state: Some("hidden".into()),
-                    worksheet: WorksheetXml {
-                        dimension: None,
-                        rows: Vec::new(),
-                        merge_cells: Vec::new(),
-                        auto_filter: None,
-                        frozen_pane: None,
-                        split_pane: None,
-                        pane_selections: vec![],
-                        sheet_view: None,
-                        columns: Vec::new(),
-                        data_validations: Vec::new(),
-                        conditional_formatting: Vec::new(),
-                        hyperlinks: Vec::new(),
-                        page_setup: None,
-                        sheet_protection: None,
-                        comments: Vec::new(),
-                        tab_color: None,
-                        tables: Vec::new(),
-                        header_footer: None,
-                        page_breaks: None,
-                        outline_properties: None,
-                        sparkline_groups: Vec::new(),
-                        charts: Vec::new(),
-                        pivot_tables: Vec::new(),
-                        threaded_comments: Vec::new(),
-                        slicers: Vec::new(),
-                        timelines: Vec::new(),
-                        preserved_extensions: Vec::new(),
-                    },
-                },
-            ],
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        };
-
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        // Use the streaming JSON reader path.
-        let json = crate::reader::read_xlsx_json(&bytes).expect("read_xlsx_json should succeed");
-        let wb2: WorkbookData = serde_json::from_str(&json).expect("JSON parse should succeed");
-
-        assert_eq!(wb2.sheets.len(), 2);
-        assert!(wb2.sheets[0].state.is_none());
-        assert_eq!(wb2.sheets[1].state.as_deref(), Some("hidden"));
-    }
-
-    #[test]
-    fn test_external_link_content_type() {
-        use crate::ooxml::content_types::{ContentTypes, CT_EXTERNAL_LINK};
-
-        let mut wb = minimal_workbook("Sheet1", Vec::new());
-        wb.preserved_entries.insert(
-            "xl/externalLinks/externalLink1.xml".to_string(),
-            b"<externalLink/>".to_vec(),
-        );
-
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        // Read the ZIP and inspect [Content_Types].xml for the external link override.
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).expect("should be a valid ZIP");
-        let ct_bytes = entries.get("[Content_Types].xml").expect("missing [Content_Types].xml");
-        let ct = ContentTypes::parse(ct_bytes).expect("parse content types");
-
-        assert_eq!(
-            ct.overrides.get("/xl/externalLinks/externalLink1.xml"),
-            Some(&CT_EXTERNAL_LINK.to_string()),
-            "external link content type override should be present"
-        );
-
-        // Verify roundtrip: the preserved entry survives write -> read.
-        let wb2 = crate::reader::read_xlsx(&bytes).expect("read_xlsx should succeed");
-        assert!(wb2.preserved_entries.contains_key("xl/externalLinks/externalLink1.xml"));
-    }
-
-    #[test]
-    fn test_custom_xml_content_type() {
-        use crate::ooxml::content_types::{ContentTypes, CT_CUSTOM_XML_PROPS, CT_XML};
-
-        let mut wb = minimal_workbook("Sheet1", Vec::new());
-        wb.preserved_entries.insert(
-            "customXml/item1.xml".to_string(),
-            b"<root/>".to_vec(),
-        );
-        wb.preserved_entries.insert(
-            "customXml/itemProps1.xml".to_string(),
-            b"<ds:datastoreItem/>".to_vec(),
-        );
-
-        let bytes = write_xlsx(&wb).expect("write_xlsx should succeed");
-
-        // Read the ZIP and inspect [Content_Types].xml for both custom XML overrides.
-        let limits = ZipSecurityLimits::default();
-        let entries = read_zip_entries(&bytes, &limits).expect("should be a valid ZIP");
-        let ct_bytes = entries.get("[Content_Types].xml").expect("missing [Content_Types].xml");
-        let ct = ContentTypes::parse(ct_bytes).expect("parse content types");
-
-        assert_eq!(
-            ct.overrides.get("/customXml/item1.xml"),
-            Some(&CT_XML.to_string()),
-            "custom XML item content type override should be present"
-        );
-        assert_eq!(
-            ct.overrides.get("/customXml/itemProps1.xml"),
-            Some(&CT_CUSTOM_XML_PROPS.to_string()),
-            "custom XML properties content type override should be present"
-        );
-
-        // Verify roundtrip: both preserved entries survive write -> read.
-        let wb2 = crate::reader::read_xlsx(&bytes).expect("read_xlsx should succeed");
-        assert!(wb2.preserved_entries.contains_key("customXml/item1.xml"));
-        assert!(wb2.preserved_entries.contains_key("customXml/itemProps1.xml"));
-    }
-
-    /// Helper: build a single-sheet workbook with chart(s).
-    fn make_workbook_with_charts(
-        charts: Vec<crate::ooxml::charts::WorksheetChart>,
-    ) -> WorkbookData {
-        WorkbookData {
-            sheets: vec![SheetData {
-                name: "Sheet1".to_string(),
-                state: None,
-                worksheet: WorksheetXml {
-                    dimension: Some("A1:B5".to_string()),
-                    rows: vec![Row {
-                        index: 1,
-                        cells: vec![
-                            Cell {
-                                reference: "A1".to_string(),
-                                cell_type: CellType::SharedString,
-                                value: Some("Category".to_string()),
-                                ..Default::default()
-                            },
-                            Cell {
-                                reference: "B1".to_string(),
-                                cell_type: CellType::SharedString,
-                                value: Some("Value".to_string()),
-                                ..Default::default()
-                            },
-                        ],
-                        height: None,
-                        hidden: false,
-                        outline_level: None,
-                        collapsed: false,
-                    }],
-                    merge_cells: Vec::new(),
-                    auto_filter: None,
-                    frozen_pane: None,
-                    split_pane: None,
-                    pane_selections: vec![],
-                    sheet_view: None,
-                    columns: Vec::new(),
-                    data_validations: Vec::new(),
-                    conditional_formatting: Vec::new(),
-                    hyperlinks: Vec::new(),
-                    page_setup: None,
-                    sheet_protection: None,
-                    comments: Vec::new(),
-                    tab_color: None,
-                    tables: Vec::new(),
-                    header_footer: None,
-                    page_breaks: None,
-                    outline_properties: None,
-                    sparkline_groups: Vec::new(),
-                    charts,
-                    pivot_tables: Vec::new(),
-                    threaded_comments: Vec::new(),
-                    slicers: Vec::new(),
-                    timelines: Vec::new(),
-                    preserved_extensions: Vec::new(),
-                },
-            }],
-            date_system: DateSystem::Date1900,
-            styles: Styles::default_styles(),
-            defined_names: Vec::new(),
-            shared_strings: None,
-            doc_properties: None,
-            theme_colors: None,
-            calc_chain: Vec::new(),
-            workbook_views: Vec::new(),
-            protection: None,
-            pivot_caches: Vec::new(),
-            pivot_cache_records: Vec::new(),
-            persons: Vec::new(),
-            slicer_caches: Vec::new(),
-            timeline_caches: Vec::new(),
-            preserved_entries: std::collections::BTreeMap::new(),
-        }
-    }
-
-    #[test]
-    fn test_write_workbook_with_charts() {
-        use crate::ooxml::charts::*;
-
-        let chart = WorksheetChart {
-            chart: ChartData {
-                chart_type: ChartType::Bar,
-                title: Some(ChartTitle {
-                    text: "Sales".into(),
-                    overlay: false,
-                    font_size: None,
-                    bold: None,
-                    color: None,
-                }),
-                series: vec![ChartSeries {
-                    idx: 0,
-                    order: 0,
-                    name: Some("Revenue".into()),
-                    cat_ref: Some("Sheet1!$A$2:$A$5".into()),
-                    val_ref: "Sheet1!$B$2:$B$5".into(),
-                    x_val_ref: None,
-                    bubble_size_ref: None,
-                    fill_color: None,
-                    line_color: None,
-                    line_width: None,
-                    marker: None,
-                    smooth: None,
-                    explosion: None,
-                    data_labels: None,
-                    trendline: None,
-                    error_bars: None,
-                }],
-                cat_axis: Some(ChartAxis {
-                    id: 0,
-                    cross_ax: 1,
-                    title: None,
-                    num_fmt: None,
-                    source_linked: false,
-                    min: None,
-                    max: None,
-                    major_unit: None,
-                    minor_unit: None,
-                    log_base: None,
-                    reversed: false,
-                    tick_lbl_pos: None,
-                    major_tick_mark: None,
-                    minor_tick_mark: None,
-                    major_gridlines: false,
-                    minor_gridlines: false,
-                    delete: false,
-                    position: None,
-                    crosses_at: None,
-                    font_size: None,
-                }),
-                val_axis: Some(ChartAxis {
-                    id: 1,
-                    cross_ax: 0,
-                    title: None,
-                    num_fmt: None,
-                    source_linked: false,
-                    min: None,
-                    max: None,
-                    major_unit: None,
-                    minor_unit: None,
-                    log_base: None,
-                    reversed: false,
-                    tick_lbl_pos: None,
-                    major_tick_mark: None,
-                    minor_tick_mark: None,
-                    major_gridlines: true,
-                    minor_gridlines: false,
-                    delete: false,
-                    position: None,
-                    crosses_at: None,
-                    font_size: None,
-                }),
-                legend: None,
-                data_labels: None,
-                grouping: Some(ChartGrouping::Clustered),
-                scatter_style: None,
-                radar_style: None,
-                hole_size: None,
-                bar_dir_horizontal: None,
-                style_id: None,
-                plot_area_layout: None,
-                secondary_chart: None,
-                secondary_val_axis: None,
-                show_data_table: false,
-                view_3d: None,
-            },
-            anchor: ChartAnchor {
-                from_col: 0,
-                from_row: 0,
-                from_col_off: 0,
-                from_row_off: 0,
-                to_col: 8,
-                to_row: 15,
-                to_col_off: 0,
-                to_row_off: 0,
-                ext_cx: None,
-                ext_cy: None,
-            },
-        };
-
-        let wb = make_workbook_with_charts(vec![chart]);
-        let bytes = write_xlsx(&wb).unwrap();
-
-        // Parse ZIP and verify contents.
-        let limits = ZipSecurityLimits::default();
-        let zip_entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        // Should contain chart XML.
-        assert!(
-            zip_entries.contains_key("xl/charts/chart1.xml"),
-            "should contain chart XML"
-        );
-
-        // Should contain drawing XML.
-        assert!(
-            zip_entries.contains_key("xl/drawings/drawing1.xml"),
-            "should contain drawing XML"
-        );
-
-        // Should contain drawing rels.
-        assert!(
-            zip_entries.contains_key("xl/drawings/_rels/drawing1.xml.rels"),
-            "should contain drawing rels"
-        );
-
-        // Check content types.
-        let ct_xml =
-            std::str::from_utf8(zip_entries.get("[Content_Types].xml").unwrap()).unwrap();
-        assert!(
-            ct_xml.contains("drawingml.chart+xml"),
-            "content types should include chart type"
-        );
-        assert!(
-            ct_xml.contains("drawing+xml"),
-            "content types should include drawing type"
-        );
-
-        // Check worksheet has drawing reference.
-        let ws_xml =
-            std::str::from_utf8(zip_entries.get("xl/worksheets/sheet1.xml").unwrap()).unwrap();
-        assert!(
-            ws_xml.contains("<drawing"),
-            "worksheet should reference drawing"
-        );
-
-        // Check drawing XML has anchor.
-        let drawing_xml =
-            std::str::from_utf8(zip_entries.get("xl/drawings/drawing1.xml").unwrap()).unwrap();
-        assert!(
-            drawing_xml.contains("<xdr:twoCellAnchor>"),
-            "drawing should have anchor"
-        );
-        assert!(
-            drawing_xml.contains("<xdr:col>8</xdr:col>"),
-            "drawing anchor should reference col 8"
-        );
-
-        // Check chart XML.
-        let chart_xml =
-            std::str::from_utf8(zip_entries.get("xl/charts/chart1.xml").unwrap()).unwrap();
-        assert!(
-            chart_xml.contains("<c:barChart>"),
-            "chart should be bar chart"
-        );
-
-        // Check drawing rels references the chart.
-        let drawing_rels = std::str::from_utf8(
-            zip_entries
-                .get("xl/drawings/_rels/drawing1.xml.rels")
-                .unwrap(),
-        )
-        .unwrap();
-        assert!(
-            drawing_rels.contains("chart1.xml"),
-            "drawing rels should reference chart1.xml"
-        );
-
-        // Check worksheet rels references the drawing.
-        let ws_rels = std::str::from_utf8(
-            zip_entries
-                .get("xl/worksheets/_rels/sheet1.xml.rels")
-                .unwrap(),
-        )
-        .unwrap();
-        assert!(
-            ws_rels.contains("drawing1.xml"),
-            "worksheet rels should reference drawing1.xml"
-        );
-    }
-
-    #[test]
-    fn test_multiple_charts_on_one_sheet() {
-        use crate::ooxml::charts::*;
-
-        let make_chart = |chart_type, from_col, to_col| WorksheetChart {
-            chart: ChartData {
-                chart_type,
-                title: None,
-                series: vec![ChartSeries {
-                    idx: 0,
-                    order: 0,
-                    name: None,
-                    cat_ref: None,
-                    val_ref: "Sheet1!$A$1:$A$5".into(),
-                    x_val_ref: None,
-                    bubble_size_ref: None,
-                    fill_color: None,
-                    line_color: None,
-                    line_width: None,
-                    marker: None,
-                    smooth: None,
-                    explosion: None,
-                    data_labels: None,
-                    trendline: None,
-                    error_bars: None,
-                }],
-                cat_axis: None,
-                val_axis: None,
-                legend: None,
-                data_labels: None,
-                grouping: None,
-                scatter_style: None,
-                radar_style: None,
-                hole_size: None,
-                bar_dir_horizontal: None,
-                style_id: None,
-                plot_area_layout: None,
-                secondary_chart: None,
-                secondary_val_axis: None,
-                show_data_table: false,
-                view_3d: None,
-            },
-            anchor: ChartAnchor {
-                from_col,
-                from_row: 0,
-                from_col_off: 0,
-                from_row_off: 0,
-                to_col,
-                to_row: 10,
-                to_col_off: 0,
-                to_row_off: 0,
-                ext_cx: None,
-                ext_cy: None,
-            },
-        };
-
-        let wb = make_workbook_with_charts(vec![
-            make_chart(ChartType::Pie, 0, 5),
-            make_chart(ChartType::Line, 6, 12),
-        ]);
-        let bytes = write_xlsx(&wb).unwrap();
-
-        let limits = ZipSecurityLimits::default();
-        let zip_entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        // Should have two chart XMLs.
-        assert!(zip_entries.contains_key("xl/charts/chart1.xml"));
-        assert!(zip_entries.contains_key("xl/charts/chart2.xml"));
-
-        // Single drawing XML with two anchors.
-        let drawing_xml =
-            std::str::from_utf8(zip_entries.get("xl/drawings/drawing1.xml").unwrap()).unwrap();
-        let anchor_count = drawing_xml.matches("<xdr:twoCellAnchor>").count();
-        assert_eq!(anchor_count, 2, "should have two chart anchors in drawing");
-
-        // Drawing rels should reference both charts.
-        let drawing_rels = std::str::from_utf8(
-            zip_entries
-                .get("xl/drawings/_rels/drawing1.xml.rels")
-                .unwrap(),
-        )
-        .unwrap();
-        assert!(drawing_rels.contains("chart1.xml"));
-        assert!(drawing_rels.contains("chart2.xml"));
-
-        // Verify chart types.
-        let chart1 =
-            std::str::from_utf8(zip_entries.get("xl/charts/chart1.xml").unwrap()).unwrap();
-        assert!(chart1.contains("<c:pieChart>"), "first chart should be pie");
-        let chart2 =
-            std::str::from_utf8(zip_entries.get("xl/charts/chart2.xml").unwrap()).unwrap();
-        assert!(chart2.contains("<c:lineChart>"), "second chart should be line");
-    }
-
-    // -----------------------------------------------------------------------
-    // Drawing merge / collision tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_extract_anchors_from_drawing() {
-        let drawing = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <xdr:twoCellAnchor editAs="oneCell">
-    <xdr:from><xdr:col>0</xdr:col></xdr:from>
-    <xdr:to><xdr:col>3</xdr:col></xdr:to>
-    <xdr:pic>
-      <xdr:blipFill><a:blip r:embed="rId1"/></xdr:blipFill>
-    </xdr:pic>
-    <xdr:clientData/>
-  </xdr:twoCellAnchor>
-  <xdr:twoCellAnchor editAs="oneCell">
-    <xdr:from><xdr:col>4</xdr:col></xdr:from>
-    <xdr:to><xdr:col>7</xdr:col></xdr:to>
-    <xdr:pic>
-      <xdr:blipFill><a:blip r:embed="rId2"/></xdr:blipFill>
-    </xdr:pic>
-    <xdr:clientData/>
-  </xdr:twoCellAnchor>
-</xdr:wsDr>"#;
-
-        let anchors = super::extract_anchors_from_drawing(drawing);
-        assert_eq!(anchors.len(), 2, "should extract 2 anchor blocks");
-        assert!(anchors[0].contains("rId1"), "first anchor should reference rId1");
-        assert!(anchors[1].contains("rId2"), "second anchor should reference rId2");
-        assert!(anchors[0].contains("<xdr:pic>"), "first anchor should contain pic");
-        assert!(anchors[1].contains("<xdr:pic>"), "second anchor should contain pic");
-    }
-
-    #[test]
-    fn test_extract_anchors_empty_drawing() {
-        let drawing = r#"<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"/>"#;
-        let anchors = super::extract_anchors_from_drawing(drawing);
-        assert!(anchors.is_empty(), "empty drawing should have no anchors");
-    }
-
-    #[test]
-    fn test_chart_and_image_drawing_merge() {
-        use crate::ooxml::charts::*;
-
-        // Build a workbook with a chart AND image drawing XML in preserved entries.
-        let mut wb = make_workbook_with_charts(vec![WorksheetChart {
-            chart: ChartData {
-                chart_type: ChartType::Bar,
-                title: Some(ChartTitle {
-                    text: "Sales".into(),
-                    overlay: false,
-                    font_size: None,
-                    bold: None,
-                    color: None,
-                }),
-                series: vec![ChartSeries {
-                    idx: 0,
-                    order: 0,
-                    name: None,
-                    cat_ref: None,
-                    val_ref: "Sheet1!$A$1:$A$5".into(),
-                    x_val_ref: None,
-                    bubble_size_ref: None,
-                    fill_color: None,
-                    line_color: None,
-                    line_width: None,
-                    marker: None,
-                    smooth: None,
-                    explosion: None,
-                    data_labels: None,
-                    trendline: None,
-                    error_bars: None,
-                }],
-                cat_axis: None,
-                val_axis: None,
-                legend: None,
-                data_labels: None,
-                grouping: None,
-                scatter_style: None,
-                radar_style: None,
-                hole_size: None,
-                bar_dir_horizontal: None,
-                style_id: None,
-                plot_area_layout: None,
-                secondary_chart: None,
-                secondary_val_axis: None,
-                show_data_table: false,
-                view_3d: None,
-            },
-            anchor: ChartAnchor {
-                from_col: 4,
-                from_row: 0,
-                from_col_off: 0,
-                from_row_off: 0,
-                to_col: 12,
-                to_row: 15,
-                to_col_off: 0,
-                to_row_off: 0,
-                ext_cx: None,
-                ext_cy: None,
-            },
-        }]);
-
-        // Simulate addImage: put image drawing XML in preserved entries.
-        let image_drawing = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <xdr:twoCellAnchor editAs="oneCell">
-    <xdr:from>
-      <xdr:col>0</xdr:col>
-      <xdr:colOff>0</xdr:colOff>
-      <xdr:row>5</xdr:row>
-      <xdr:rowOff>0</xdr:rowOff>
-    </xdr:from>
-    <xdr:to>
-      <xdr:col>3</xdr:col>
-      <xdr:colOff>0</xdr:colOff>
-      <xdr:row>12</xdr:row>
-      <xdr:rowOff>0</xdr:rowOff>
-    </xdr:to>
-    <xdr:pic>
-      <xdr:nvPicPr>
-        <xdr:cNvPr id="2" name="Barcode 1"/>
-        <xdr:cNvPicPr>
-          <a:picLocks noChangeAspect="1"/>
-        </xdr:cNvPicPr>
-      </xdr:nvPicPr>
-      <xdr:blipFill>
-        <a:blip r:embed="rId1"/>
-        <a:stretch>
-          <a:fillRect/>
-        </a:stretch>
-      </xdr:blipFill>
-      <xdr:spPr>
-        <a:xfrm>
-          <a:off x="0" y="0"/>
-          <a:ext cx="0" cy="0"/>
-        </a:xfrm>
-        <a:prstGeom prst="rect">
-          <a:avLst/>
-        </a:prstGeom>
-      </xdr:spPr>
-    </xdr:pic>
-    <xdr:clientData/>
-  </xdr:twoCellAnchor>
-</xdr:wsDr>"#;
-
-        let image_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
-</Relationships>"#;
-
-        // Simulate the sheet rels that addImage creates.
-        let sheet_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdDrawing1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>"#;
-
-        // Fake PNG bytes.
-        let fake_png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-
-        wb.preserved_entries.insert(
-            "xl/drawings/drawing1.xml".to_string(),
-            image_drawing.as_bytes().to_vec(),
-        );
-        wb.preserved_entries.insert(
-            "xl/drawings/_rels/drawing1.xml.rels".to_string(),
-            image_rels.as_bytes().to_vec(),
-        );
-        wb.preserved_entries.insert(
-            "xl/worksheets/_rels/sheet1.xml.rels".to_string(),
-            sheet_rels.as_bytes().to_vec(),
-        );
-        wb.preserved_entries.insert(
-            "xl/media/image1.png".to_string(),
-            fake_png.clone(),
-        );
-
-        // Write the workbook.
-        let bytes = write_xlsx(&wb).unwrap();
-
-        let limits = ZipSecurityLimits::default();
-        let zip_entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        // The merged drawing XML should contain BOTH chart and image anchors.
-        let drawing_xml =
-            std::str::from_utf8(zip_entries.get("xl/drawings/drawing1.xml").unwrap()).unwrap();
-
-        // Chart anchor (graphicFrame).
-        assert!(
-            drawing_xml.contains("<xdr:graphicFrame"),
-            "merged drawing should contain chart graphicFrame:\n{drawing_xml}"
-        );
-        // Image anchor (pic).
-        assert!(
-            drawing_xml.contains("<xdr:pic>"),
-            "merged drawing should contain image pic:\n{drawing_xml}"
-        );
-
-        // Should have exactly 2 twoCellAnchors (1 chart + 1 image).
-        let anchor_count = drawing_xml.matches("<xdr:twoCellAnchor").count();
-        assert_eq!(
-            anchor_count, 2,
-            "should have 2 anchors (1 chart + 1 image):\n{drawing_xml}"
-        );
-
-        // The drawing rels should reference both the chart AND the image.
-        let drawing_rels = std::str::from_utf8(
-            zip_entries
-                .get("xl/drawings/_rels/drawing1.xml.rels")
-                .unwrap(),
-        )
-        .unwrap();
-        assert!(
-            drawing_rels.contains("chart1.xml"),
-            "drawing rels should reference chart:\n{drawing_rels}"
-        );
-        assert!(
-            drawing_rels.contains("image1.png"),
-            "drawing rels should reference image:\n{drawing_rels}"
-        );
-
-        // The image rId should be remapped (chart uses rId1, so image should be rId2).
-        assert!(
-            drawing_xml.contains("r:embed=\"rId2\""),
-            "image rId should be remapped to rId2:\n{drawing_xml}"
-        );
-
-        // Image media bytes should be present.
-        assert_eq!(
-            zip_entries.get("xl/media/image1.png").unwrap(),
-            &fake_png,
-            "image media should survive"
-        );
-
-        // Worksheet .rels should NOT have duplicate drawing relationships.
-        let ws_rels = std::str::from_utf8(
-            zip_entries
-                .get("xl/worksheets/_rels/sheet1.xml.rels")
-                .unwrap(),
-        )
-        .unwrap();
-        let drawing_rel_count = ws_rels.matches("relationships/drawing").count();
-        assert_eq!(
-            drawing_rel_count, 1,
-            "worksheet rels should have exactly 1 drawing relationship:\n{ws_rels}"
-        );
-    }
-
-    #[test]
-    fn test_chart_only_no_regression() {
-        // Ensure chart-only workbooks still work correctly after the merge changes.
-        use crate::ooxml::charts::*;
-
-        let wb = make_workbook_with_charts(vec![WorksheetChart {
-            chart: ChartData {
-                chart_type: ChartType::Line,
-                title: Some(ChartTitle {
-                    text: "Trend".into(),
-                    overlay: false,
-                    font_size: None,
-                    bold: None,
-                    color: None,
-                }),
-                series: vec![ChartSeries {
-                    idx: 0,
-                    order: 0,
-                    name: None,
-                    cat_ref: None,
-                    val_ref: "Sheet1!$A$1:$A$5".into(),
-                    x_val_ref: None,
-                    bubble_size_ref: None,
-                    fill_color: None,
-                    line_color: None,
-                    line_width: None,
-                    marker: None,
-                    smooth: None,
-                    explosion: None,
-                    data_labels: None,
-                    trendline: None,
-                    error_bars: None,
-                }],
-                cat_axis: None,
-                val_axis: None,
-                legend: None,
-                data_labels: None,
-                grouping: None,
-                scatter_style: None,
-                radar_style: None,
-                hole_size: None,
-                bar_dir_horizontal: None,
-                style_id: None,
-                plot_area_layout: None,
-                secondary_chart: None,
-                secondary_val_axis: None,
-                show_data_table: false,
-                view_3d: None,
-            },
-            anchor: ChartAnchor {
-                from_col: 0,
-                from_row: 0,
-                from_col_off: 0,
-                from_row_off: 0,
-                to_col: 8,
-                to_row: 10,
-                to_col_off: 0,
-                to_row_off: 0,
-                ext_cx: None,
-                ext_cy: None,
-            },
-        }]);
-
-        let bytes = write_xlsx(&wb).unwrap();
-
-        let limits = ZipSecurityLimits::default();
-        let zip_entries = read_zip_entries(&bytes, &limits).unwrap();
-
-        let drawing_xml =
-            std::str::from_utf8(zip_entries.get("xl/drawings/drawing1.xml").unwrap()).unwrap();
-        assert!(
-            drawing_xml.contains("<xdr:graphicFrame"),
-            "chart-only drawing should have graphicFrame"
-        );
-        assert!(
-            !drawing_xml.contains("<xdr:pic>"),
-            "chart-only drawing should NOT have pic"
-        );
-
-        let anchor_count = drawing_xml.matches("<xdr:twoCellAnchor").count();
-        assert_eq!(anchor_count, 1, "chart-only should have 1 anchor");
-    }
-}
+mod tests;

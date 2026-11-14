@@ -1,25 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createDefaultFunctions } from '../src/formula/functions/index.js';
 import type { CellValue } from '../src/index.js';
-import { evaluateFormula } from '../src/index.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const functions = createDefaultFunctions();
-
-function ev(formula: string, cells?: Record<string, CellValue>): CellValue {
-  return evaluateFormula(formula, {
-    currentSheet: 'Sheet1',
-    functions,
-    getCell: (sheet: string, col: number, row: number): CellValue => {
-      const letter = String.fromCharCode(65 + col);
-      const key = `${sheet}!${letter}${row}`;
-      return cells?.[key] ?? null;
-    },
-  });
-}
+import { ev } from './helpers/formula-context.js';
 
 // ---------------------------------------------------------------------------
 // SUM
@@ -377,11 +358,22 @@ describe('POWER', () => {
 
 describe('LOG', () => {
   it('log base 10: LOG(100)', () => {
-    expect(ev('LOG(100)')).toBeCloseTo(2, 10);
+    expect(ev('LOG(100)')).toBe(2);
   });
 
   it('log base 2: LOG(8,2)', () => {
-    expect(ev('LOG(8,2)')).toBeCloseTo(3, 10);
+    expect(ev('LOG(8,2)')).toBe(3);
+  });
+
+  it('exact powers of 10 and 2 give exact integers', () => {
+    expect(ev('LOG(1000)')).toBe(3);
+    expect(ev('LOG(1000,10)')).toBe(3);
+    expect(ev('LOG(1E15)')).toBe(15);
+    expect(ev('LOG(1024,2)')).toBe(10);
+  });
+
+  it('other bases use the natural-log ratio', () => {
+    expect(ev('LOG(27,3)')).toBeCloseTo(3, 12);
   });
 
   it('negative returns #NUM!', () => {
@@ -579,5 +571,180 @@ describe('SUMPRODUCT', () => {
     };
     // 1*10 + 0*20 = 10
     expect(ev('SUMPRODUCT(A1:A2,B1:B2)', cells)).toBe(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Excel coercion: reference vs direct arguments
+// ---------------------------------------------------------------------------
+
+describe('SUM / AVERAGE / MIN / MAX coercion', () => {
+  const trueAnd2: Record<string, CellValue> = { 'Sheet1!A1': true, 'Sheet1!A2': 2 };
+
+  it('skips booleans inside a range', () => {
+    expect(ev('SUM(A1:A2)', trueAnd2)).toBe(2);
+    expect(ev('AVERAGE(A1:A2)', trueAnd2)).toBe(2);
+  });
+
+  it('skips a boolean in a single-cell reference', () => {
+    expect(ev('SUM(A1)', { 'Sheet1!A1': true })).toBe(0);
+  });
+
+  it('counts direct booleans as 1/0 and direct numeric text as a number', () => {
+    expect(ev('SUM(TRUE,"5")')).toBe(6);
+    expect(ev('SUM(A1:A2,TRUE,"5")', trueAnd2)).toBe(8);
+    expect(ev('MIN(TRUE,5)')).toBe(1);
+    expect(ev('MAX(FALSE,-5)')).toBe(0);
+  });
+
+  it('returns #VALUE! for direct non-numeric text', () => {
+    expect(ev('SUM(1,"abc")')).toBe('#VALUE!');
+    expect(ev('MAX(1,"")')).toBe('#VALUE!');
+  });
+
+  it('skips text in references, numeric text included', () => {
+    expect(ev('SUM(A1:A2)', { 'Sheet1!A1': '7', 'Sheet1!A2': 3 })).toBe(3);
+  });
+
+  it('returns the first error in argument order', () => {
+    expect(ev('SUM(#N/A,"x")')).toBe('#N/A');
+    expect(ev('MIN(A1,#DIV/0!)', { 'Sheet1!A1': '#REF!' })).toBe('#REF!');
+  });
+
+  it('flattens array constants', () => {
+    expect(ev('SUM({1,2,3})')).toBe(6);
+    expect(ev('MAX({1,5,3})')).toBe(5);
+    expect(ev('AVERAGE({2,4})')).toBe(3);
+    expect(ev('SUM({1,TRUE,"5"})')).toBe(1);
+  });
+
+  it('reads a whole column through a sparse getCell', () => {
+    expect(ev('SUM(A:A)', { 'Sheet1!A1': 1, 'Sheet1!A2': 1 })).toBe(2);
+  });
+});
+
+describe('COUNT coercion', () => {
+  it('ignores error cells in a range', () => {
+    expect(ev('COUNT(A1:A3)', { 'Sheet1!A1': 1, 'Sheet1!A2': '#N/A', 'Sheet1!A3': 3 })).toBe(2);
+  });
+
+  it('ignores direct errors', () => {
+    expect(ev('COUNT(1,#DIV/0!,2)')).toBe(2);
+    expect(ev('COUNT(1,#N/A)')).toBe(1);
+  });
+
+  it('counts direct booleans and numeric text, but not those in references', () => {
+    expect(ev('COUNT(1,TRUE,"5","x")')).toBe(3);
+    expect(ev('COUNT(A1:A2)', { 'Sheet1!A1': true, 'Sheet1!A2': '5' })).toBe(0);
+  });
+
+  it('flattens array constants', () => {
+    expect(ev('COUNT({1,2,"x"})')).toBe(2);
+    expect(ev('COUNTA({1,2,3})')).toBe(3);
+  });
+});
+
+describe('array constants in COUNTBLANK / SUMPRODUCT / criteria ranges', () => {
+  it('flattens array constants', () => {
+    expect(ev('SUMPRODUCT({1,2},{3,4})')).toBe(11);
+    expect(ev('COUNTIF({1,2,3},">1")')).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Criteria
+// ---------------------------------------------------------------------------
+
+describe('criteria coercion', () => {
+  it('numeric operators skip blanks, empty text and booleans', () => {
+    expect(ev('COUNTIF(A1:A3,">=0")', {})).toBe(0);
+    expect(
+      ev('COUNTIF(A1:A3,">=0")', { 'Sheet1!A1': '', 'Sheet1!A2': true, 'Sheet1!A3': null }),
+    ).toBe(0);
+  });
+
+  it('ordering operators compare numbers only, not numeric text', () => {
+    expect(ev('COUNTIF(A1:A2,">5")', { 'Sheet1!A1': '7', 'Sheet1!A2': 9 })).toBe(1);
+  });
+
+  it('<> with a number matches blanks', () => {
+    expect(ev('COUNTIF(A1:A3,"<>5")', { 'Sheet1!A1': 5 })).toBe(2);
+  });
+
+  it('= with a number matches numbers and numeric text', () => {
+    expect(ev('COUNTIF(A1:A2,"=5")', { 'Sheet1!A1': 5, 'Sheet1!A2': '5' })).toBe(2);
+    expect(ev('COUNTIF(A1:A2,5)', { 'Sheet1!A1': 5, 'Sheet1!A2': '5' })).toBe(2);
+  });
+
+  it('a plain numeric criterion compares numerically', () => {
+    expect(ev('COUNTIF(A1:A2,"5.0")', { 'Sheet1!A1': 5, 'Sheet1!A2': 6 })).toBe(1);
+  });
+
+  it('applies wildcards after <> and negates', () => {
+    expect(
+      ev('COUNTIF(A1:A3,"<>*x*")', { 'Sheet1!A1': 'axb', 'Sheet1!A2': 'abc', 'Sheet1!A3': 'q' }),
+    ).toBe(2);
+  });
+
+  it('honours ~ escapes', () => {
+    expect(ev('COUNTIF(A1:A2,"~*")', { 'Sheet1!A1': '*', 'Sheet1!A2': 'x' })).toBe(1);
+    const cells: Record<string, CellValue> = {
+      'Sheet1!A1': 'apple',
+      'Sheet1!A2': 'box',
+      'Sheet1!A3': 'axe',
+      'Sheet1!A4': 'a*b',
+      'Sheet1!A5': 'acb',
+    };
+    expect(ev('COUNTIF(A1:A5,"a~*b")', cells)).toBe(1);
+  });
+
+  it('text criteria never match numbers; "TRUE" still matches booleans', () => {
+    expect(ev('COUNTIF(A1:A2,"*")', { 'Sheet1!A1': 5, 'Sheet1!A2': 'x' })).toBe(1);
+    expect(ev('COUNTIF(A1:A2,"TRUE")', { 'Sheet1!A1': true, 'Sheet1!A2': 'true' })).toBe(2);
+  });
+
+  it('SUMIF skips blank and boolean criteria cells for >=0', () => {
+    expect(
+      ev('SUMIF(A1:A3,">=0",B1:B3)', {
+        'Sheet1!A2': true,
+        'Sheet1!A3': 2,
+        'Sheet1!B1': 10,
+        'Sheet1!B2': 20,
+        'Sheet1!B3': 30,
+      }),
+    ).toBe(30);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Decimal-safe rounding
+// ---------------------------------------------------------------------------
+
+describe('decimal-safe rounding', () => {
+  it('ROUND rounds half away from zero', () => {
+    expect(ev('ROUND(-2.5,0)')).toBe(-3);
+    expect(ev('ROUND(2.5,0)')).toBe(3);
+    expect(ev('ROUND(1.005,2)')).toBe(1.01);
+    expect(ev('ROUND(2.675,2)')).toBe(2.68);
+  });
+
+  it('ROUNDUP and ROUNDDOWN ignore binary representation error', () => {
+    expect(ev('ROUNDUP(1.1,2)')).toBe(1.1);
+    expect(ev('ROUNDUP(0.07,2)')).toBe(0.07);
+    expect(ev('ROUNDDOWN(4.35,2)')).toBe(4.35);
+    expect(ev('ROUNDUP(-1234.5,-2)')).toBe(-1300);
+  });
+
+  it('bounds very large and very small digit counts', () => {
+    expect(ev('ROUND(1,400)')).toBe(1);
+    expect(ev('ROUND(1.5,400)')).toBe(1.5);
+    expect(ev('ROUND(1,-400)')).toBe(0);
+    expect(ev('ROUNDDOWN(1.5,400)')).toBe(1.5);
+    expect(ev('ROUNDUP(5,-3)')).toBe(1000);
+    expect(ev('ROUNDUP(1,-400)')).toBe('#NUM!');
+  });
+
+  it('keeps subnormal-scale inputs finite when digits exceed 308', () => {
+    expect(ev('ROUND(1E-300,310)')).toBe(1e-300);
   });
 });

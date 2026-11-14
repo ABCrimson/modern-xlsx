@@ -1,16 +1,25 @@
-use core::hint::cold_path;
+//! File-format sniffing and OLE2 classification, built in every build.
+//!
+//! [`detect_format`] tells a ZIP package from an OLE2 compound file by its
+//! magic bytes. [`classify_ole2`] names an OLE2 file an encrypted package
+//! (`EncryptionInfo` and `EncryptedPackage` streams), a legacy `.xls`
+//! (`Workbook` or `Book` stream) or unknown, reading the directory through the
+//! MS-CFB reader in `ole2::cfb::reader`; `classify_ole2_with_cfb` does the same
+//! for a file the caller has already parsed.
 
-use super::crypto::SensitiveKey;
-use crate::errors::ModernXlsxError;
-
-type Result<T> = std::result::Result<T, ModernXlsxError>;
+use super::cfb::reader::Cfb;
+use crate::Result;
 
 /// ZIP archive magic bytes (PK\x03\x04).
 const ZIP_MAGIC: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
 
-// Error message constants shared between reader.rs and streaming.rs.
+// Error message constants shared by reader.rs and encryption_info.rs.
 pub const ERR_ENCRYPTED: &str = "This file is password-protected (OLE2 compound document). \
     Provide password via readBuffer(data, { password: '...' }).";
+/// The lite build sniffs encrypted files but cannot decrypt them.
+pub const ERR_ENCRYPTED_LITE: &str = "This file is password-protected (OLE2 compound document). \
+    The lite build cannot decrypt; use the full modern-xlsx entry and pass \
+    readBuffer(data, { password }).";
 pub const ERR_LEGACY_XLS: &str = "Legacy .xls format not supported. Convert to .xlsx first.";
 pub const ERR_OLE2_UNKNOWN: &str = "Unrecognized OLE2 compound document.";
 pub const ERR_NOT_XLSX: &str = "Not a valid XLSX file (expected ZIP or OLE2 header).";
@@ -42,228 +51,30 @@ pub fn detect_format(data: &[u8]) -> FileFormat {
     }
 }
 
-/// Minimal OLE2 header parsing — just enough to read directory entries.
-struct Ole2Header {
-    sector_size: usize,
-    first_dir_sector: u32,
-    fat_sectors: Vec<u32>,
-}
-
-impl Ole2Header {
-    fn parse(data: &[u8]) -> Result<Self> {
-        if data.len() < 512 {
-            cold_path();
-            return Err(ModernXlsxError::UnrecognizedFormat(format!(
-                "File too small for OLE2 header: got {} bytes, need at least 512",
-                data.len()
-            )));
-        }
-        let major_version = u16::from_le_bytes([data[26], data[27]]);
-        let sector_size = if major_version == 4 { 4096 } else { 512 };
-        let first_dir_sector = u32::from_le_bytes(data[48..52].try_into().unwrap_or_default());
-
-        // Read FAT sector IDs from header (109 entries starting at offset 76)
-        let num_fat_sectors = u32::from_le_bytes(data[44..48].try_into().unwrap_or_default()) as usize;
-        let mut fat_sectors = Vec::with_capacity(num_fat_sectors.min(109));
-        for i in 0..num_fat_sectors.min(109) {
-            let offset = 76 + i * 4;
-            if offset + 4 > 512 {
-                break;
-            }
-            let sid = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap_or_default());
-            if !matches!(sid, 0xFFFFFFFE | 0xFFFFFFFF) {
-                fat_sectors.push(sid);
-            }
-        }
-
-        Ok(Self {
-            sector_size,
-            first_dir_sector,
-            fat_sectors,
-        })
-    }
-
-    /// Returns the byte offset for a given sector ID.
-    ///
-    /// `sid` comes from the (attacker-controlled) FAT/DIFAT, so the multiply is
-    /// saturating: on a 32-bit target (wasm) with overflow checks enabled (e.g.
-    /// the debug build) an unbounded `sid` would otherwise panic. Saturating to
-    /// `usize::MAX` is harmless because every caller clamps the result with
-    /// `.min(data.len())` and an `offset < end` guard before slicing.
-    #[inline]
-    fn sector_offset(&self, sid: u32) -> usize {
-        512usize.saturating_add((sid as usize).saturating_mul(self.sector_size))
-    }
-}
-
-/// Reads the FAT (File Allocation Table) to follow sector chains.
-fn read_fat(data: &[u8], header: &Ole2Header) -> Vec<u32> {
-    let entries_per_sector = header.sector_size / 4;
-    let mut fat = Vec::with_capacity(header.fat_sectors.len() * entries_per_sector);
-    for &sid in &header.fat_sectors {
-        let offset = header.sector_offset(sid);
-        let end = (offset + header.sector_size).min(data.len());
-        if offset < end {
-            fat.extend(
-                data[offset..end]
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|c| u32::from_le_bytes(*c)),
-            );
-        }
-    }
-    fat
-}
-
-/// Follows a FAT chain from a starting sector, collecting all sectors.
-fn follow_chain(fat: &[u32], start: u32) -> Vec<u32> {
-    let mut chain = Vec::with_capacity(16);
-    let mut current = start;
-    // Safety limit to avoid infinite loops on corrupt files
-    let max_sectors = fat.len();
-    while (current as usize) < fat.len() && chain.len() < max_sectors {
-        chain.push(current);
-        let next = fat[current as usize];
-        if matches!(next, 0xFFFFFFFE | 0xFFFFFFFF) {
-            break;
-        }
-        current = next;
-    }
-    chain
-}
-
-/// Reads bytes of a stream from the OLE2 file given a sector chain.
-fn read_sectors(data: &[u8], header: &Ole2Header, chain: &[u32], size: usize) -> Vec<u8> {
-    let mut result = Vec::with_capacity(size);
-    for &sid in chain {
-        let offset = header.sector_offset(sid);
-        let end = (offset + header.sector_size).min(data.len());
-        if offset < data.len() {
-            result.extend_from_slice(&data[offset..end]);
-        }
-    }
-    result.truncate(size);
-    result
-}
-
-/// Directory entry from OLE2 compound document.
-struct DirEntry {
-    name: String,
-    #[allow(dead_code)]
-    entry_type: u8,
-    start_sector: u32,
-    size: u64,
-}
-
-/// Reads directory entries from the directory sector chain.
-fn read_directory(data: &[u8], header: &Ole2Header, fat: &[u32]) -> Vec<DirEntry> {
-    let chain = follow_chain(fat, header.first_dir_sector);
-    let dir_bytes = read_sectors(data, header, &chain, chain.len() * header.sector_size);
-
-    let mut entries = Vec::with_capacity(dir_bytes.len() / 128);
-    for chunk in dir_bytes.as_chunks::<128>().0 {
-        let entry_type = chunk[66];
-        if entry_type == 0 {
-            continue;
-        } // empty entry
-
-        // Read name: UTF-16LE in the first 64 bytes of the entry; length in
-        // bytes at offset 64-65. Per MS-CFB §2.6.1 the name field is at most 64
-        // bytes (32 UTF-16 code units) including the terminating NUL, so a
-        // malformed length must be clamped — otherwise the loop below would index
-        // past the 64-byte name field (and the 128-byte entry) and panic.
-        let name_len = (u16::from_le_bytes([chunk[64], chunk[65]]) as usize).min(64);
-        let name_units = name_len.saturating_sub(2) / 2; // drop the UTF-16 NUL terminator
-        let name: String = (0..name_units)
-            .map(|i| u16::from_le_bytes([chunk[i * 2], chunk[i * 2 + 1]]))
-            .map(|c| char::from_u32(u32::from(c)).unwrap_or('\u{FFFD}'))
-            .collect();
-
-        let start_sector = u32::from_le_bytes(chunk[116..120].try_into().unwrap_or_default());
-        let size = if header.sector_size == 4096 {
-            u64::from_le_bytes(chunk[120..128].try_into().unwrap_or_default())
-        } else {
-            u32::from_le_bytes(chunk[120..124].try_into().unwrap_or_default()) as u64
-        };
-
-        entries.push(DirEntry {
-            name,
-            entry_type,
-            start_sector,
-            size,
-        });
-    }
-    entries
-}
-
-/// Classifies an OLE2 compound document.
+/// Classifies an OLE2 compound document by its stream names (ASCII case
+/// ignored; storages never match).
 pub fn classify_ole2(data: &[u8]) -> Result<Ole2Kind> {
-    let header = Ole2Header::parse(data)?;
-    let fat = read_fat(data, &header);
-    let entries = read_directory(data, &header, &fat);
+    Cfb::parse(data).map(|cfb| classify_ole2_with_cfb(&cfb))
+}
 
+/// Classifies an already parsed compound file, as [`classify_ole2`] does. The
+/// read path classifies through this and keeps the `Cfb` for its stream reads.
+pub(crate) fn classify_ole2_with_cfb(cfb: &Cfb<'_>) -> Ole2Kind {
     // Single pass over directory entries to classify the OLE2 document.
     let (mut has_encryption_info, mut has_encrypted_package, mut has_workbook) =
         (false, false, false);
-    for e in &entries {
-        match e.name.as_str() {
-            "EncryptionInfo" => has_encryption_info = true,
-            "EncryptedPackage" => has_encrypted_package = true,
-            "Workbook" | "Book" => has_workbook = true,
-            _ => {}
-        }
+    for e in cfb.entries() {
+        has_encryption_info |= e.is_stream_named("EncryptionInfo");
+        has_encrypted_package |= e.is_stream_named("EncryptedPackage");
+        has_workbook |= e.is_stream_named("Workbook") || e.is_stream_named("Book");
     }
 
     if has_encryption_info && has_encrypted_package {
-        Ok(Ole2Kind::EncryptedXlsx)
+        Ole2Kind::EncryptedXlsx
     } else if has_workbook {
-        Ok(Ole2Kind::LegacyXls)
+        Ole2Kind::LegacyXls
     } else {
-        Ok(Ole2Kind::Unknown)
-    }
-}
-
-/// Reads a named stream from the OLE2 document.
-pub fn read_stream(data: &[u8], name: &str) -> Result<Vec<u8>> {
-    let header = Ole2Header::parse(data)?;
-    let fat = read_fat(data, &header);
-    let entries = read_directory(data, &header, &fat);
-
-    let entry = entries.iter().find(|e| e.name == name).ok_or_else(|| {
-        cold_path();
-        ModernXlsxError::MissingPart(format!(
-            "OLE2 stream '{name}' not found in compound document — required for decryption"
-        ))
-    })?;
-
-    let chain = follow_chain(&fat, entry.start_sector);
-    Ok(read_sectors(data, &header, &chain, entry.size as usize))
-}
-
-/// Decrypts an OLE2-wrapped encrypted XLSX file.
-/// Returns the decrypted ZIP bytes ready for normal reading.
-pub fn decrypt_file(data: &[u8], password: &str) -> Result<Vec<u8>> {
-    let enc_info_bytes = read_stream(data, "EncryptionInfo")?;
-    let enc_info = super::encryption_info::EncryptionInfo::parse(&enc_info_bytes)?;
-
-    match enc_info {
-        super::encryption_info::EncryptionInfo::Agile(ref agile) => {
-            // SensitiveKey auto-zeroizes data_key on Drop (including early returns)
-            let data_key = SensitiveKey::new(
-                super::crypto::verify_password_agile(password, agile)?,
-            );
-            let encrypted_package = read_stream(data, "EncryptedPackage")?;
-            super::crypto::verify_hmac(&data_key, agile, &encrypted_package)?;
-            super::crypto::decrypt_package(&data_key, agile, &encrypted_package)
-        }
-        super::encryption_info::EncryptionInfo::Standard(ref std_info) => {
-            let data_key = SensitiveKey::new(
-                super::crypto::verify_password_standard(password, std_info)?,
-            );
-            let encrypted_package = read_stream(data, "EncryptedPackage")?;
-            super::crypto::decrypt_standard_package(&data_key, std_info, &encrypted_package)
-        }
+        Ole2Kind::Unknown
     }
 }
 
@@ -321,6 +132,26 @@ mod tests {
         assert_eq!(classify_ole2(&ole2).unwrap(), Ole2Kind::Unknown);
     }
 
+    /// The parsed-once classifier names each file as `classify_ole2` does.
+    #[test]
+    fn classify_with_cfb_matches_classify_ole2() {
+        for names in [
+            &["EncryptionInfo", "EncryptedPackage"][..],
+            &["Workbook"],
+            &["Book"],
+            &["EncryptionInfo"],
+            &["SomeRandomStream"],
+        ] {
+            let ole2 = build_test_ole2(names);
+            let cfb = Cfb::parse(&ole2).unwrap();
+            assert_eq!(
+                classify_ole2_with_cfb(&cfb),
+                classify_ole2(&ole2).unwrap(),
+                "{names:?}"
+            );
+        }
+    }
+
     /// Builds a minimal OLE2 compound document with the given stream names
     /// in the directory. The streams have empty content (size 0).
     fn build_test_ole2(stream_names: &[&str]) -> Vec<u8> {
@@ -348,6 +179,8 @@ mod tests {
         buf[32..34].copy_from_slice(&6u16.to_le_bytes());
         // Total directory sectors (0 for v3)
         buf[40..44].copy_from_slice(&0u32.to_le_bytes());
+        // Mini stream cutoff: 4096 (the only value MS-CFB allows)
+        buf[56..60].copy_from_slice(&4096u32.to_le_bytes());
         // Number of FAT sectors: 1
         buf[44..48].copy_from_slice(&1u32.to_le_bytes());
         // First directory sector SID: 0

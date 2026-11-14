@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { assert, describe, expect, it } from 'vitest';
 import { readBuffer, Workbook } from '../src/index.js';
 
-describe('0.1.1 — Style Roundtrip Tests', () => {
+describe('Style Roundtrip Tests', () => {
   // -----------------------------------------------------------------------
   // 1. Font roundtrip
   // -----------------------------------------------------------------------
@@ -28,15 +28,15 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     const wb2 = await readBuffer(buffer);
 
     const xf = wb2.styles.cellXfs[styleIndex];
-    expect(xf).toBeDefined();
+    assert.isDefined(xf);
 
-    const font = wb2.styles.fonts[xf?.fontId];
+    const font = wb2.styles.fonts[xf.fontId];
     expect(font).toBeDefined();
     expect(font?.bold).toBe(true);
     expect(font?.italic).toBe(true);
     expect(font?.underline).toBe(true);
     expect(font?.strike).toBe(true);
-    expect(font?.color).toBe('FF0000');
+    expect(font?.color).toBe('FFFF0000');
     expect(font?.size).toBe(14);
     expect(font?.name).toBe('Arial');
   });
@@ -59,12 +59,12 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     const wb2 = await readBuffer(buffer);
 
     const xf = wb2.styles.cellXfs[styleIndex];
-    expect(xf).toBeDefined();
+    assert.isDefined(xf);
 
-    const fill = wb2.styles.fills[xf?.fillId];
+    const fill = wb2.styles.fills[xf.fillId];
     expect(fill).toBeDefined();
     expect(fill?.patternType).toBe('solid');
-    expect(fill?.fgColor).toBe('FFFF00');
+    expect(fill?.fgColor).toBe('FFFFFF00');
   });
 
   // -----------------------------------------------------------------------
@@ -90,26 +90,26 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     const wb2 = await readBuffer(buffer);
 
     const xf = wb2.styles.cellXfs[styleIndex];
-    expect(xf).toBeDefined();
+    assert.isDefined(xf);
 
-    const border = wb2.styles.borders[xf?.borderId];
+    const border = wb2.styles.borders[xf.borderId];
     expect(border).toBeDefined();
 
     expect(border?.left).toBeDefined();
     expect(border?.left?.style).toBe('thin');
-    expect(border?.left?.color).toBe('FF0000');
+    expect(border?.left?.color).toBe('FFFF0000');
 
     expect(border?.right).toBeDefined();
     expect(border?.right?.style).toBe('medium');
-    expect(border?.right?.color).toBe('00FF00');
+    expect(border?.right?.color).toBe('FF00FF00');
 
     expect(border?.top).toBeDefined();
     expect(border?.top?.style).toBe('thick');
-    expect(border?.top?.color).toBe('0000FF');
+    expect(border?.top?.color).toBe('FF0000FF');
 
     expect(border?.bottom).toBeDefined();
     expect(border?.bottom?.style).toBe('dashed');
-    expect(border?.bottom?.color).toBe('FFFF00');
+    expect(border?.bottom?.color).toBe('FFFFFF00');
   });
 
   // -----------------------------------------------------------------------
@@ -137,15 +137,15 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     const wb2 = await readBuffer(buffer);
 
     const xf = wb2.styles.cellXfs[styleIndex];
-    expect(xf).toBeDefined();
-    expect(xf?.alignment).toBeDefined();
-    expect(xf?.alignment?.horizontal).toBe('center');
-    expect(xf?.alignment?.vertical).toBe('top');
-    expect(xf?.alignment?.wrapText).toBe(true);
-    expect(xf?.alignment?.textRotation).toBe(45);
-    expect(xf?.alignment?.indent).toBe(2);
-    // shrinkToFit=false may be omitted (undefined) by the reader; both are falsy
-    expect(xf?.alignment?.shrinkToFit).toBeFalsy();
+    assert.isDefined(xf);
+    expect(xf.alignment).toBeDefined();
+    expect(xf.alignment?.horizontal).toBe('center');
+    expect(xf.alignment?.vertical).toBe('top');
+    expect(xf.alignment?.wrapText).toBe(true);
+    expect(xf.alignment?.textRotation).toBe(45);
+    expect(xf.alignment?.indent).toBe(2);
+    // The reader omits shrinkToFit when false, so it reads back undefined
+    expect(xf.alignment?.shrinkToFit).toBeFalsy();
   });
 
   // -----------------------------------------------------------------------
@@ -163,10 +163,10 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     const wb2 = await readBuffer(buffer);
 
     const xf = wb2.styles.cellXfs[styleIndex];
-    expect(xf).toBeDefined();
-    expect(xf?.protection).toBeDefined();
-    expect(xf?.protection?.locked).toBe(true);
-    expect(xf?.protection?.hidden).toBe(true);
+    assert.isDefined(xf);
+    expect(xf.protection).toBeDefined();
+    expect(xf.protection?.locked).toBe(true);
+    expect(xf.protection?.hidden).toBe(true);
   });
 
   // -----------------------------------------------------------------------
@@ -190,8 +190,8 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
 
     // Verify the cellXf references the correct numFmtId
     const xf = wb2.styles.cellXfs[styleIndex];
-    expect(xf).toBeDefined();
-    expect(xf?.numFmtId).toBe(customFmts[0]?.id);
+    assert.isDefined(xf);
+    expect(xf.numFmtId).toBe(customFmts[0]?.id);
   });
 
   // -----------------------------------------------------------------------
@@ -239,9 +239,9 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     const wb2 = await readBuffer(buffer);
 
     const xf2 = wb2.styles.cellXfs[xfIndex];
-    expect(xf2).toBeDefined();
+    assert.isDefined(xf2);
 
-    const fill2 = wb2.styles.fills[xf2?.fillId];
+    const fill2 = wb2.styles.fills[xf2.fillId];
     expect(fill2).toBeDefined();
     expect(fill2?.gradientFill).toBeDefined();
     expect(fill2?.gradientFill?.gradientType).toBe('linear');
@@ -249,9 +249,9 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     expect(fill2?.gradientFill?.stops).toBeDefined();
     expect(fill2?.gradientFill?.stops).toHaveLength(2);
     expect(fill2?.gradientFill?.stops?.[0]?.position).toBe(0);
-    expect(fill2?.gradientFill?.stops?.[0]?.color).toBe('FF0000');
+    expect(fill2?.gradientFill?.stops?.[0]?.color).toBe('FFFF0000');
     expect(fill2?.gradientFill?.stops?.[1]?.position).toBe(1);
-    expect(fill2?.gradientFill?.stops?.[1]?.color).toBe('0000FF');
+    expect(fill2?.gradientFill?.stops?.[1]?.color).toBe('FF0000FF');
   });
 
   // -----------------------------------------------------------------------
@@ -295,15 +295,15 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     const wb2 = await readBuffer(buffer);
 
     const xf2 = wb2.styles.cellXfs[xfIndex];
-    expect(xf2).toBeDefined();
+    assert.isDefined(xf2);
 
-    const border2 = wb2.styles.borders[xf2?.borderId];
+    const border2 = wb2.styles.borders[xf2.borderId];
     expect(border2).toBeDefined();
     expect(border2?.diagonal).toBeDefined();
     expect(border2?.diagonal?.style).toBe('thin');
-    expect(border2?.diagonal?.color).toBe('FF0000');
+    expect(border2?.diagonal?.color).toBe('FFFF0000');
     expect(border2?.diagonalUp).toBe(true);
-    // diagonalDown=false may be omitted (undefined) by the reader; both are falsy
+    // The reader omits diagonalDown when false, so it reads back undefined
     expect(border2?.diagonalDown).toBeFalsy();
   });
 
@@ -354,6 +354,7 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     expect(wb2.styles.dxfs).toHaveLength(1);
 
     const dxf = wb2.styles.dxfs?.[0];
+    assert.isDefined(dxf);
 
     // Verify font overrides
     expect(dxf.font).toBeDefined();
@@ -361,18 +362,18 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     expect(dxf.font?.size).toBe(12);
     expect(dxf.font?.bold).toBe(true);
     expect(dxf.font?.italic).toBe(false);
-    expect(dxf.font?.color).toBe('CC0000');
+    expect(dxf.font?.color).toBe('FFCC0000');
 
     // Verify fill overrides
     expect(dxf.fill).toBeDefined();
     expect(dxf.fill?.patternType).toBe('solid');
-    expect(dxf.fill?.fgColor).toBe('E6E6E6');
+    expect(dxf.fill?.fgColor).toBe('FFE6E6E6');
 
     // Verify border overrides
     expect(dxf.border).toBeDefined();
     expect(dxf.border?.left).toBeDefined();
     expect(dxf.border?.left?.style).toBe('thin');
-    expect(dxf.border?.left?.color).toBe('333333');
+    expect(dxf.border?.left?.color).toBe('FF333333');
     expect(dxf.border?.right?.style).toBe('thin');
     expect(dxf.border?.top?.style).toBe('thin');
     expect(dxf.border?.bottom?.style).toBe('thin');
@@ -464,44 +465,44 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     expect(a1Style).toBe(style1);
     if (a1Style == null) throw new Error('A1 styleIndex not found');
     const xf1 = wb2.styles.cellXfs[a1Style];
-    expect(xf1).toBeDefined();
-    const font1 = wb2.styles.fonts[xf1?.fontId];
+    assert.isDefined(xf1);
+    const font1 = wb2.styles.fonts[xf1.fontId];
     expect(font1?.bold).toBe(true);
-    expect(font1?.color).toBe('FF0000');
+    expect(font1?.color).toBe('FFFF0000');
     expect(font1?.size).toBe(16);
     expect(font1?.name).toBe('Verdana');
-    const fill1 = wb2.styles.fills[xf1?.fillId];
+    const fill1 = wb2.styles.fills[xf1.fillId];
     expect(fill1?.patternType).toBe('solid');
-    expect(fill1?.fgColor).toBe('00FF00');
+    expect(fill1?.fgColor).toBe('FF00FF00');
 
     // Verify B1 — border + alignment
     const b1Style = ws2?.cell('B1').styleIndex;
     expect(b1Style).toBe(style2);
     if (b1Style == null) throw new Error('B1 styleIndex not found');
     const xf2 = wb2.styles.cellXfs[b1Style];
-    expect(xf2).toBeDefined();
-    const border2 = wb2.styles.borders[xf2?.borderId];
+    assert.isDefined(xf2);
+    const border2 = wb2.styles.borders[xf2.borderId];
     expect(border2?.left?.style).toBe('medium');
-    expect(border2?.left?.color).toBe('0000FF');
+    expect(border2?.left?.color).toBe('FF0000FF');
     expect(border2?.right?.style).toBe('medium');
     expect(border2?.top?.style).toBe('medium');
     expect(border2?.bottom?.style).toBe('medium');
-    expect(xf2?.alignment).toBeDefined();
-    expect(xf2?.alignment?.horizontal).toBe('right');
-    expect(xf2?.alignment?.vertical).toBe('bottom');
+    expect(xf2.alignment).toBeDefined();
+    expect(xf2.alignment?.horizontal).toBe('right');
+    expect(xf2.alignment?.vertical).toBe('bottom');
 
     // Verify C1 — number format + protection
     const c1Style = ws2?.cell('C1').styleIndex;
     expect(c1Style).toBe(style3);
     if (c1Style == null) throw new Error('C1 styleIndex not found');
     const xf3 = wb2.styles.cellXfs[c1Style];
-    expect(xf3).toBeDefined();
-    const numFmt = wb2.styles.numFmts.find((f) => f.id === xf3?.numFmtId);
+    assert.isDefined(xf3);
+    const numFmt = wb2.styles.numFmts.find((f) => f.id === xf3.numFmtId);
     expect(numFmt).toBeDefined();
     expect(numFmt?.formatCode).toBe('#,##0.00');
-    expect(xf3?.protection).toBeDefined();
-    expect(xf3?.protection?.locked).toBe(false);
-    expect(xf3?.protection?.hidden).toBe(true);
+    expect(xf3.protection).toBeDefined();
+    expect(xf3.protection?.locked).toBe(false);
+    expect(xf3.protection?.hidden).toBe(true);
   });
 
   // -----------------------------------------------------------------------
@@ -547,55 +548,65 @@ describe('0.1.1 — Style Roundtrip Tests', () => {
     const wb2 = await readBuffer(buffer);
 
     const xf = wb2.styles.cellXfs[styleIndex];
-    expect(xf).toBeDefined();
+    assert.isDefined(xf);
 
     // Verify font
-    const font = wb2.styles.fonts[xf?.fontId];
+    const font = wb2.styles.fonts[xf.fontId];
     expect(font).toBeDefined();
     expect(font?.bold).toBe(true);
     expect(font?.italic).toBe(true);
     expect(font?.underline).toBe(true);
     expect(font?.strike).toBe(false);
-    expect(font?.color).toBe('336699');
+    expect(font?.color).toBe('FF336699');
     expect(font?.size).toBe(12);
     expect(font?.name).toBe('Calibri');
 
     // Verify fill
-    const fill = wb2.styles.fills[xf?.fillId];
+    const fill = wb2.styles.fills[xf.fillId];
     expect(fill).toBeDefined();
     expect(fill?.patternType).toBe('solid');
-    expect(fill?.fgColor).toBe('FFFFCC');
+    expect(fill?.fgColor).toBe('FFFFFFCC');
 
     // Verify border
-    const border = wb2.styles.borders[xf?.borderId];
+    const border = wb2.styles.borders[xf.borderId];
     expect(border).toBeDefined();
     expect(border?.left?.style).toBe('thin');
-    expect(border?.left?.color).toBe('000000');
+    expect(border?.left?.color).toBe('FF000000');
     expect(border?.right?.style).toBe('thin');
-    expect(border?.right?.color).toBe('000000');
+    expect(border?.right?.color).toBe('FF000000');
     expect(border?.top?.style).toBe('double');
-    expect(border?.top?.color).toBe('000000');
+    expect(border?.top?.color).toBe('FF000000');
     expect(border?.bottom?.style).toBe('double');
-    expect(border?.bottom?.color).toBe('000000');
+    expect(border?.bottom?.color).toBe('FF000000');
 
     // Verify alignment
-    expect(xf?.alignment).toBeDefined();
-    expect(xf?.alignment?.horizontal).toBe('left');
-    expect(xf?.alignment?.vertical).toBe('center');
-    expect(xf?.alignment?.wrapText).toBe(true);
-    expect(xf?.alignment?.textRotation).toBe(90);
-    expect(xf?.alignment?.indent).toBe(1);
-    // shrinkToFit=false may be omitted (undefined) by the reader; both are falsy
-    expect(xf?.alignment?.shrinkToFit).toBeFalsy();
+    expect(xf.alignment).toBeDefined();
+    expect(xf.alignment?.horizontal).toBe('left');
+    expect(xf.alignment?.vertical).toBe('center');
+    expect(xf.alignment?.wrapText).toBe(true);
+    expect(xf.alignment?.textRotation).toBe(90);
+    expect(xf.alignment?.indent).toBe(1);
+    // The reader omits shrinkToFit when false, so it reads back undefined
+    expect(xf.alignment?.shrinkToFit).toBeFalsy();
 
     // Verify protection
-    expect(xf?.protection).toBeDefined();
-    expect(xf?.protection?.locked).toBe(true);
-    expect(xf?.protection?.hidden).toBe(false);
+    expect(xf.protection).toBeDefined();
+    expect(xf.protection?.locked).toBe(true);
+    expect(xf.protection?.hidden).toBe(false);
 
     // Verify number format
-    const numFmt = wb2.styles.numFmts.find((f) => f.id === xf?.numFmtId);
+    const numFmt = wb2.styles.numFmts.find((f) => f.id === xf.numFmtId);
     expect(numFmt).toBeDefined();
     expect(numFmt?.formatCode).toBe('$#,##0.00');
+  });
+
+  it('builds a number format on a styles table with 1000000 custom formats', () => {
+    const wb = new Workbook();
+    wb.styles.numFmts = Array.from({ length: 1_000_000 }, (_, i) => ({
+      id: 164 + i,
+      formatCode: `0.${i}"x"`,
+    }));
+    const idx = wb.createStyle().numberFormat('0.000').build(wb.styles);
+    expect(wb.styles.cellXfs[idx]?.numFmtId).toBe(1_000_164);
   });
 });

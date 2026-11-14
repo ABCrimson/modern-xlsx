@@ -1,14 +1,24 @@
-import type { ReadOptions } from './types.js';
-// Internal imports for readBuffer, writeBlob, readFile
-import { ensureInitialized, wasmRead, wasmReadWithPassword, wasmWriteBlob } from './wasm-loader.js';
-import { Workbook as _Workbook } from './workbook.js';
+/**
+ * modern-xlsx — the full build: every export of `modern-xlsx/lite` plus
+ * password-protected read/write, the standalone barcode and drawing functions and the
+ * Web Worker client.
+ */
 
-// Barcode & QR code generation
+import { readFileBytes } from '#runtime';
+import { StreamingXlsxWriter as StreamingXlsxWriterBase } from './io/streaming-writer.js';
+import type { ReadOptions } from './model/types.js';
+import { Workbook as WorkbookBase } from './model/workbook.js';
+import { serializeReadLimits } from './read-limits.js';
+import type { WasmLoader } from './wasm-backend.js';
+import { loader } from './wasm-loader.js';
+
+// Standalone barcode, QR code and drawing generation
 export type {
   BarcodeMatrix,
   BarcodeType,
   DrawBarcodeOptions,
   ImageAnchor,
+  QrEcLevel,
   RenderOptions,
 } from './barcode/index.js';
 export {
@@ -26,299 +36,55 @@ export {
   generateDrawingXml,
   renderBarcodePNG,
 } from './barcode/index.js';
-// Cell reference utilities
-export type { CellAddress, CellRange, SplitCellRef } from './cell-ref.js';
-export {
-  columnToLetter,
-  decodeCellRef,
-  decodeRange,
-  decodeRow,
-  encodeCellRef,
-  encodeRange,
-  encodeRow,
-  letterToColumn,
-  splitCellRef,
-} from './cell-ref.js';
-// Builders
-export type { AddSeriesOptions, AxisOptions } from './chart-builder.js';
-export { ChartBuilder } from './chart-builder.js';
-// Chart style presets
-export { CHART_STYLE_PALETTES, getChartStylePalette } from './chart-styles.js';
-// Date utilities
-export {
-  dateToSerial,
-  isDateFormatCode,
-  isDateFormatId,
-  isTemporalLike,
-  serialToDate,
-} from './dates.js';
-// Errors
-export {
-  COMMENT_NOT_FOUND,
-  INVALID_ARGUMENT,
-  INVALID_CELL_REF,
-  INVALID_CELL_VALUE,
-  INVALID_DATE,
-  INVALID_FORMAT,
-  INVALID_STYLE,
-  IO_ERROR,
-  LEGACY_FORMAT,
-  MISSING_PART,
-  ModernXlsxError,
-  PASSWORD_PROTECTED,
-  SECURITY,
-  SHEET_NOT_FOUND,
-  UNRECOGNIZED_FORMAT,
-  WASM_ERROR,
-  WASM_INIT_FAILED,
-  XML_PARSE,
-  XML_WRITE,
-  ZIP_ENTRY,
-  ZIP_FINALIZE,
-  ZIP_READ,
-  ZIP_WRITE,
-} from './errors.js';
-// Formatting
-export type { FormatCellOptions, FormatCellResult } from './format-cell.js';
-export {
-  formatCell,
-  formatCellRich,
-  getBuiltinFormat,
-  loadFormat,
-  loadFormatTable,
-} from './format-cell.js';
-// Formula engine
-export type {
-  ArrayNode,
-  ASTNode,
-  BinaryOpNode,
-  BooleanNode,
-  CellRefNode,
-  CellValue,
-  ErrorNode,
-  EvalContext,
-  FormulaFunction,
-  FunctionCallNode,
-  NameNode,
-  NumberNode,
-  ParseResult,
-  PercentNode,
-  RangeNode,
-  RewriteAction,
-  StringNode,
-  Token,
-  TokenizeResult,
-  TokenType,
-  UnaryOpNode,
-} from './formula/index.js';
-export {
-  createDefaultFunctions,
-  evaluateFormula,
-  evaluateNode,
-  expandSharedFormula,
-  parseCellRefValue,
-  parseFormula,
-  resolveRange,
-  resolveRef,
-  rewriteFormula,
-  serializeFormula,
-  tokenize,
-} from './formula/index.js';
-export { HeaderFooterBuilder } from './header-footer.js';
-export type {
-  PivotDataFieldOptions,
-  PivotFieldOptions,
-  PivotPageFieldOptions,
-} from './pivot-builder.js';
-export { PivotTableBuilder } from './pivot-builder.js';
-export { RichTextBuilder } from './rich-text.js';
-// Streaming writer
-export type { StreamingCellInput } from './streaming-writer.js';
-export { StreamingXlsxWriter } from './streaming-writer.js';
-export { StyleBuilder } from './style-builder.js';
-// Table layout engine
-export type {
-  CellStyle,
-  DrawTableFromDataOptions,
-  DrawTableOptions,
-  TableColumn,
-  TableResult,
-} from './table.js';
-export { drawTable, drawTableFromData } from './table.js';
-// Table styles
-export type { TotalsRowFunction } from './table-styles.js';
-export { TABLE_STYLES, VALID_TABLE_STYLES } from './table-styles.js';
-// Types
-export type {
-  AlignmentData,
-  AutoFilterData,
-  AxisPosition,
-  BorderData,
-  BorderSideData,
-  BorderStyle,
-  CacheFieldData,
-  CacheSource,
-  CacheValue,
-  CacheValueBoolean,
-  CacheValueDateTime,
-  CacheValueError,
-  CacheValueIndex,
-  CacheValueMissing,
-  CacheValueNumber,
-  CacheValueString,
-  CacheValueType,
-  CalcChainEntryData,
-  CellData,
-  CellStyleData,
-  CellType,
-  CellXfData,
-  CfvoData,
-  ChartAnchorData,
-  ChartAxisData,
-  ChartDataModel,
-  ChartGrouping,
-  ChartLegendData,
-  ChartSeriesData,
-  ChartTitleData,
-  ChartType,
-  ColorScaleData,
-  ColumnInfo,
-  CommentData,
-  ConditionalFormattingData,
-  ConditionalFormattingRuleData,
-  CustomFilterData,
-  CustomFiltersData,
-  DataBarData,
-  DataLabelsData,
-  DataValidationData,
-  DateSystem,
-  DefinedNameData,
-  DocPropertiesData,
-  DxfStyleData,
-  ErrorBarDirection,
-  ErrorBarsData,
-  ErrorBarType,
-  FillData,
-  FilterColumnData,
-  FontData,
-  FrozenPane,
-  GradientFillData,
-  GradientStopData,
-  HeaderFooterData,
-  HyperlinkData,
-  IconSetData,
-  IssueCategory,
-  LegendPosition,
-  ManualLayoutData,
-  MarkerStyleType,
-  NumFmt,
-  OutlinePropertiesData,
-  PageBreakData,
-  PageBreaksData,
-  PageMarginsData,
-  PageSetupData,
-  PaneSelectionData,
-  PatternType,
-  PersonData,
-  PivotAxis,
-  PivotCacheDefinitionData,
-  PivotCacheRecordsData,
-  PivotDataFieldData,
-  PivotFieldData,
-  PivotFieldRef,
-  PivotItem,
-  PivotLocation,
-  PivotPageFieldData,
-  PivotTableData,
-  ProtectionData,
-  RadarStyle,
-  ReadOptions,
-  RepairResult,
-  RichTextRun,
-  RowData,
-  ScatterStyle,
-  Severity,
-  SharedStringsData,
-  SheetData,
-  SheetProtectionData,
-  SheetState,
-  SheetViewData,
-  SlicerCacheData,
-  SlicerData,
-  SlicerItem,
-  SortOrder,
-  SparklineData,
-  SparklineGroupData,
-  SparklineType,
-  SplitPaneData,
-  StylesData,
-  SubtotalFunction,
-  TableColumnData,
-  TableDefinitionData,
-  TableStyleInfoData,
-  ThemeColorsData,
-  ThreadedCommentData,
-  TickLabelPosition,
-  TickMark,
-  TimelineCacheData,
-  TimelineData,
-  TimelineLevel,
-  TrendlineData,
-  TrendlineType,
-  ValidationIssue,
-  ValidationReport,
-  View3DData,
-  ViewMode,
-  WorkbookData,
-  WorkbookProtectionData,
-  WorkbookViewData,
-  WorksheetChartData,
-  WorksheetData,
-  WriteOptions,
-} from './types.js';
-// Sheet conversion utilities
-export type {
-  AoaToSheetOptions,
-  JsonToSheetOptions,
-  SheetAddAoaOptions,
-  SheetAddJsonOptions,
-  SheetToCsvOptions,
-  SheetToHtmlOptions,
-  SheetToJsonOptions,
-  SheetToTxtOptions,
-} from './utils.js';
-export {
-  aoaToSheet,
-  jsonToSheet,
-  sheetAddAoa,
-  sheetAddJson,
-  sheetToCsv,
-  sheetToFormulae,
-  sheetToHtml,
-  sheetToJson,
-  sheetToTxt,
-} from './utils.js';
-// Chart validation
-export { validateChartData } from './validate-chart.js';
+// Everything the lite entry exports too
+export * from './exports-shared.js';
 // WASM initialization
 export { ensureReady, initWasm, initWasmSync } from './wasm-loader.js';
-// Core classes
-export { Cell, Workbook, Worksheet } from './workbook.js';
-
 // Web Worker support
 export type { XlsxWorker, XlsxWorkerOptions } from './worker-api.js';
 export { createXlsxWorker } from './worker-api.js';
+
+/**
+ * Represents an Excel workbook containing sheets, styles, and metadata.
+ *
+ * This is the root object for reading, writing, and manipulating XLSX files.
+ * Obtain an instance via {@link readBuffer}, {@link readFile}, or construct
+ * a new empty workbook with `new Workbook()`. Its WASM-backed methods use the
+ * full build, which supports password-protected files.
+ *
+ * @example
+ * ```ts
+ * const wb = new Workbook();
+ * const ws = wb.addSheet('Data');
+ * ws.cell('A1').value = 'Hello';
+ * const bytes = await wb.toBuffer();
+ * ```
+ */
+export class Workbook extends WorkbookBase {
+  protected static override loader: WasmLoader = loader;
+}
+
+/**
+ * Streaming XLSX writer backed by the full Rust/WASM build.
+ *
+ * Call {@link StreamingXlsxWriter.create} to instantiate (WASM must be
+ * initialized first). Then call `startSheet`, `writeRow` (repeatedly), and
+ * finally `finish` to obtain the XLSX bytes.
+ */
+export class StreamingXlsxWriter extends StreamingXlsxWriterBase {
+  protected static override loader: WasmLoader = loader;
+}
 
 /**
  * Read an XLSX file buffer and return a Workbook instance.
  * WASM must be initialized first via `initWasm()`.
  *
  * Data crosses the WASM boundary as a JSON string (serde_json in Rust,
- * JSON.parse in JS) for optimal performance -- 8-13x faster than
- * serde_wasm_bindgen for large workbooks (100K+ rows).
+ * JSON.parse in JS).
  *
  * @param data - Raw XLSX bytes (possibly encrypted OLE2 container).
- * @param options - Optional read options. Pass `{ password: '...' }` for encrypted files.
+ * @param options - Optional read options. Pass `{ password: '...' }` for encrypted files and
+ *   `{ limits: { ... } }` to raise or tighten the security and size limits (see {@link ReadLimits}).
  * @returns A fully-parsed Workbook instance ready for reading/writing.
  *
  * @example
@@ -330,10 +96,13 @@ export { createXlsxWorker } from './worker-api.js';
  * const ws = wb.getSheet('Sheet1');
  * ```
  */
-export async function readBuffer(data: Uint8Array, options?: ReadOptions): Promise<_Workbook> {
-  ensureInitialized();
-  const raw = options?.password ? wasmReadWithPassword(data, options.password) : wasmRead(data);
-  return new _Workbook(raw);
+export async function readBuffer(data: Uint8Array, options?: ReadOptions): Promise<Workbook> {
+  loader.ensureInitialized();
+  const limitsJson = serializeReadLimits(options?.limits);
+  const raw = options?.password
+    ? loader.wasmReadWithPassword(data, options.password, limitsJson)
+    : loader.wasmRead(data, limitsJson);
+  return new Workbook(raw);
 }
 
 /**
@@ -343,6 +112,7 @@ export async function readBuffer(data: Uint8Array, options?: ReadOptions): Promi
  *
  * @param wb - The Workbook to serialize.
  * @returns A Blob containing the XLSX file bytes.
+ * @throws ModernXlsxError with code `INVALID_WORKBOOK` for the causes listed with that code in `errors.ts`, and `IO_ERROR` if the Blob cannot be constructed.
  *
  * @example
  * ```ts
@@ -351,9 +121,9 @@ export async function readBuffer(data: Uint8Array, options?: ReadOptions): Promi
  * anchor.href = url;
  * ```
  */
-export function writeBlob(wb: _Workbook): Blob {
-  ensureInitialized();
-  return wasmWriteBlob(wb.toJSON());
+export function writeBlob(wb: WorkbookBase): Blob {
+  loader.ensureInitialized();
+  return loader.wasmWriteBlob(wb.toJSON());
 }
 
 /**
@@ -362,8 +132,11 @@ export function writeBlob(wb: _Workbook): Blob {
  * WASM must be initialized first via `initWasm()`.
  *
  * @param path - File path to read.
- * @param options - Optional read options. Pass `{ password: '...' }` for encrypted files.
+ * @param options - Optional read options. Pass `{ password: '...' }` for encrypted files and
+ *   `{ limits: { ... } }` to raise or tighten the security and size limits (see {@link ReadLimits}).
  * @returns A fully-parsed Workbook instance ready for reading/writing.
+ * @throws ModernXlsxError with code `IO_ERROR` outside Node.js-compatible runtimes
+ *   (browsers, workers, the IIFE build).
  *
  * @example
  * ```ts
@@ -374,11 +147,6 @@ export function writeBlob(wb: _Workbook): Blob {
  * console.log(wb.sheetNames);
  * ```
  */
-export async function readFile(path: string, options?: ReadOptions): Promise<_Workbook> {
-  const { readFile: fsReadFile } = await import('node:fs/promises');
-  const buffer = await fsReadFile(path);
-  return readBuffer(new Uint8Array(buffer), options);
+export async function readFile(path: string, options?: ReadOptions): Promise<Workbook> {
+  return readBuffer(await readFileBytes(path), options);
 }
-
-/** The current library version string. */
-export const VERSION = '1.2.1' as const;
