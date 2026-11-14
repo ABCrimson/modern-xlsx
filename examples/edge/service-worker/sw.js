@@ -14,7 +14,7 @@
  * already contains the browser runtime and defines the `ModernXlsx` global.
  */
 
-const base = 'https://cdn.jsdelivr.net/npm/modern-xlsx@1.2.1/dist/';
+const base = 'https://cdn.jsdelivr.net/npm/modern-xlsx@1.3.0/dist/';
 
 importScripts(`${base}modern-xlsx.min.js`);
 

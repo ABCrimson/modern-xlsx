@@ -1,15 +1,15 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ABCrimson/modern-xlsx/v1.2.1/docs/assets/readme/hero-dark.svg">
-  <img alt="modern-xlsx" src="https://raw.githubusercontent.com/ABCrimson/modern-xlsx/v1.2.1/docs/assets/readme/hero-light.svg" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ABCrimson/modern-xlsx/v1.3.0/docs/assets/readme/hero-dark.svg">
+  <img alt="modern-xlsx" src="https://raw.githubusercontent.com/ABCrimson/modern-xlsx/v1.3.0/docs/assets/readme/hero-light.svg" width="100%">
 </picture>
 
 **Read, write, style and encrypt Excel `.xlsx` files in JavaScript and TypeScript, with a Rust core compiled to WebAssembly.**
 
-[![npm](https://img.shields.io/npm/v/modern-xlsx?style=flat-square&label=npm&logo=npm&logoColor=white&labelColor=24292f&color=c8102e)](https://www.npmjs.com/package/modern-xlsx) [![CI](https://img.shields.io/github/actions/workflow/status/ABCrimson/modern-xlsx/ci.yml?branch=master&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=24292f)](https://github.com/ABCrimson/modern-xlsx/actions/workflows/ci.yml) [![License](https://img.shields.io/npm/l/modern-xlsx?style=flat-square&labelColor=24292f&color=59636e)](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/packages/modern-xlsx/LICENSE) ![Types included](https://img.shields.io/badge/types-included-59636e?style=flat-square&logo=typescript&logoColor=white&labelColor=24292f) ![Zero dependencies](https://img.shields.io/badge/dependencies-0-59636e?style=flat-square&labelColor=24292f)
+[![npm](https://img.shields.io/npm/v/modern-xlsx?style=flat-square&label=npm&logo=npm&logoColor=white&labelColor=24292f&color=c8102e)](https://www.npmjs.com/package/modern-xlsx) [![CI](https://img.shields.io/github/actions/workflow/status/ABCrimson/modern-xlsx/ci.yml?branch=master&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=24292f)](https://github.com/ABCrimson/modern-xlsx/actions/workflows/ci.yml) [![License](https://img.shields.io/npm/l/modern-xlsx?style=flat-square&labelColor=24292f&color=59636e)](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/packages/modern-xlsx/LICENSE) ![Types included](https://img.shields.io/badge/types-included-59636e?style=flat-square&logo=typescript&logoColor=white&labelColor=24292f) ![Zero dependencies](https://img.shields.io/badge/dependencies-0-59636e?style=flat-square&labelColor=24292f)
 
-[API&nbsp;reference](https://abcrimson.github.io/modern-xlsx/api/)&emsp; [Playground](https://abcrimson.github.io/modern-xlsx/playground.html)&emsp; [Recipes](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/examples.md)&emsp; [Comparison](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/FEATURE-COMPARISON.md)&emsp; [SheetJS&nbsp;migration](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/migration-from-sheetjs.md)&emsp; [ExcelJS&nbsp;migration](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/migration-from-exceljs.md)&emsp; [Changelog](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/packages/modern-xlsx/CHANGELOG.md)
+[API&nbsp;reference](https://abcrimson.github.io/modern-xlsx/api/)&emsp; [Playground](https://abcrimson.github.io/modern-xlsx/playground.html)&emsp; [Recipes](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/examples.md)&emsp; [Comparison](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/FEATURE-COMPARISON.md)&emsp; [SheetJS&nbsp;migration](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/migration-from-sheetjs.md)&emsp; [ExcelJS&nbsp;migration](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/migration-from-exceljs.md)&emsp; [Changelog](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/packages/modern-xlsx/CHANGELOG.md)
 
 </div>
 
@@ -172,7 +172,7 @@ const first5 = sheetToJson(ws, { sheetRows: 5 });
 
 ### Encrypt a workbook
 
-Read and write password-protected workbooks (MS-OFFCRYPTO). The reader decrypts Agile and Standard encryption with AES-128, AES-192 or AES-256 keys; the writer uses Agile encryption with AES-256-CBC and SHA-512. In CI, msoffcrypto-tool decrypts the written output, and the decryption tests use [files encrypted by other software](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/crates/modern-xlsx-core/tests/fixtures/msoffcrypto/README.md). `modern-xlsx/lite` has no encryption: a `password` option there throws a `ModernXlsxError` with code `INVALID_ARGUMENT`.
+Read and write password-protected workbooks (MS-OFFCRYPTO). The reader decrypts Agile and Standard encryption with AES-128, AES-192 or AES-256 keys; the writer uses Agile encryption with AES-256-CBC and SHA-512. In CI, msoffcrypto-tool decrypts the written output, and the decryption tests use [files encrypted by other software](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/crates/modern-xlsx-core/tests/fixtures/msoffcrypto/README.md). `modern-xlsx/lite` has no encryption: a `password` option there throws a `ModernXlsxError` with code `INVALID_ARGUMENT`.
 
 ```typescript
 import { initWasm, readFile } from 'modern-xlsx';
@@ -242,7 +242,7 @@ No bundler required: a classic `<script>` tag loads the bundle, which defines th
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/modern-xlsx@1.2.1/dist/modern-xlsx.min.js"
+  src="https://cdn.jsdelivr.net/npm/modern-xlsx@1.3.0/dist/modern-xlsx.min.js"
 ></script>
 <script type="module">
   // With no argument, initWasm() fetches modern-xlsx.wasm
@@ -255,7 +255,7 @@ No bundler required: a classic `<script>` tag loads the bundle, which defines th
 </script>
 ```
 
-Also available via unpkg: `https://unpkg.com/modern-xlsx@1.2.1/dist/modern-xlsx.min.js`
+Also available via unpkg: `https://unpkg.com/modern-xlsx@1.3.0/dist/modern-xlsx.min.js`
 
 Pin the exact version, as above. For Subresource Integrity, add an `integrity="sha384-..."` attribute with `crossorigin="anonymous"`. From 1.3.0 on, each [GitHub release](https://github.com/ABCrimson/modern-xlsx/releases) lists the SHA-384 value of its `dist/modern-xlsx.min.js` under "CDN integrity", computed from the published npm tarball. To compute it from the file itself, run `openssl dgst -sha384 -binary modern-xlsx.min.js | openssl base64 -A`.
 
@@ -297,7 +297,7 @@ import wasmModule from 'modern-xlsx/wasm';
 initWasmSync(wasmModule);
 ```
 
-The full Worker, with its `wrangler` setup, is in [examples/edge/cloudflare-worker](https://github.com/ABCrimson/modern-xlsx/tree/v1.2.1/examples/edge/cloudflare-worker).
+The full Worker, with its `wrangler` setup, is in [examples/edge/cloudflare-worker](https://github.com/ABCrimson/modern-xlsx/tree/v1.3.0/examples/edge/cloudflare-worker).
 
 ### Initialization
 
@@ -357,7 +357,7 @@ await initWasm(res);
 | Command line                    | `modern-xlsx info` and `modern-xlsx convert` (CSV or JSON).                                                             |
 | Lite build                      | `modern-xlsx/lite` loads a smaller WASM build without encryption ([entry points](#runtimes-and-entry-points)).          |
 
-PDF417 and Data Matrix barcodes are experimental: their output is not yet standard-conformant and may not scan. For comparisons with other libraries, see the [feature comparison](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/FEATURE-COMPARISON.md).
+PDF417 and Data Matrix barcodes are experimental: their output is not yet standard-conformant and may not scan. For comparisons with other libraries, see the [feature comparison](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/FEATURE-COMPARISON.md).
 
 ## Performance
 
@@ -382,14 +382,14 @@ Sizes of the files in the 1.3.0 npm tarball:
 | Lite WASM (no encryption) | 2,301,840 |       854,256 |
 | IIFE bundle (JS)          |   173,160 |        54,719 |
 
-Files: `wasm/modern_xlsx_wasm_bg.wasm`, `wasm-lite/modern_xlsx_wasm_bg.wasm` and `dist/modern-xlsx.min.js`, measured on 2026-11-14 (UTC) on the 1.3.0 release branch with `wc -c` and `gzip -9 -n -c FILE | wc -c`. The WASM is built as CI builds it, and `dist/` by the package `build` script after `node scripts/prepare-release.mjs 1.3.0`. [WASM size and speed](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/perf-size.md#final-figures-and-budgets) records the toolchain and the commands.
+Files: `wasm/modern_xlsx_wasm_bg.wasm`, `wasm-lite/modern_xlsx_wasm_bg.wasm` and `dist/modern-xlsx.min.js`, measured on 2026-11-14 (UTC) on the 1.3.0 release branch with `wc -c` and `gzip -9 -n -c FILE | wc -c`. The WASM is built as CI builds it, and `dist/` by the package `build` script after `node scripts/prepare-release.mjs 1.3.0`. [WASM size and speed](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/perf-size.md#final-figures-and-budgets) records the toolchain and the commands.
 
 ## How it works
 
 <p align="center">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ABCrimson/modern-xlsx/v1.2.1/docs/assets/readme/architecture-dark.svg">
-  <img alt="Architecture of modern-xlsx in three layers: the TypeScript API (the modern-xlsx package), the WASM boundary built with wasm-bindgen, and the Rust core (the modern-xlsx-core crate). Read path: readBuffer, or readFile which loads the bytes and calls readBuffer, passes the bytes to the WASM read(data, limits). The Rust core detects whether the file is ZIP or OLE2, unzips it within the ZIP limits, SAX-parses each part with quick-xml and streams a JSON string of at most maxJsonLength bytes back across the boundary, where JSON.parse turns it into a Workbook. Write path: Workbook.toBuffer() passes JSON.stringify output to the WASM write(json); the Rust core decodes it with serde_json into WorkbookData, writes the parts with the shared string table built inline, zips them with Deflate at level 6 and returns a Uint8Array. Encryption is a Cargo feature in the full build only, not in /lite: it gates the WASM exports readWithPassword and writeWithPassword, which decrypt and encrypt as listed." src="https://raw.githubusercontent.com/ABCrimson/modern-xlsx/v1.2.1/docs/assets/readme/architecture-light.svg" width="640">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ABCrimson/modern-xlsx/v1.3.0/docs/assets/readme/architecture-dark.svg">
+  <img alt="Architecture of modern-xlsx in three layers: the TypeScript API (the modern-xlsx package), the WASM boundary built with wasm-bindgen, and the Rust core (the modern-xlsx-core crate). Read path: readBuffer, or readFile which loads the bytes and calls readBuffer, passes the bytes to the WASM read(data, limits). The Rust core detects whether the file is ZIP or OLE2, unzips it within the ZIP limits, SAX-parses each part with quick-xml and streams a JSON string of at most maxJsonLength bytes back across the boundary, where JSON.parse turns it into a Workbook. Write path: Workbook.toBuffer() passes JSON.stringify output to the WASM write(json); the Rust core decodes it with serde_json into WorkbookData, writes the parts with the shared string table built inline, zips them with Deflate at level 6 and returns a Uint8Array. Encryption is a Cargo feature in the full build only, not in /lite: it gates the WASM exports readWithPassword and writeWithPassword, which decrypt and encrypt as listed." src="https://raw.githubusercontent.com/ABCrimson/modern-xlsx/v1.3.0/docs/assets/readme/architecture-light.svg" width="640">
 </picture>
 </p>
 
@@ -872,11 +872,11 @@ wb.addImage('Labels', { fromCol: 5, fromRow: 0, toCol: 9, toRow: 4 }, png);
 
 **Supported formats:** QR Code, Code 128, EAN-13, UPC-A, Code 39, ITF-14, GS1-128, and, experimentally, PDF417 and Data Matrix. The experimental encoders' output is not ISO/IEC 15438 (PDF417) or ISO/IEC 16022 (Data Matrix) conformant and may not scan. `modern-xlsx/lite` has no standalone encoders (see [Runtimes and entry points](#runtimes-and-entry-points)).
 
-See the [Barcode Guide](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/guide/barcodes.md) for format comparison and usage details.
+See the [Barcode Guide](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/guide/barcodes.md) for format comparison and usage details.
 
 ### Table layout
 
-`drawTable(wb, ws, opts)` and `drawTableFromData(wb, ws, data, opts?)` write a styled table from headers and rows, with column widths, zebra stripes, merges and per-cell styles. See the [Table Layout Guide](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/guide/tables.md).
+`drawTable(wb, ws, opts)` and `drawTableFromData(wb, ws, data, opts?)` write a styled table from headers and rows, with column widths, zebra stripes, merges and per-cell styles. See the [Table Layout Guide](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/guide/tables.md).
 
 ### Validation and repair
 
@@ -911,7 +911,7 @@ console.log(postReport.isValid); // true
 console.log(workbook.getSheet('Sheet1')?.cell('A1').styleIndex); // 0
 ```
 
-Each issue has a `severity` (`error`, `warning` or `info`) and a `category` (`IssueCategory`): `cellReference`, `styleIndex`, `mergeCell`, `sharedString`, `sheetName`, `definedName`, `dataValidation`, `conditionalFormatting`, `theme`, `metadata`, `structure` or `sheetProtection`. The report keeps at most 10,000 issues and 16 MiB of message and location text, and `omittedIssueCount` says how many it left out. [What each category detects, and how the report counts](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/guide/validation.md).
+Each issue has a `severity` (`error`, `warning` or `info`) and a `category` (`IssueCategory`): `cellReference`, `styleIndex`, `mergeCell`, `sharedString`, `sheetName`, `definedName`, `dataValidation`, `conditionalFormatting`, `theme`, `metadata`, `structure` or `sheetProtection`. The report keeps at most 10,000 issues and 16 MiB of message and location text, and `omittedIssueCount` says how many it left out. [What each category detects, and how the report counts](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/guide/validation.md).
 
 ### Errors
 
@@ -1012,17 +1012,17 @@ const wb = await readBuffer(bytes, { limits: { maxCompressionRatio: 200 } });
 - An encrypted write fails with `SIZE_LIMIT` above 2 GiB, the most an MS-CFB version 3 stream can hold.
 - `StreamingXlsxWriter` writes rows into a compressed ZIP as they arrive, but it holds that compressed output in memory until `finish()` returns it.
 
-[What `maxJsonLength` counts, the repeated-text case and the encrypted-write limit, in full](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/guide/limits.md).
+[What `maxJsonLength` counts, the repeated-text case and the encrypted-write limit, in full](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/guide/limits.md).
 
 ## Security
 
-The reader treats every file as untrusted. The limits above bound each read: a ZIP that exceeds the size, compression-ratio or entry-count limit rejects with `SECURITY`, and a read whose workbook JSON exceeds `maxJsonLength` rejects with `SIZE_LIMIT`, checked as the JSON is built. How the reader defends against hostile ZIP, XML and OLE2 input is in the [threat model](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/security/threat-model.md).
+The reader treats every file as untrusted. The limits above bound each read: a ZIP that exceeds the size, compression-ratio or entry-count limit rejects with `SECURITY`, and a read whose workbook JSON exceeds `maxJsonLength` rejects with `SIZE_LIMIT`, checked as the JSON is built. How the reader defends against hostile ZIP, XML and OLE2 input is in the [threat model](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/security/threat-model.md).
 
-To report a vulnerability, do not open a public issue: [SECURITY.md](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/SECURITY.md) describes how to report it privately.
+To report a vulnerability, do not open a public issue: [SECURITY.md](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/SECURITY.md) describes how to report it privately.
 
 ## TypeScript
 
-The package ships its declarations, and every type is exported by name: `WorkbookData`, `CellData`, `StylesData`, `ReadOptions`, `ValidationReport`, `ChartDataModel`, `PivotTableData` and the rest. The [API reference](https://abcrimson.github.io/modern-xlsx/api/) documents them all, and [the list of main types](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/docs/guide/types.md) groups them by feature.
+The package ships its declarations, and every type is exported by name: `WorkbookData`, `CellData`, `StylesData`, `ReadOptions`, `ValidationReport`, `ChartDataModel`, `PivotTableData` and the rest. The [API reference](https://abcrimson.github.io/modern-xlsx/api/) documents them all, and [the list of main types](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/guide/types.md) groups them by feature.
 
 ### TypeScript setup
 
@@ -1037,4 +1037,4 @@ The package ships its declarations, and every type is exported by name: `Workboo
 
 ## License
 
-[MIT](https://github.com/ABCrimson/modern-xlsx/blob/v1.2.1/packages/modern-xlsx/LICENSE)
+[MIT](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/packages/modern-xlsx/LICENSE)

@@ -8,6 +8,10 @@ Versions 0.1.0, 0.1.9, 0.2.0, 0.3.0, 0.4.0, 0.6.0, 0.9.0, 0.9.1 and 0.9.2 exist 
 
 ## [Unreleased]
 
+<!-- release-notes:end -->
+
+## [1.3.0] - 2026-11-14
+
 1.3.0 makes the workbooks modern-xlsx writes open in Excel as written, bounds what a hostile file can cost the reader, and makes the formula engine compute what Excel computes; some output and some error codes change on purpose, so read **Upgrading from 1.2.x** before you update.
 
 ### Highlights

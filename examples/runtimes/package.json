@@ -6,6 +6,6 @@
     "test": "bun test ./bun.test.ts"
   },
   "dependencies": {
-    "modern-xlsx": "1.2.1"
+    "modern-xlsx": "1.3.0"
   }
 }
