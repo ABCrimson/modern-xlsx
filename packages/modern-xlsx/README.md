@@ -378,11 +378,11 @@ Sizes of the files in the 1.3.0 npm tarball:
 
 | Build                     | Raw bytes | gzip -9 bytes |
 | ------------------------- | --------: | ------------: |
-| Full WASM                 | 2,485,128 |       917,326 |
-| Lite WASM (no encryption) | 2,301,840 |       854,256 |
+| Full WASM                 | 2,484,949 |       917,228 |
+| Lite WASM (no encryption) | 2,301,661 |       854,223 |
 | IIFE bundle (JS)          |   173,160 |        54,719 |
 
-Files: `wasm/modern_xlsx_wasm_bg.wasm`, `wasm-lite/modern_xlsx_wasm_bg.wasm` and `dist/modern-xlsx.min.js`, measured on 2026-11-14 (UTC) on the 1.3.0 release branch with `wc -c` and `gzip -9 -n -c FILE | wc -c`. The WASM is built as CI builds it, and `dist/` by the package `build` script after `node scripts/prepare-release.mjs 1.3.0`. [WASM size and speed](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/perf-size.md#final-figures-and-budgets) records the toolchain and the commands.
+Files: `wasm/modern_xlsx_wasm_bg.wasm`, `wasm-lite/modern_xlsx_wasm_bg.wasm` and `dist/modern-xlsx.min.js`, measured on 2026-11-14 (UTC) with `wc -c` and `gzip -9 -n -c FILE | wc -c` in the tarball that CI builds on its Linux runner from the 1.3.0 release tree. [WASM size and speed](https://github.com/ABCrimson/modern-xlsx/blob/v1.3.0/docs/perf-size.md#final-figures-and-budgets) records the toolchain and the commands.
 
 ## How it works
 

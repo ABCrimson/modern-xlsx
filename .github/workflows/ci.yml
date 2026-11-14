@@ -345,7 +345,8 @@ jobs:
     env:
       # Gzip budgets = ceil(gzip -9 -n size x 1.05), measured 2026-11-14 (UTC) on a clean copy of the final 1.3.0 release tree with this job's
       # commands: nightly-2026-11-14 (rustc 1.102.0-nightly 5f4effd57), wasm-pack 0.15.1 (wasm-opt -Oz), trim-paths 'all', opt-level 3:
-      # full 917326 bytes, lite 854256 bytes. A budget is a regression tripwire set from that measurement, not a size target (docs/perf-size.md).
+      # full 917326 bytes, lite 854256 bytes on a Windows host; the files this job builds measured 917228 and 854223 bytes that day.
+      # A budget is a regression tripwire set from that measurement, not a size target (docs/perf-size.md).
       WASM_GZIP_BUDGET_FULL: 963193
       WASM_GZIP_BUDGET_LITE: 896969
     steps:
