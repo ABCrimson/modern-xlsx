@@ -21,7 +21,7 @@ quick-xml = "=0.42.0"
 serde = { version = "=1.0.229", features = ["derive"] }
 
 # ZIP archive: Deflate through flate2 on zlib-rs for reads and writes (the writers use level 6; zopfli is not compiled)
-zip = { version = "=9.5.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "=9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 # Date/time without std::time
 chrono = { version = "=0.4.45", default-features = false }
